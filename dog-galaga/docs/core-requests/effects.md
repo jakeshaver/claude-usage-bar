@@ -43,3 +43,34 @@ expose `g.mods.effects.bossSprite(name)` instead. I can add that API next round.
 `tools/lint-content.ts` because `@types/node` is not installed (the worktree's node_modules is a symlink
 to the shared one, which lacks it). Not caused by effects. Fix: add `@types/node` to devDependencies
 (and `"types": ["node"]` for the tools, or exclude `tools/` from the main tsconfig).
+
+# Round 2 requests from `effects`
+
+API additions (backward compatible): `step(n)` advances the effects timeline n ticks even while
+`g.paused` (update() still freezes with the game). `burst(x, y, 'boop', tint?)` now accepts a palette-key
+tint for the star. Unknown burst kinds now report an error via `g.reportError('effects', ...)` (and still
+fall back to 'boop') so typos surface. `floatText()` lifts labels 6px above the given y, merges a label
+that lands on a fresh numeric label into a running total, otherwise stacks it 9px above, and keeps live
+labels from overlapping while they drift.
+
+## 1. showcase: make the effects timeline steppable under --freeze (src/showcase/index.ts, case 'effects')
+The `--fx=boss` branch `break`s before the `fxt` loop, so `--fx=boss --fxt=N` always renders tick 0
+(the critic's identical fxt 10/40/66/100 shots). Please replace the two effects lines with:
+```ts
+      if (p.get('fx') === 'boss') { g.mods.effects.burst(224, 120, 'bigboop'); g.bus.emit('boss:defeat', { bossId: 'boss_whiskers', showcase: true }); g.mods.effects.step(+(p.get('fxt') ?? 0)); break; }
+      ...
+      g.mods.effects.step(+(p.get('fxt') ?? 6)); break;
+```
+(`step()` ignores `g.paused`, so it is also safe if the showcase ever runs after `freeze`.) Until then,
+`--fx=boss --advance=N --freeze=1` works (advance runs before freeze is applied): e.g. 30 (crescendo),
+67 (finale + banner bounce), 80 (banner hold, confetti), 110/150 (confetti flutter).
+
+## 2. interaction: 2-frame hit-stop / white flash on kill (src/interaction/index.ts ~line 156)
+Critic item 9: kills should register at a glance in dense waves. The designed pop now does most of the
+work, but a tiny hit-stop sells it. Suggested: on a lethal hit set `c.flash = 2` and draw the cat one more
+frame (white silhouette) before removing it, or keep a module-level `hitStop = 2` that skips formation
+movement for 2 ticks (purely presentational; keep it out of the bot's determinism path or make it
+deterministic). Also consider calling `floatText(c.x, c.y - 10, ...)` unchanged: effects already lifts it.
+
+## 3. core/input.ts (critic note, not effects-owned)
+`poll()` allocates a new Set every tick; reuse two preallocated Sets and swap them.
