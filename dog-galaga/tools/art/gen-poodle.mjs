@@ -1,149 +1,193 @@
 import { Grid, emitModule } from '../pixelgen.mjs';
-// Captain Pom: a standard poodle in a continental show cut, seen from above, flying
-// "superman" style with her rear toward the top of the screen (she toots upward).
-// One connected teardrop, read top to bottom:
-//   pompom tail -> two hip rosettes on a shaved rump -> narrow shaved waist with a grey
-//   harness -> wide curly mane -> head (topknot + hot-pink bow, shaved muzzle) with long
-//   curly ears hanging down beside the face.
-// Hand-authored material map (left half, mirrored), lit programmatically from the top-left.
-// Materials: W white curls, E ear curls (one step darker), S shaved skin, T shaved muzzle,
-// s soft seam where one fluffy part overlaps another (warm brown, not black), H harness.
-// Fur ramp: white 6 -> cream 7 -> tan 8, seams 9. No lavender: she is warm, not icy.
-const HALF = [
-  '..............00', // 0  tail pompom
-  '.............0WW', // 1
-  '............0WwW', // 2
-  '............0WWW', // 3
-  '.........0000WWW', // 4  hip rosettes start
-  '........0WWW0wWW', // 5
-  '.......0WwWWWzzz', // 6
-  '......0WWWWWwWWz', // 7
-  '......0WWwWWWWWz', // 8  the two hip rosettes touch, a soft cleft between them
-  '......0WWWWWWwW0', // 9
-  '.......0WWwWWW0S', // 10
-  '........0WWWW0SS', // 11 shaved waist (4px)
-  '.....HHHHHHHHHHB', // 12 harness strap + gold buckle
-  '.............0SS', // 13
-  '..........0000SS', // 14
-  '........0WWWWWWW', // 15 mane
-  '......00WWwWWWwW', // 16
-  '.....0WWWWWWWWWW', // 17
-  '....0WWwWWWwWWWW', // 18
-  '....0WWWWWWWWsss', // 19 topknot (bow goes here)
-  '.....0WWwWWWsWWW', // 20
-  '....0WWWWWsEsWWW', // 21 ears hang from under the topknot
-  '....0WwWWsEEsWWW', // 22
-  '.....0WWsExEsWWW', // 23
-  '.....0WsEEEEsWWW', // 24
-  '.....0sExEE0TTTT', // 25 face
-  '......0EEEx0TTTT', // 26
-  '......0ExEE0TTTT', // 27
-  '......0EEExE0TTT', // 28 muzzle narrows
-  '......0ExEEE0TTT', // 29
-  '.......0EExE00TT', // 30
-  '........0000..00', // 31
-];
-const BOOSTER = [ // 6 wide, rows 8..15
-  '..00..',
-  '.0RR0.',
-  '0GGGG0',
-  '0RRRR0',
-  '0GGGG0',
-  '0GGGG0',
-  '0GGGG0',
-  '.0NN0.',
-];
-const BOW = [ // bowtie: two triangular loops pinched at a centre knot
-  '00....00',
-  '0cd00dd0',
-  '0cddcdde0'.slice(0, 8),
-  '0dd00de0',
-  '00....00',
-];
-const isEdge = (c) => c === '.' || c === '0' || c === 's' || c === 'z' || c === 'H' || c === 'B';
-const same = (a, b) => a === b || (a === 'W' && b === 'w') || (a === 'w' && b === 'W') || (a === 'E' && b === 'x') || (a === 'x' && b === 'E');
+// Captain Pom: a standard poodle in a continental show cut, seen from above, flying with her
+// rear toward the top of the screen (she toots upward) and her face toward the player.
+// Hand-drawn part stamps (no procedural shading noise), composited back to front so every
+// show-cut part keeps its own 1px outline:
+//   pompom tail (own circle) -> two separate hip rosettes (1px gap to the tail, shaved rump
+//   between them) -> narrow 6px shaved pink waist -> big curly mane (shoulders) -> long tan
+//   ears hanging below the mane -> shaved face with a long muzzle (chin on row 28) -> curly
+//   white topknot with a bumpy edge -> hot-pink bow on top of the topknot.
+// Rocket boosters bolt onto the mane's shoulders; flames are 6-7px with a white/yellow/
+// orange-red gradient and a clearly different shape per frame.
+// Light comes from the top-left: every pompom has one clustered white highlight top-left and
+// a tan shadow band bottom-right. Bank frames squeeze the far side 3px, drop the far booster
+// 2px behind the body, lean the head 1px into the turn and tilt the bow.
 
-function material(bank) {
-  const g = new Grid(32, 32);
-  HALF.forEach((r, y) => { const full = r + [...r].reverse().join(''); [...full].forEach((c, x) => g.px(x, y, c)); });
-  if (bank !== 0) {
-    // build the left bank, flip for the right bank. Far (right) side foreshortens by 3px,
-    // near side widens by 1px, head + ears lean 1px into the turn.
-    for (let y = 0; y < 32; y++) {
-      const row = g.g[y];
-      for (const c of [22, 20, 18]) row.splice(c, 1);
-      row.push('.', '.', '.');
-      if (y >= 15 && y <= 25) { row.splice(7, 0, row[7]); row.pop(); } // near mane side bulges
-      if (y >= 19) { row.push(row.shift()); }
-      g.g[y] = row;
-    }
-    if (bank > 0) g.flipX();
-  }
-  return g;
+const TAIL = [ // 8x6 at (12,0): round pompom
+  '..0000..',
+  '.066670.',
+  '06667780',
+  '06677880',
+  '.078880.',
+  '..0000..',
+];
+const HIP = [ // 8x8 at (6,4) and (18,4)
+  '..0000..',
+  '.066670.',
+  '06667770',
+  '06677780',
+  '07777780',
+  '07777880',
+  '.078880.',
+  '..0000..',
+];
+const BODY = [ // shaved rump + waist, 8 wide at (12,4): pink skin lit from the left
+  '00000000',
+  '07ccccd0',
+  '07ccccd0',
+  '07ccccd0',
+  '07ccccd0',
+  '07ccccd0',
+  '07ccccd0',
+  '07ccccd0',
+  '07ccccd0',
+];
+const MANE = [ // 22x10 at (5,14): wide curly shoulders, top-left highlight, bottom-right shade
+  '...0000000000000000...',
+  '.06666777777777777880.',
+  '0666677777777777777880',
+  '0666777777777777777880',
+  '0777777777777777777880',
+  '0777777777777777777880',
+  '0777777777777777777880',
+  '0777777777777777777880',
+  '.08887777777777888880.',
+  '...0000000000000000...',
+];
+const EAR = [ // 6x10 at (6,22) and (20,22): long curly lobes, darker tan, bumpy edges
+  '.0000.',
+  '078880',
+  '088890',
+  '.08890',
+  '078890',
+  '088990',
+  '.08890',
+  '078990',
+  '.08990',
+  '..000.',
+];
+const FACE = [ // 10x10 at (11,20): big eyes, blush, long muzzle, nose at the tip (chin row 28)
+  '0777777770',
+  '0777777770',
+  '0706770680',
+  '0700770080',
+  '0700770080',
+  '07c7777c80',
+  '.07777780.',
+  '..070080..',
+  '..080080..',
+  '...0000...',
+];
+const TOPKNOT = [ // 12x8 at (10,14): curly white pompom with bumpy sides
+  '..00000000..',
+  '.0666666670.',
+  '066666666770',
+  '066666666770',
+  '066666667770',
+  '.0666667770.',
+  '..07777770..',
+  '...000000...',
+];
+const BOW = [ // 8x5 at (12,15): two loops pinched at a dark knot
+  '000..000',
+  '0cd00de0',
+  '0c6eede0',
+  '0dd00ee0',
+  '000..000',
+];
+const BOW_TILT = [ // 9x6: tilted ~20deg into a left bank (mirrored for the right bank)
+  '000......',
+  '0cd0..000',
+  '0c6d00de0',
+  '0ddeedde0',
+  '.000dd0e0',
+  '....00000',
+];
+const BOOSTER = [ // 6x8: red nose cone, grey body lit from the left, nozzle
+  '.0000.',
+  '0crre0',
+  '06oop0',
+  '06oop0',
+  '06oop0',
+  '0crre0',
+  '.0qq0.',
+  '.0000.',
+];
+const FLAME = [
+  [ // long narrow jet
+    '.66.',
+    '.6f.',
+    'ffff',
+    'fggf',
+    '.gg.',
+    '.gr.',
+    '..r.',
+  ],
+  [ // short wide flicker, leaning the other way
+    '6ff6',
+    'f66f',
+    'fffg',
+    'gggr',
+    'rgr.',
+    'r...',
+  ],
+];
+
+// mirror-stamp: the right hip/ear reuse the left drawing but keep top-left light
+const stampRows = (G, x, y, rows) => G.stamp(x, y, rows);
+
+function torso() {
+  const T = new Grid(32, 32);
+  stampRows(T, 12, 5, BODY.concat(BODY.slice(1, 2)));
+  stampRows(T, 12, 0, TAIL);
+  stampRows(T, 7, 6, HIP);
+  stampRows(T, 17, 6, HIP);
+  stampRows(T, 5, 14, MANE);
+  return T;
 }
-
-function light(m, flame, bank) {
-  const out = new Grid(32, 32);
-  for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
-    const c = m.get(x, y);
-    const U = m.get(x, y - 1), D = m.get(x, y + 1), Lf = m.get(x - 1, y), R = m.get(x + 1, y), DR = m.get(x + 1, y + 1);
-    const tl = (c !== U && isEdge(U)) || (c !== Lf && isEdge(Lf)) || U !== c && U !== '.' && !isEdge(U) && false;
-    const br = (D !== c) || (R !== c);
-    const br2 = D !== c && R !== c;
-    let o = c;
-    const sd = !same(c, D), sr = !same(c, R);
-    if (c === 'W' || c === 'w') {
-      o = (sd && sr) ? '8' : (sd || sr || !same(c, DR)) ? '7' : c === 'w' ? '7' : '6';
-    } else if (c === 'E' || c === 'x') {
-      o = (sd || sr) ? '9' : c === 'x' ? '9' : tl ? '7' : '8';
-    } else if (c === 'S') o = br ? 'a' : tl ? '8' : '9';
-    else if (c === 'T') o = br ? '8' : tl ? '6' : '7';
-    else if (c === 's') o = '9';
-    else if (c === 'z') o = '8';
-    else if (c === 'H') o = 'q';
-    else if (c === 'B') o = 'f';
-    out.px(x, y, o);
+function head(bank) {
+  const H = new Grid(32, 32);
+  stampRows(H, 6, 21, EAR);
+  stampRows(H, 20, 21, EAR);
+  stampRows(H, 11, 20, FACE);
+  stampRows(H, 10, 14, TOPKNOT);
+  // bow clipped to the top-left of the topknot so the white curls show around it
+  if (!bank) stampRows(H, 9, 14, BOW);
+  else { const b = new Grid(9, 6); b.stamp(0, 0, BOW_TILT); if (bank > 0) b.flipX(); H.over(b, bank < 0 ? 8 : 11, 13); }
+  return H;
+}
+// remove columns (foreshortening) and re-centre
+function squeeze(G, cols, side) {
+  for (let y = 0; y < 32; y++) {
+    const row = G.g[y];
+    for (const c of [...cols].sort((a, b) => b - a)) row.splice(c, 1);
+    if (side < 0) row.push(...cols.map(() => '.')); else row.unshift(...cols.map(() => '.'));
   }
-  // boosters (behind the body on the far side when banking)
-  const boost = (x0, behind) => {
-    const B = new Grid(32, 32);
-    B.stamp(x0, 8, BOOSTER);
-    for (let y = 8; y < 16; y++) for (let x = x0; x < x0 + 6; x++) {
-      const c = B.get(x, y); const lft = B.get(x - 1, y) === '0', rgt = B.get(x + 1, y) === '0';
-      if (c === 'G') B.px(x, y, lft ? '6' : rgt ? 'p' : 'o');
-      if (c === 'R') B.px(x, y, rgt ? 'e' : lft ? 'c' : 'r');
-      if (c === 'N') B.px(x, y, 'q');
-    }
-    // exhaust: white-hot core, yellow, orange, red tip. Frame 0 long (5px), frame 1 short (3px).
-    const fl = flame === 0 ? ['66', 'ff', 'fg', 'gr', 'r.'] : ['6f', 'gg', '.r'];
-    fl.forEach((p, i) => [...p].forEach((c, j) => { if (c !== '.') B.px(x0 + 2 + j, 16 + i, c); }));
-    if (flame === 0) B.px(x0 + 1, 17, 'g').px(x0 + 4, 17, 'g');
-    if (behind) { for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) if (out.get(x, y) !== '.') B.px(x, y, '.'); }
-    out.over(B);
-  };
-  if (bank === 0) { boost(0, false); boost(26, false); }
-  else if (bank < 0) { boost(0, false); boost(21, true); }
-  else { boost(11 - 6 + 0, true); boost(26, false); }
-  // the strap must reach the near booster
-  return out;
+  return G;
+}
+function shift(G, dx) {
+  const N = new Grid(32, 32); N.over(G, dx, 0); return N;
 }
 
 function poodle(flame, bank = 0) {
-  const m = material(bank);
-  const g = light(m, flame, bank);
-  // face details, placed relative to the face's centre column
-  let cx = 16; // centre of the muzzle (between cols 15|16)
-  if (bank < 0) cx = 15 - 1 + 1 - 1 + 1; // leaned left by 1 (after column surgery)
-  if (bank < 0) cx = 15; if (bank > 0) cx = 17;
-  const eye = (x) => { g.px(x, 25, '6').px(x + 1, 25, '0').px(x, 26, '0').px(x + 1, 26, '0'); };
-  eye(cx - 3); eye(cx + 1);
-  g.px(cx - 1, 28, 'q').px(cx, 28, '0'); // nose with glint
-  g.px(cx - 2, 29, '0').px(cx - 1, 29, '8').px(cx, 29, '8').px(cx + 1, 29, '0'); // smile corners
-  g.px(cx - 1, 30, 'd').px(cx, 30, 'c'); // tongue out
-  g.px(cx - 1, 31, '0').px(cx, 31, '0');
-  g.px(cx - 3, 27, 'c').px(cx + 2, 27, 'c'); // blush
-  g.stamp(cx - 4, 18, BOW);
-  return g;
+  const s = Math.sign(bank);
+  let T = torso(), H = head(s);
+  if (s < 0) { squeeze(T, [20, 22, 24], -1); squeeze(H, [20, 22, 24], -1); T = shift(T, 1); H = shift(H, 0); }
+  if (s > 0) { squeeze(T, [7, 9, 11], 1); squeeze(H, [7, 9, 11], 1); T = shift(T, -1); H = shift(H, 0); }
+  const G = new Grid(32, 32);
+  const bodyMask = new Grid(32, 32); bodyMask.over(T); bodyMask.over(H);
+  const boost = (x, y, behind) => {
+    const B = new Grid(32, 32);
+    B.stamp(x, y, BOOSTER);
+    B.stamp(x + 1, y + 8, FLAME[flame]);
+    if (behind) for (let j = 0; j < 32; j++) for (let i = 0; i < 32; i++) if (bodyMask.get(i, j) !== '.') B.px(i, j, '.');
+    return B;
+  };
+  // far booster first (behind the body), then body, then near booster
+  if (s < 0) { G.over(boost(22, 17, true)); G.over(T); G.over(H); G.over(boost(1, 15, false)); }
+  else if (s > 0) { G.over(boost(4, 17, true)); G.over(T); G.over(H); G.over(boost(25, 15, false)); }
+  else { G.over(T); G.over(H); G.over(boost(0, 15, false)); G.over(boost(26, 15, false)); }
+  return G;
 }
 
 const defs = {

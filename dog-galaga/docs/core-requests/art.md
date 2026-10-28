@@ -27,3 +27,12 @@ russianblue, bengal, scottishfold).
 
 ## 5. src/ui/index.ts title/ending (owner: ui), optional
 Title and ending could show `portrait_pom` scaled 2x instead of the top-down flight sprite.
+
+## 6. Dusk HUD icon + moon-area night tint (owner: ui / world), seen by the art critic
+The LOCAL TIME panel shows the moon icon for dusk as well as night; dusk wants its own icon
+(e.g. a half-set sun). On the moon area the night tint barely shows. Not art-module work.
+
+## 7. Round 3 note (no action needed)
+portrait_<breed> are now their own 40x40 busts (3/4 head turn + expression), not boss crops;
+names unchanged, so content/dialogue.json keeps working. Hairball now carries its own light-tan
+highlight, so the draw-time ring in interaction can be subtler (request 1 still stands).

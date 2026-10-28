@@ -25,7 +25,8 @@ function hairball(f) {
   g.relight('e', { hi: 'd', lo: 'v', d: 1 });
   // matted grey-brown hair clumps
   for (const [x, y] of f ? [[4, 4], [7, 6], [5, 8], [8, 4]] : [[5, 4], [7, 7], [4, 7], [8, 5]]) { g.px(x, y, 'p'); if (g.get(x + 1, y) === 'e') g.px(x + 1, y, 'q'); }
-  // stray hairs (1px, attached to the ball so they get outlined, never floating)
+  // self-lit: a light-tan highlight cluster at the top-left so it reads on dark floors without a ring
+  g.ellipse(4.6, 4.4, 1.9, 1.5, 'd', ['e', 'p', 'q']); g.ellipse(4.4, 4.2, 1.2, 0.9, '8', ['d', 'e']); g.px(f ? 6 : 5, 3, '8');
   g.outline('0');
   // stray hairs: short strands that grow out of the outline (always attached, never floating)
   for (const a of f ? [0.5, 2.2, 3.7, 5.3] : [0.9, 2.6, 4.1, 5.7]) {
@@ -60,7 +61,20 @@ const HEART11 = [
 // bandana (shield) 14x10
 { const g = new Grid(14, 10); g.poly([[0.5, 1], [13.5, 1], [7, 9.5]], 'm'); g.shade('m', 'n', 1, 1, 1); g.px(4, 3, '6').px(8, 3, '6').px(6, 5, '6'); g.outline('0'); S.pk_bandana = g; }
 // sneaker (speed) 12x10
-{ const g = new Grid(14, 10); g.ellipse(8, 6, 5.5, 3, 'l').rect(2, 7, 12, 2, '6'); g.px(6, 4, '6').px(8, 4, '6'); g.shade('l', 'm', 1, 1, 1); g.outline('0'); S.pk_sneaker = g; }
+// side view: high-top heel at the left, laces over the instep, pointed toe at the right,
+// thick white sole with a tread line, red swoosh. Lit from the top-left.
+{ const g = new Grid(14, 10); g.stamp(0, 0, [
+  '.0000.........',
+  '0lllm0........',
+  '0l6l60000.....',
+  '0llm6m6m600...',
+  '0lrrlmlmllm0..',
+  '0llrrrrllllm00',
+  '0lllllrrrrllm0',
+  '06666666666660',
+  '0oooooooooooo0',
+  '.000000000000.',
+]); S.pk_sneaker = g; }
 // treat (score) 10x10
 { const g = new Grid(10, 10); g.ellipse(5, 5, 4.2, 4.2, '9'); g.shade('9', 'a', 1, 1, 1); g.px(3, 3, 'b').px(6, 4, 'b').px(4, 6, 'b'); g.outline('0'); S.pk_treat = g; }
 // memory polaroid 12x14

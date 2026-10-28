@@ -26,6 +26,7 @@ const EYE = {
 const MOUTH = {
   cat: ['..cd..', '0.00.0', '.0..0.'],
   flat: ['.cd.', '.00.'],
+  persian: ['ee', '00'], // squashed nose set high between the eyes, tiny frown under it
   siamese: ['......', '.0..0.', '..00..'],
   boss: ['...ccdd...', '...cddd...', '....dd....', '....00....', '.0..00..0.', '..00..00..'],
   bossFlat: ['..cdd..', '...d...', '..000..', '.0...0.'],
@@ -57,13 +58,13 @@ const ROSETTE = { // open-ring spot: dark brown ring, warm centre
 // hw/hh head radii, bw/bh/by body, tw tail width, ty tail tip y, ts tail swing, px/py paw offset
 const BREEDS = {
   tabby: { fur: ['f', 'g', 'h', 'b'], light: ['6', '7', '8'], eye: ['i', 'j'], ears: 'point', head: 'round', hw: 9.2, hh: 7.0, tail: 'ringed', tw: 1.7, marks: 'tabby', stripe: 'a', rim: 'f' },
-  tuxedo: { fur: ['3', '2', '1', '0'], light: ['6', '6', '5'], eye: ['f', 'g'], ears: 'point', head: 'round', hw: 9.6, hh: 7.8, bw: 6.4, tail: 'thin', tw: 1.0, ty: 0.6, ts: 5, px: 9.6, py: 1, marks: 'tuxedo', rim: '4' },
-  siamese: { fur: ['7', '7', '8', '9'], light: ['6', '7', '8'], point: ['a', 'b', 'v'], eye: ['l', 'm'], ears: 'big', head: 'wedge', hw: 8.4, hh: 7.2, bw: 5.8, bh: 6.4, tail: 'whip', tw: 1.0, ts: 4, marks: 'points', eyeType: 'almond', mouth: 'siamese', rim: '6' },
-  persian: { fur: ['7', '8', '9', 'a'], light: ['6', '7', '8'], eye: ['g', 'h'], ears: 'tiny', head: 'flat', hw: 9.8, hh: 6.6, body: 'puff', tail: 'plume', tw: 3.2, marks: 'persian', eyeType: 'round', mouth: 'flat', rim: '6' },
+  tuxedo: { fur: ['3', '2', '1', '0'], light: ['6', '6', '5'], eye: ['f', 'g'], ears: 'point', head: 'round', hw: 9.6, hh: 7.8, bw: 6.4, tail: 'thin', tw: 1.0, ty: 0.6, ts: 5, px: 9.6, py: 1, marks: 'tuxedo', rim: '4', rimTL: '4', rimBR: '2' },
+  siamese: { fur: ['7', '7', '8', '9'], light: ['6', '7', '8'], point: ['a', 'b', 'v'], eye: ['l', 'm'], ears: 'upright', head: 'wedge', hw: 7.4, hh: 7.4, bw: 5.4, bh: 6.4, px: 8.4, py: 1.2, tail: 'whip', tw: 1.0, ts: 4, marks: 'points', eyeType: 'almond', mouth: 'siamese', rim: '6' },
+  persian: { fur: ['6', '7', '8', '9'], light: ['6', '6', '7'], eye: ['g', 'h'], ears: 'tiny', head: 'flat', hw: 10.2, hh: 7.0, body: 'puff', tail: 'plume', tw: 3.2, marks: 'persian', eyeType: 'round', mouth: 'persian', rim: '6', ring: '9' },
   sphynx: { fur: ['7', 'c', 'd', 'e'], light: ['7', 'c', 'd'], eye: ['i', 'j'], ears: 'bat', head: 'round', hw: 7.8, hh: 7.4, bw: 5.6, bh: 6.2, tail: 'rat', tw: 0.85, marks: 'wrinkles', noWhisk: 1, px: 9.2, rim: '7' },
-  mainecoon: { fur: ['8', '9', 'a', 'b'], light: ['6', '7', '8'], eye: ['i', 'j'], ears: 'tuft', head: 'round', hw: 9.0, hh: 7.4, body: 'big', bw: 8.4, bh: 6.6, tail: 'bushy', tw: 2.6, marks: 'mainecoon', ruff: 1, stripe: 'b', rim: '7' },
-  calico: { fur: ['6', '6', '7', '8'], light: ['6', '6', '7'], eye: ['f', 'g'], ears: 'point', head: 'round', hw: 8.2, hh: 6.6, cheeks: 1, bh: 6.4, tail: 'banded', tw: 1.8, ty: 2.6, px: 9.6, py: -0.8, marks: 'calico', rim: '6' },
-  russianblue: { fur: ['o', 'o', 'p', 'q'], light: ['o', 'o', 'p'], eye: ['i', 'j'], ears: 'tall', head: 'round', hw: 7.8, hh: 7.8, bw: 6.6, tail: 'stub', tw: 2.4, ty: 5.4, ts: 1.5, marks: 'sheen', rim: '6' },
+  mainecoon: { fur: ['8', '9', 'a', 'b'], light: ['6', '7', '8'], eye: ['i', 'j'], ears: 'tuft', head: 'round', hw: 9.0, hh: 7.4, body: 'big', bw: 9.6, bh: 6.8, px: 11.6, tail: 'bushy', tw: 2.6, marks: 'mainecoon', ruff: 1, stripe: 'b', rim: '7' },
+  calico: { fur: ['6', '6', '7', '8'], light: ['6', '6', '7'], eye: ['f', 'g'], ears: 'point', head: 'round', hw: 8.0, hh: 7.0, bw: 5.6, bh: 7.0, tail: 'banded', tw: 1.6, ty: 0.4, ts: 5, px: 8.4, py: 1.6, marks: 'calico', rim: '6' },
+  russianblue: { fur: ['o', 'o', 'p', 'q'], light: ['o', 'o', 'p'], eye: ['i', 'j'], ears: 'tall', head: 'round', hw: 7.6, hh: 8.0, bw: 5.4, bh: 7.4, tail: 'stub', tw: 2.4, ty: 5.4, ts: 1.5, px: 7.4, py: 3.0, marks: 'sheen', rim: '6' },
   bengal: { fur: ['7', 'f', 'g', 'h'], light: ['6', '7', '8'], eye: ['i', 'j'], ears: 'small', head: 'round', hw: 7.2, hh: 7.0, bw: 5.2, bh: 7.8, by: 12.4, tail: 'spotted', tw: 1.3, ty: 0.6, ts: 4, px: 9.0, py: 0.6, marks: 'rosettes', rim: '7' },
   scottishfold: { fur: ['o', 'o', 'p', 'q'], light: ['6', '6', '7'], eye: ['g', 'h'], ears: 'fold', head: 'owl', hw: 9.6, hh: 8.4, tail: 'thin', tw: 1.3, marks: 'fold', eyeType: 'owl', yarn: 1, stripe: 'p', rim: '6' },
 };
@@ -139,7 +140,7 @@ function cat(b, frame, S = 1, opts = {}) {
     add(T);
   }
   // ---- body (back + haunches, behind the head)
-  const bw = b.bw ?? (b.body === 'big' ? 8.4 : b.body === 'puff' ? 12.5 : 7), bh = b.bh ?? (b.body === 'puff' ? 10.5 : 6), by = b.by ?? (b.body === 'puff' ? 15 : 13);
+  const bw = (b.bw ?? (b.body === 'big' ? 8.4 : b.body === 'puff' ? 12.5 : 7)) + (isBoss && b.body !== 'puff' ? 2.4 : 0), bh = (b.bh ?? (b.body === 'puff' ? 10.5 : 6)) + (isBoss ? 1 : 0), by = b.by ?? (b.body === 'puff' ? 15 : 13);
   {
     const B = layer();
     if (b.body === 'puff') B.fluff(cx, k(by), k(bw), k(bh), BASE, 18, k(1.8), 0.2);
@@ -175,15 +176,16 @@ function cat(b, frame, S = 1, opts = {}) {
     const tri = (s, base, tip, back, innerShrink, tuft) => {
       const P = [[HX + s * k(base[0] * hs), k(base[1])], [HX + s * k(tip[0] * hs), k(tip[1])], [HX + s * k(back[0] * hs), k(back[1])]];
       E.poly(P, BASE);
-      if (tuft) { const tx = P[1][0], ty = P[1][1]; E.poly([[tx - k(1.1), ty + k(1.6)], [tx + k(1.1), ty + k(1.6)], [tx + s * k(0.5), ty - k(3.2)]], LO2); }
+      if (tuft) { const tx = P[1][0], ty = P[1][1]; E.poly([[tx - k(1.2), ty + k(1.8)], [tx + k(1.2), ty + k(1.8)], [tx + s * k(1.4), ty - k(4.6)]], LO2); }
       if (innerShrink) { const c = [(P[0][0] + P[1][0] + P[2][0]) / 3, (P[0][1] + P[1][1] + P[2][1]) / 3]; E.poly(P.map(([x, y]) => [c[0] + (x - c[0]) * innerShrink, c[1] + (y - c[1]) * innerShrink + k(0.6)]), inner); }
     };
     for (const s of [-1, 1]) {
       if (b.ears === 'point') tri(s, [8.6, 18], [6.8, 8.4], [1.8, 13.6], 0.5);
       if (b.ears === 'tall') tri(s, [8.4, 16], [6.6, 5.6], [2.4, 12.6], 0.5);
       if (b.ears === 'big') tri(s, [9.4, 19], [9.6, 6.4], [1.6, 13.2], 0.55);
+      if (b.ears === 'upright') tri(s, [8.6, 16.5], [7.4, 3.2], [2.0, 12.4], 0.5);
       if (b.ears === 'bat') tri(s, [8, 19], [14.6, 5.4], [2, 13], 0.6);
-      if (b.ears === 'tuft') tri(s, [9, 17], [7.4, 7.0], [1.8, 13], 0.5, true);
+      if (b.ears === 'tuft') tri(s, [9.4, 17], [8.2, 5.6], [1.8, 13], 0.5, true);
       if (b.ears === 'small') { E.ellipse(HX + s * k(5.2), k(14.2), k(2.0), k(2.2), BASE); E.ellipse(HX + s * k(5.2), k(14.6), k(1.0), k(1.2), inner); }
       if (b.ears === 'tiny') tri(s, [7.4, 16], [6.4, 10.6], [3, 13.6], 0.4);
     }
@@ -195,18 +197,19 @@ function cat(b, frame, S = 1, opts = {}) {
     add(E);
   }
   // ---- mane ruff (maine coon): scalloped cream collar framing the face, chest bib below
-  if (b.ruff) { const R = layer(); R.fluff(HX, HY + k(2.6), hrx + k(2.4), hry + k(1.6), LBASE, 16, k(1.4), 0.1); lit(R, LBASE, LHI, LLO, LLO); add(R); }
+  if (b.ruff) { const R = layer(); R.fluff(HX, HY + k(2.6), hrx + k(3.8), hry + k(2.0), LBASE, 18, k(1.6), 0.1); lit(R, LBASE, LHI, LLO, LLO); add(R); }
   // ---- front legs + paws (flapping)
   const py = 21.5 + flap * 1.4 + (b.py ?? 0);
-  const pxo = b.yarn ? 5.2 : (b.body === 'puff' ? 10.6 : (b.px ?? 10.2));
-  const pyy = b.yarn ? 26 + flap * 0.6 : py;
+  // bosses: forearms reach out past the cheeks and the paws sit low, so the whole body reads
+  const pxo = (b.body === 'puff' ? 10.6 : (b.px ?? 10.2)) + (isBoss ? 3.2 : 0);
+  const pyy = py + (isBoss ? 3.4 : 0);
   const pawC = b.marks === 'points' ? b.point : b.marks === 'tuxedo' ? ['6', '6', '5'] : null;
   {
     const P = layer();
-    if (isBoss && !b.yarn) for (const s of [-1, 1]) { // forearm from the shoulder to the paw
+    if (isBoss) for (const s of [-1, 1]) { // forearm from the shoulder to the paw
       for (let t = 0; t <= 1; t += 0.05) { const x = HX + s * k(6 + (pxo - 6) * t), y = k(17.5 + (pyy - 17.5) * t); P.ellipse(x, y, k(1.7), k(1.7), BASE); }
     }
-    for (const s of [-1, 1]) P.ellipse(HX + s * k(pxo), k(pyy), k(2.5), k(2.1), BASE);
+    for (const s of [-1, 1]) P.ellipse(HX + s * k(pxo), k(pyy), k(isBoss ? 2.9 : 2.5), k(isBoss ? 2.4 : 2.1), BASE);
     lit(P, BASE, HI, LO, LO2);
     if (pawC) for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const c = P.get(x, y); if (c !== '.' && (!isBoss || Math.abs(y - k(pyy)) < k(2.6) && Math.abs(Math.abs(x - HX) - k(pxo)) < k(2.8))) P.px(x, y, c === LO || c === LO2 ? pawC[2] : c === HI ? pawC[0] : pawC[1]); }
     for (const s of [-1, 1]) { const x0 = HX + s * k(pxo), y0 = k(pyy) + k(1.2); for (const d of [-0.8, 0.8]) P.px(x0 + k(d) - (isBoss ? 0 : 0.5), y0, b.marks === 'tuxedo' ? '5' : pawC ? pawC[2] : LO2); }
@@ -217,13 +220,22 @@ function cat(b, frame, S = 1, opts = {}) {
   // ---- head
   {
     const H = layer();
-    if (b.head === 'wedge') H.poly([[HX - k(8.6), HY - k(6)], [HX + k(8.6), HY - k(6)], [HX + k(8.2), HY + k(1)], [HX + k(3), HY + k(8)], [HX - k(3), HY + k(8)], [HX - k(8.2), HY + k(1)]], BASE).ellipse(HX, HY - k(2), k(8.6), k(4.6), BASE);
+    if (b.head === 'wedge') H.poly([[HX - k(7), HY - k(4)], [HX + k(7), HY - k(4)], [HX + k(6.4), HY + k(0.6)], [HX + k(1.6), HY + k(8.2)], [HX - k(1.6), HY + k(8.2)], [HX - k(6.4), HY + k(0.6)]], BASE).ellipse(HX, HY - k(2.4), k(7), k(4.6), BASE);
     else if (b.head === 'flat') H.fluff(HX, HY, hrx, hry, BASE, 14, k(1.3), 0.15);
     else H.ellipse(HX, HY, hrx, hry, BASE);
     if (b.head !== 'wedge' && (isBoss || b.ruff || b.head === 'flat' || b.cheeks)) for (const s of [-1, 1]) for (const dy of [1, 3.2]) H.poly([[HX + s * (hrx - k(1.6)), HY + k(dy - 1.4)], [HX + s * (hrx + k(1.4)), HY + k(dy + 0.4)], [HX + s * (hrx - k(1.6)), HY + k(dy + 1.6)]], BASE);
     // scottish fold + siamese: no white crown highlight (it read as noise / a headband)
     lit(H, BASE, b.head === 'owl' || b.marks === 'points' ? null : HI, LO, LO2);
     const on = FURSET;
+    if (b.ring) { // persian: dark ruff-shadow ring around a lighter flat face disc
+      const cy = HY + k(0.5), rx1 = hrx - k(1.7), ry1 = hry - k(1.1), rx2 = rx1 - S * 1.1, ry2 = ry1 - S * 1.1;
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        if (!on.includes(H.get(x, y))) continue;
+        const d1 = ((x + 0.5 - HX) / rx1) ** 2 + ((y + 0.5 - cy) / ry1) ** 2, d2 = ((x + 0.5 - HX) / rx2) ** 2 + ((y + 0.5 - cy) / ry2) ** 2;
+        if (d1 <= 1) H.px(x, y, d2 > 1 ? b.ring : (isBoss && d2 > 0.8 ? LO : LBASE));
+      }
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (H.get(x, y) === LBASE && H.get(x - 1, y - 1) === b.ring && H.get(x, y - 1) === b.ring) H.px(x, y, LHI);
+    }
     if (b.marks === 'tabby' || b.marks === 'mainecoon') {
       const m = TABBY_M[S]; const y0 = Math.round(HY - hry + k(1.4));
       H.stamp(Math.round(HX - m[0].length / 2), y0, m.map(r => r.replace(/b/g, b.marks === 'tabby' ? 'b' : '0')));
@@ -235,8 +247,9 @@ function cat(b, frame, S = 1, opts = {}) {
       H.relight('6', isBoss ? { lo: '5', d: 2 } : { lo: '5' });
     }
     if (b.marks === 'points') { // seal point: a soft oval mask on the nose only
-      H.ellipse(HX, HY + k(1.4), k(2.6), isBoss ? k(1.1) : k(1.7), b.point[0], on);
-      H.ellipse(HX, HY + k(1.5), k(1.4), isBoss ? k(0.7) : k(1.0), b.point[1], [b.point[0]]);
+      H.poly([[HX - k(4.2), HY + k(0.9)], [HX + k(4.2), HY + k(0.9)], [HX + k(1.4), HY + k(8.4)], [HX - k(1.4), HY + k(8.4)]], b.point[0], on);
+      H.poly([[HX - k(2.4), HY + k(2.4)], [HX + k(2.4), HY + k(2.4)], [HX + k(1.0), HY + k(8.4)], [HX - k(1.0), HY + k(8.4)]], b.point[1], [b.point[0]]);
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (H.get(x, y) === b.point[0] && y < HY + k(1.9) && (x + y) % 2 === 0) H.px(x, y, LO); // soft fade into the cream
     }
     if (b.marks === 'calico') { H.ellipse(HX - k(4.5), HY - k(3), k(4), k(3.4), 'g', on); H.ellipse(HX + k(5), HY - k(3.4), k(3.4), k(3), '2', on); H.relight('g', isBoss ? { lo: 'h', d: 2 } : { lo: 'h' }); }
     if (b.marks === 'wrinkles') { for (const [y, w] of [[-5, 2.6], [-3.8, 1.6]]) H.line(HX - k(w), HY + k(y), HX + k(w) - 1, HY + k(y), LO); for (const s of [-1, 1]) H.line(HX + s * k(6.4) - (s > 0 ? 1 : 0), HY + k(2.5), HX + s * k(7.6) - (s > 0 ? 1 : 0), HY + k(4), LO); }
@@ -261,7 +274,7 @@ function cat(b, frame, S = 1, opts = {}) {
     if (isBoss && !opts.regal) for (const s of [-1, 1]) { const x0 = s < 0 ? lx - 1 : rxp + ew; const x1 = s < 0 ? lx + ew - 1 : rxp; H.line(x0, Math.round(ey) - 3, x1, Math.round(ey) - 1, '0'); H.line(x0, Math.round(ey) - 4, x1, Math.round(ey) - 2, '0'); }
     // nose + mouth
     const mt = isBoss ? (b.mouth === 'flat' ? 'bossFlat' : 'boss') : (b.mouth ?? 'cat'); const ms = MOUTH[mt];
-    const my = isBoss ? mzy - k(2.2) : (b.mouth === 'flat' ? mzy - k(1) : mzy - k(1.6));
+    const my = isBoss ? mzy - k(2.2) : b.mouth === 'persian' ? Math.round(ey) + 3 : (b.mouth === 'flat' ? mzy - k(1) : mzy - k(1.6));
     H.stamp(Math.round(HX - ms[0].length / 2), Math.round(my), opts.regal ? ms.slice(0, 3) : ms);
     if (opts.regal) { H.px(HX - 3, Math.round(my) + 4, '0').px(HX + 2, Math.round(my) + 4, '0').rect(HX - 2, Math.round(my) + 5, 4, 1, '0'); }
     // whiskers: dots + short strokes kept inside the head silhouette
@@ -286,16 +299,29 @@ function cat(b, frame, S = 1, opts = {}) {
   }
   if (isBoss && !opts.cape) prop(out, PROP[b.key] ?? null, { HX, HY, hrx, hry, k, N, S, b, pxo, pyy, frame });
   if (opts.cape) { const C = layer(); for (let i = -3; i <= 3; i++) C.ellipse(HX + k(i * 1.6), HY + hry - k(0.4) + k(Math.abs(i) * -0.5), k(0.9), k(0.9), i === 0 ? 'd' : '6'); C.relight('6', { lo: '5' }); add(C); }
-  // ---- yarn ball held under the chin (scottish fold)
+  // ---- yarn ball hugged against the right paw, out at the side (scottish fold): teal so it
+  // never reads as a tongue, 3 dark wrap lines, a highlight and a 1px trailing strand
   if (b.yarn) {
-    const Y = layer(); const yx = HX + k(0.5), yy = k(27.6 + flap * 0.4);
-    Y.ellipse(yx, yy, k(3.6), k(3.4), 'd'); Y.relight('d', { hi: 'c', lo: 'e' });
-    for (const [a, c] of [[-1.2, 'c'], [0.4, 'e'], [1.8, 'c']]) Y.line(yx - k(3), yy + k(a) - k(1), yx + k(2.6), yy + k(a) + k(1), c);
-    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const dx = (x + 0.5 - yx) / k(3.6), dy = (y + 0.5 - yy) / k(3.4); if (dx * dx + dy * dy > 1) Y.px(x, y, '.'); }
-    Y.ellipse(yx + k(3.6), yy + k(1.6), k(1.2), k(1.0), 'd'); // short loose loop, outlined
+    const Y = layer(); const yr = k(3.2), yx = HX + k(Math.min(pxo + 1.2, 12.4)), yy = k(Math.min(pyy + 3.2, 27.4));
+    Y.ellipse(yx, yy, yr, yr, 'm'); Y.relight('m', { hi: 'l', lo: 'n' });
+    for (const a of [-1.2, 0.3, 1.8]) Y.line(yx - yr + S, yy + k(a) + k(0.8), yx + yr - S, yy + k(a) - k(1.2), 'n');
+    Y.line(yx - k(0.6), yy - yr + S, yx + k(1.6), yy + yr - 2 * S, 'n');
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const dx = (x + 0.5 - yx) / yr, dy = (y + 0.5 - yy) / yr; if (dx * dx + dy * dy > 1) Y.px(x, y, '.'); }
+    Y.ellipse(yx - yr * 0.4, yy - yr * 0.45, Math.max(1, yr * 0.3), Math.max(1, yr * 0.25), 'l', ['m', 'n']);
     Y.outline('0');
-    const P = layer(); for (const s of [-1, 1]) P.ellipse(HX + s * k(4.6), k(26 + flap * 0.6), k(2.1), k(1.9), BASE); lit(P, BASE, HI, LO, LO2); P.outline('0');
+    // trailing strand: 1px, curls down from the ball
+    let tx = Math.round(yx - yr * 0.3), ty = Math.round(yy + yr) + 1;
+    for (let i = 0; i < k(4); i++) { if (Y.get(tx, ty) === '.') Y.px(tx, ty, 'l'); ty += 1; if (i % 2) tx -= 1; }
+    const P = layer(); P.ellipse(HX + k(pxo), k(pyy + 0.6), k(2.5), k(2.1), BASE); lit(P, BASE, HI, LO, LO2); P.outline('0');
     out.over(Y); out.over(P);
+  }
+  if (b.rimTL) { // very dark coats: 1px blue-grey rim on every top/left silhouette edge
+    const c = out.clone(); const isSil = (x, y) => c.get(x, y) === '0' && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => c.get(x + dx, y + dy) === '.');
+    for (let y = 1; y < N; y++) for (let x = 1; x < N; x++) {
+      if (!FURSET.includes(c.get(x, y))) continue;
+      if (isSil(x - 1, y) || isSil(x, y - 1)) out.px(x, y, b.rimTL);
+      else if (b.rimBR && (isSil(x + 1, y) || isSil(x, y + 1))) out.px(x, y, b.rimBR);
+    }
   }
   if (opts.crown) { const Cr = layer(); Cr.stamp(Math.round(HX - 10), Math.round(HY - hry - k(4.4)), CROWN); out.over(Cr); }
   return out;
