@@ -57,3 +57,30 @@
    could be re-authored to 8 columns so the data matches what is flown.
 7. **Audio (optional):** the capturer's tractor beam plays `blip`; a dedicated `beam` sfx (a soft rising warble, ~1.4s)
    would sell the Galaga capture moment.
+
+# Core requests from `interaction` (builder round 3)
+
+1. **Input drops quick taps (core/input.ts, critic #7).** `keydown` adds to `kb` and `keyup` deletes it before the 60Hz
+   `poll()` runs, so a press shorter than one frame (Playwright `keyboard.press`, fast real taps) is never seen: pause
+   does not open, fire/confirm taps are lost. Fix: keep a `latched = new Set<Action>()`; `keydown` adds to both `kb` and
+   `latched`; `poll()` builds `down` from `kb ∪ latched ∪ touch ∪ synthetic`; `endFrame()` clears `latched` after copying
+   `down` into `prev`. (Same for `fire` -> `confirm`.)
+2. **Screenshot tool allow-list (tools/screenshot.mjs, critic #11, repeat of round 2 #4b).** Add `stage`, `at`, `phase` to
+   the forwarded keys on line 16 so `--showcase=interaction --stage=capturer|rescue|splitter|tank|dive|tell|boss|bullets
+   [--at=N] [--phase=1|2]` works without a hand-written `--url=...?stage=`.
+3. **HUD boss bar flash (ui, critic #3).** Interaction removed its on-field boss HP bar (it overlapped the boss and the
+   charge lane and duplicated the HUD). Please flash the HUD "BIG CAT" bar white for ~6 ticks on `boss:hp`, and pulse it
+   on `boss:phase`.
+4. **Scottish Fold capturer art (art, critic #8).** `cat_scottishfold` reads as a grey robot/skull with a pink tongue.
+   It needs folded ears (small flaps folded forward and down, flush with the head top), a rounder owl-like face, and a
+   pink nose/mouth instead of the big tongue blob.
+5. **World prop that looks like a bullet (world, critic #1).** `src/world/tiles.ts` lines 282 and 333 draw a red disc with a
+   pink highlight and ink outline (buoy / button prop, 7-9px). At 1x it reads exactly like an enemy bullet on docks and
+   street. Enemy bullets are now hot pink / cyan with a pulsing white halo, but please recolor that prop out of the
+   red-pink family (e.g. a teal or white/orange striped buoy) or add a visible stem/rope so it reads as a prop.
+6. **Warm lamp glows behind the boss home (world, critic #6).** The orange dithered light pools (factory, alley, rooftops)
+   sit where Big Cats hover. Interaction now draws a dark arena oval behind the boss at its home band, but if world could
+   keep light pools out of y 20..140 on boss stages (or tint them cool), bosses would separate even better.
+7. **Toast merge (ui, critic #10).** Interaction now merges repeated pickup toasts itself by editing `ui.toasts` in place
+   (`{text, t}` entries; it adds an `n` counter and rewrites text to `NAME X3`). A first-class `ui.toast(text, {merge:true})`
+   would be cleaner; until then please keep the `toasts: {text, t}[]` shape.

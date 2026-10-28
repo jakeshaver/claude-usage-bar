@@ -1,10 +1,10 @@
 import type { Game } from '../core/game';
 import { WORLD_W } from '../core/game';
 import type { EnemyDef } from '../core/types';
-import { drawSprite, frameCount } from '../art/sprite';
+import { frameCount } from '../art/sprite';
 import { col } from '../core/palette';
 import { pxDash, pxRing, pxSpark } from '../core/pixel';
-import { BOSS_BULLET, bossRig, bossBruises, bossBar, ditherShadow, ditherRect } from './art';
+import { BOSS_BULLET, bossRig, bossBruises, ditherShadow, ditherRect, bossAura, drawCombat } from './art';
 
 const BOSS_LIMIT = 150 * 60; // a boss that isn't beaten in 150s dozes off (counts as cleared): no softlocks
 const HOME_Y = 76;
@@ -195,7 +195,12 @@ export class Boss {
   render(r: any) {
     const x = this.x + this.jit, y = this.y - (this.hitT > 3 ? 1 : 0);   // a 1px recoil on every hit
     const tier = this.tier, t = this.t, ph = this.phase;
-    r.push(1, y, (ctx: CanvasRenderingContext2D) => ditherShadow(ctx, x + 6, y + 56 + tier * 6, 48 + tier * 16, 6));
+    // a dark arena oval behind the Big Cat keeps it off the busy level art (drawn first, under every shadow)
+    const aw = [44, 50, 60, 72][tier], ah = [34, 36, 40, 46][tier];
+    // (only around its home band: a pounce down the lane leaves the arena behind)
+    if (y < HOME_Y + 26 && y > -20) r.push(1, -9999, (ctx: CanvasRenderingContext2D) => bossAura(ctx, x, y + 2, aw, ah));
+    // the drop shadow hugs the craft: same width, offset a consistent 8px down-right, only where there is ground
+    if (this.ix.grounded()) r.push(1, y, (ctx: CanvasRenderingContext2D) => ditherShadow(ctx, x + 8, y + 26 + tier * 4 + 8, 52 + tier * 14, 14));
     // telegraphs (drawn under the boss)
     if (this.st === 'tell') {
       const k = this.stT / this.tellLen(); const blink = (this.stT >> 2) & 1; const c = blink ? 'r' : '6';
@@ -237,7 +242,7 @@ export class Boss {
       const nf = frameCount(this.def.sprite); const frame = Math.floor(t / (this.st === 'tell' ? 6 : 12)) % nf;
       const bob = this.st === 'idle' ? (t >> 4) & 1 : 0;
       bossRig(ctx, tier, x, y, t, ph, true);
-      drawSprite(ctx, this.def.sprite, x, y + bob, { frame, flash });
+      drawCombat(ctx, this.def.sprite, x, y + bob, { frame, rim: flash ? undefined : this.ix.rimKey(), sil: flash ? '6' : undefined });
       if (!flash) bossBruises(ctx, x, y + bob, t, ph);
       bossRig(ctx, tier, x, y, t, ph, false);
       if (this.st === 'tell') { // "!" over the head
@@ -246,10 +251,6 @@ export class Boss {
         ctx.fillStyle = col((this.stT >> 2) & 1 ? 'r' : 'f'); ctx.fillRect(bx - 1, by, 3, 6); ctx.fillRect(bx - 1, by + 8, 3, 2);
       }
     });
-    // playfield HP bar under the boss (hidden during the entrance swoop)
-    if (this.st !== 'enter' || this.stT > 90) {
-      const bw = [48, 56, 72, 88][tier];
-      r.push(3, y + 60, (ctx: CanvasRenderingContext2D) => bossBar(ctx, x, y + 38 + [0, 6, 10, 16][tier], bw, Math.max(0, this.hp), this.maxHp, this.hitT > 3));
-    }
+    // no on-field HP bar: the HUD's BIG CAT bar owns it (it stays clear of the body and the charge lane)
   }
 }

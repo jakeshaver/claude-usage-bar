@@ -1,7 +1,7 @@
 // Interaction-owned pixel art: bullet sprites (generated from shape functions into palette-indexed rows at load),
 // dithered shadows/lanes, the captive-pup bubble, boss rigs (the hover craft late Big Cats ride) and the boss HP bar.
 // Everything is integer fillRect / sprite blits in palette colors: no alpha blending, no anti-aliased primitives.
-import { defineSprites, drawSprite } from '../art/sprite';
+import { defineSprites, drawSprite, frameCount, spriteRows } from '../art/sprite';
 import { col } from '../core/palette';
 import { pxRing } from '../core/pixel';
 
@@ -31,22 +31,32 @@ function bullet(w: number, h: number, paint: Paint, ring = '6'): string[] {
 }
 const disc = (r: number, dx: number, dy: number) => dx * dx + dy * dy <= r * r + r * 0.6;
 
-/** Cat hairball: warm yellow fuzz ball with a highlight and an orange underside. 7px body, 9px with its halo. */
-const fur: Paint = (dx, dy) => !disc(2.4, dx, dy) ? null : (dx < 0 && dy < 0 && dx + dy <= -2) ? '6' : (dx + dy >= 2 ? 'g' : 'f');
-/** Capturer yarn: a pink wound ball with stripes. */
-const yarn: Paint = (dx, dy) => !disc(3, dx, dy) ? null : (dx === -1 && dy === -2) ? '6' : (((dx + dy * 2) % 3 + 3) % 3 === 0 ? 'e' : ((dx - dy) & 1 ? 'd' : 'c'));
+/**
+ * Cat hairball: a hot pink fuzz ball (a colour family no prop, floor or turd uses) with a white glint and a magenta
+ * underside, 7px body, 11px with ink outline and pulsing halo. `spin` moves the glint a quarter turn per frame.
+ */
+const fur = (spin: number): Paint => (dx, dy) => {
+  if (!disc(3, dx, dy)) return null;
+  const [gx, gy] = [[-1, -1], [1, -1], [1, 1], [-1, 1]][spin & 3];
+  if (dx === gx && dy === gy) return '6';
+  if ((dx === gx * 2 && dy === gy) || (dx === gx && dy === gy * 2)) return 'c';
+  if (dx * gx + dy * gy <= -3) return 'e';
+  return 'd';
+};
+/** Capturer yarn: an ice-cyan wound ball with teal stripes (cool family, distinct from the pink hairball). */
+const yarn = (spin: number): Paint => (dx, dy) => !disc(3, dx, dy) ? null : (dx === -1 && dy === -2) ? '6' : (((dx + dy * 2 + spin) % 3 + 3) % 3 === 0 ? 'n' : ((dx - dy) & 1 ? 'm' : 'l'));
 /** Boss sweep: a hot pink paw print (toe beans and a pad). */
 const paw: Paint = (dx, dy) => {
   if (disc(2.2, dx, dy - 1.5)) return dx < 0 && dy < 1 ? 'c' : 'd';
   for (const [tx, ty] of [[-3, -2.5], [0, -3.8], [3, -2.5]]) if ((dx - tx) ** 2 + (dy - ty) ** 2 <= 1.6) return 'c';
   return null;
 };
-/** Boss charge: a fish bone dropping head first (spine, ribs, orange head, forked tail). */
+/** Boss charge: a fish bone dropping head first (spine, ribs, cyan head, forked tail). */
 const bone: Paint = (dx, dy) => {
-  if (dy >= 2.5 && (dx * dx) / 5 + ((dy - 4) * (dy - 4)) / 3 <= 1) return dx === 1 && dy === 4 ? '0' : 'g';
-  if (Math.abs(dx) < 0.6 && dy > -4 && dy < 3) return '7';
-  if ((dy === -3 || dy === -1 || dy === 1) && Math.abs(dx) <= 2.5) return Math.abs(dx) > 1.6 ? 'o' : '7';
-  if (dy <= -4 && dy >= -6 && Math.abs(dx) <= -dy - 3.5 && Math.abs(dx) >= -dy - 5.5) return 'f';
+  if (dy >= 2.5 && (dx * dx) / 5 + ((dy - 4) * (dy - 4)) / 3 <= 1) return dx === 1 && dy === 4 ? '0' : 'l';
+  if (Math.abs(dx) < 0.6 && dy > -4 && dy < 3) return '6';
+  if ((dy === -3 || dy === -1 || dy === 1) && Math.abs(dx) <= 2.5) return Math.abs(dx) > 1.6 ? 's' : '6';
+  if (dy <= -4 && dy >= -6 && Math.abs(dx) <= -dy - 3.5 && Math.abs(dx) >= -dy - 5.5) return 'l';
   return null;
 };
 /** Boss summon: a big candy yarn ball with a loose strand. */
@@ -55,7 +65,7 @@ const yarnBig: Paint = (dx, dy) => {
   if (dy >= 3 && dy <= 4.5 && dx >= 2 && dx <= 4 && Math.round(dx - dy) === 0) return 'l';
   return null;
 };
-/** Boss spiral: a 4-point catnip star in cyan with a white heart. Two frames: + and x. */
+/** Boss spiral: a 4-point catnip star in yellow with a white heart. Two frames: + and x. */
 const star = (diag: boolean): Paint => (dx, dy) => {
   const a = diag ? (dx + dy) / Math.SQRT2 : dx, b = diag ? (dx - dy) / Math.SQRT2 : dy;
   if (Math.abs(dx) + Math.abs(dy) <= 1.2) return '6';
@@ -64,30 +74,94 @@ const star = (diag: boolean): Paint => (dx, dy) => {
   return null;
 };
 
+// Every enemy bullet has 2 frames: the halo alternates white / a second bright colour (pulse) and the body spins.
 defineSprites({
-  blt_fur: { rows: bullet(5, 5, fur) },
-  blt_yarn: { rows: bullet(7, 7, yarn) },
-  blt_paw: { rows: bullet(9, 9, paw) },
-  blt_bone: { rows: bullet(7, 13, bone) },
-  blt_yarnbig: { rows: bullet(9, 9, yarnBig) },
-  blt_star: { rows: bullet(9, 9, star(false), 'u'), frames: [bullet(9, 9, star(true), 'u')] },
+  blt_fur: { rows: bullet(7, 7, fur(0), '6'), frames: [bullet(7, 7, fur(1), 'c'), bullet(7, 7, fur(2), '6'), bullet(7, 7, fur(3), 'c')] },
+  blt_yarn: { rows: bullet(7, 7, yarn(0), '6'), frames: [bullet(7, 7, yarn(1), 's')] },
+  blt_paw: { rows: bullet(9, 9, paw, '6'), frames: [bullet(9, 9, paw, 'c')] },
+  blt_bone: { rows: bullet(7, 13, bone, '6'), frames: [bullet(7, 13, bone, 'l')] },
+  blt_yarnbig: { rows: bullet(9, 9, yarnBig, '6'), frames: [bullet(9, 9, yarnBig, 's')] },
+  blt_star: { rows: bullet(9, 9, star(false), 'u'), frames: [bullet(9, 9, star(true), 't')] },
 });
 
 /** Bullet art per boss pattern: each Big Cat throws its own thing. */
 export const BOSS_BULLET: Record<string, string> = { sweep: 'blt_paw', charge: 'blt_bone', summon: 'blt_yarnbig', spiral: 'blt_star' };
 
 export function drawBullet(ctx: Ctx, art: string, x: number, y: number, t: number) {
-  drawSprite(ctx, art, x, y, { frame: art === 'blt_star' ? (t >> 3) & 1 : 0 });
+  const n = frameCount(art);
+  drawSprite(ctx, art, x, y, { frame: n > 1 ? (t >> 2) % n : 0 });
 }
 
-/** Flat oval shadow as a 50% checkerboard of ink pixels (palette-exact, no translucency). */
+/**
+ * Sprite outline canvases (cached): `rim` = 1px ring of `key` around the sprite's opaque pixels (4-neighbour),
+ * `sil` = the same ring plus the whole silhouette filled with `key`. Canvas is 2px larger than the sprite.
+ */
+const outlineCache = new Map<string, HTMLCanvasElement | null>();
+function outlineCanvas(name: string, frame: number, key: string, sil: boolean): HTMLCanvasElement | null {
+  const ck = `${name}|${frame}|${key}|${sil ? 1 : 0}`;
+  if (outlineCache.has(ck)) return outlineCache.get(ck)!;
+  const rows = spriteRows(name, frame); let out: HTMLCanvasElement | null = null;
+  if (rows && typeof document !== 'undefined') {
+    const h = rows.length, w = Math.max(...rows.map(r => r.length));
+    const on = (x: number, y: number) => { const ch = rows[y]?.[x]; return !!ch && ch !== '.' && ch !== ' '; };
+    out = document.createElement('canvas'); out.width = w + 2; out.height = h + 2;
+    const c = out.getContext('2d')!; c.fillStyle = col(key);
+    for (let y = -1; y <= h; y++) for (let x = -1; x <= w; x++) {
+      if (on(x, y)) { if (sil) c.fillRect(x + 1, y + 1, 1, 1); continue; }
+      if (on(x + 1, y) || on(x - 1, y) || on(x, y + 1) || on(x, y - 1)) c.fillRect(x + 1, y + 1, 1, 1);
+    }
+  }
+  outlineCache.set(ck, out); return out;
+}
+function blit(ctx: Ctx, c: HTMLCanvasElement, cx: number, cy: number, flipY?: boolean) {
+  const x = Math.round(cx - c.width / 2), y = Math.round(cy - c.height / 2);
+  if (flipY) { ctx.save(); ctx.translate(x, y + c.height); ctx.scale(1, -1); ctx.drawImage(c, 0, 0); ctx.restore(); }
+  else ctx.drawImage(c, x, y);
+}
+
+/**
+ * Draw a combat sprite with optional outline treatments:
+ *   rim: 1px light ring (dark stages / dusk / night, so navy cats separate from navy floors),
+ *   sil: draw a solid silhouette of this key (with its own ring) instead of the sprite (hit flash frame 1),
+ *   recolor: palette remap (time-of-day tint).
+ */
+export function drawCombat(ctx: Ctx, name: string, x: number, y: number, o: { frame?: number; flipY?: boolean; rim?: string; sil?: string; recolor?: Record<string, string> } = {}) {
+  const f = o.frame ?? 0;
+  if (o.sil) { const s = outlineCanvas(name, f, o.sil, true); if (s) { blit(ctx, s, x, y, o.flipY); return; } }
+  if (o.rim) { const r = outlineCanvas(name, f, o.rim, false); if (r) blit(ctx, r, x, y, o.flipY); }
+  drawSprite(ctx, name, x, y, { frame: f, flipY: o.flipY, recolor: o.recolor });
+}
+
+/** A Big Cat's dark arena: a solid deep-night oval with a 2-step dithered edge, so the boss never melts into props. */
+export function bossAura(ctx: Ctx, cx: number, cy: number, rx: number, ry: number) {
+  const X = Math.round(cx), Y = Math.round(cy);
+  for (let dy = -ry - 6; dy <= ry + 6; dy++) {
+    for (const [grow, mode] of [[6, 2], [3, 1], [0, 0]] as [number, number][]) {
+      const a = rx + grow, b = ry + grow; if (Math.abs(dy) > b) continue;
+      const w = Math.round(a * Math.sqrt(1 - (dy * dy) / (b * b)));
+      if (mode === 0) { ctx.fillStyle = col('1'); ctx.fillRect(X - w, Y + dy, w * 2 + 1, 1); continue; }
+      ctx.fillStyle = col(mode === 1 ? '1' : '0');
+      for (let dx = -w; dx <= w; dx++) if (((dx + dy) & 1) === 0 && (mode === 1 || ((dx >> 1) + dy) % 2 === 0)) ctx.fillRect(X + dx, Y + dy, 1, 1);
+    }
+  }
+}
+
+/** Oval drop shadow (rx, ry radii) as a 50% checkerboard of ink pixels (palette-exact, no translucency). */
 export function ditherShadow(ctx: Ctx, cx: number, cy: number, w: number, h = 4) {
-  const x0 = Math.round(cx), y0 = Math.round(cy); const hw = Math.max(2, Math.round(w / 2)); const hh = Math.max(1, h / 2);
+  const x0 = Math.round(cx), y0 = Math.round(cy); const rx = Math.max(2, w / 2), ry = Math.max(1, h / 2);
   ctx.fillStyle = col('0');
-  for (let dy = -Math.floor(hh); dy <= Math.floor(hh); dy++) {
-    const rw = Math.round(hw * Math.sqrt(Math.max(0, 1 - (dy * dy) / ((hh + 0.5) * (hh + 0.5)))));
+  for (let dy = -Math.floor(ry); dy <= Math.floor(ry); dy++) {
+    const rw = Math.round(rx * Math.sqrt(Math.max(0, 1 - (dy * dy) / ((ry + 0.5) * (ry + 0.5)))));
     for (let dx = -rw; dx <= rw; dx++) if (((x0 + dx + y0 + dy) & 1) === 0) ctx.fillRect(x0 + dx, y0 + dy, 1, 1);
   }
+}
+
+/** A small first-aid plaster: a tank cat that has taken a hit wears it until it is booped. */
+export function plaster(ctx: Ctx, x: number, y: number) {
+  const X = Math.round(x), Y = Math.round(y);
+  ctx.fillStyle = col('0'); ctx.fillRect(X - 4, Y - 2, 9, 5); ctx.fillRect(X - 2, Y - 4, 5, 9);
+  ctx.fillStyle = col('7'); ctx.fillRect(X - 3, Y - 1, 7, 3); ctx.fillRect(X - 1, Y - 3, 3, 7);
+  ctx.fillStyle = col('8'); ctx.fillRect(X, Y, 1, 1);
 }
 
 /** Rectangle filled with a 50% checkerboard of one palette color. */
@@ -197,15 +271,4 @@ export function bossBruises(ctx: Ctx, x: number, y: number, t: number, phase: nu
     plaster(-22, 9);
     const d = (t >> 3) % 6; ctx.fillStyle = col('0'); ctx.fillRect(X + 20, Y - 22 + d, 4, 6); ctx.fillStyle = col('s'); ctx.fillRect(X + 21, Y - 21 + d, 2, 4); ctx.fillStyle = col('6'); ctx.fillRect(X + 21, Y - 21 + d, 1, 1);
   }
-}
-
-/** Thin pixel HP bar under the boss with notches at the phase thresholds. */
-export function bossBar(ctx: Ctx, x: number, y: number, w: number, hp: number, max: number, flash: boolean) {
-  const X = Math.round(x - w / 2), Y = Math.round(y);
-  ctx.fillStyle = col('0'); ctx.fillRect(X - 1, Y - 1, w + 2, 6);
-  ctx.fillStyle = col('v'); ctx.fillRect(X, Y, w, 4);
-  const f = Math.max(0, Math.ceil((w * hp) / max));
-  ctx.fillStyle = col(flash ? '6' : 'r'); ctx.fillRect(X, Y, f, 4);
-  ctx.fillStyle = col(flash ? '6' : 'c'); ctx.fillRect(X, Y, f, 1);
-  ctx.fillStyle = col('0'); for (const k of [1 / 3, 2 / 3]) ctx.fillRect(X + Math.round(w * k), Y, 1, 4);
 }

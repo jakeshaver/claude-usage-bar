@@ -6,7 +6,7 @@ import { col } from '../core/palette';
 import { entryPath, divePath, bonusPath, Track, type Pt, type TrackPos } from './paths';
 import { tuning, type Tuning } from './tuning';
 import { pxRing, pxDither, pxSpark, pxDisc } from '../core/pixel';
-import { ditherShadow, captureBeam, bubble, drawBullet } from './art';
+import { ditherShadow, captureBeam, bubble, drawBullet, drawCombat, plaster } from './art';
 import { Boss } from './boss';
 
 export type CatState = 'wait' | 'enter' | 'home' | 'form' | 'dive' | 'return' | 'leave' | 'flyby' | 'kdive';
@@ -17,6 +17,8 @@ export interface Cat {
   delay: number; t: number; flash: number; tell: number; shots: number; group: number;
   pup?: boolean; glow?: boolean; side: number; diveSeed: number; dead?: boolean; up?: boolean;
   beam?: number; beamUsed?: boolean;
+  /** captive pup position: -1 riding above the holder (in formation), +1 hanging below it (in flight). */
+  pupK?: number;
 }
 /** `art` names the bullet sprite (cats: blt_fur / blt_yarn, bosses: one per bossPattern). */
 export interface Shot { x: number; y: number; vx: number; vy: number; kind: 'turd' | 'hairball' | 'yarn'; t: number; art?: string }
@@ -29,6 +31,14 @@ const MAX_COLS = 8, MAX_ROWS = 5, COL_SP = 38, FORM_TOP = 40;
 const STREAM_STEP = 16;     // ticks between cats in one entry stream (>= 40px along the path: 32px sprites never overlap)
 const BEAM_TICKS = 84;      // capturer's tractor-beam moment
 const tp: TrackPos = { x: 0, y: 0, hx: 0, hy: 1 };
+const PUP_LIFT = 22;        // the formation sits this much lower when a captive pup rides above its holder
+const HURRY_LEAVE = 9 * 60; // once only ~20% of a wave is left, stragglers dive hard, then fly off after 9s
+/** Stages with no ground below the action (sky and space): nothing to cast a shadow on. */
+const AIRBORNE = new Set(['sky', 'moon', 'nebula', 'station', 'mothership']);
+/** Time-of-day tint for the combat layer (subtle: highlights cool at night, warm at dusk and dawn). */
+const TOD_TINT: Record<string, Record<string, string> | undefined> = { night: { '6': 's' }, dusk: { '6': '7' }, dawn: { '6': '7' } };
+/** Light rim around every cat on dark stages, so black / navy cats never melt into night floors. */
+const TOD_RIM: Record<string, string | undefined> = { night: '5', dusk: '7' };
 
 /** Interaction: turds, cats, formations, dives, damage, bosses, pickups. */
 class Interaction implements Module {
@@ -41,7 +51,7 @@ class Interaction implements Module {
   bonus: { def: BonusDef; hits: number; total: number } | null = null;
   sway = 0; nextId = 1; pupHolder = -1; rowSp = 36; colSp = COL_SP;
   T: Tuning = { d: 0, spitSpeed: 1.5, spitCap: 3, bossSpitCap: 14, fireEvery: 90, diveEvery: 180, diveGroups: 1, diveSpeed: 2.7, entrySpeed: 2.7, diveShots: 1, tell: 22 };
-  fireT = 0; diveT = 0; breathMix = 0; entryDone = false; clearHold = 0; total = 0;
+  fireT = 0; diveT = 0; breathMix = 0; entryDone = false; clearHold = 0; total = 0; formTop = FORM_TOP; hurry = 0;
 
   // showcase staging (?showcase=interaction&stage=capturer|rescue|splitter|tank|dive|tell|boss|bullets|play)
   stageReq: string | null = null; staged = false; stageT = 0; stageAt = 0; stagePhase = 0; frozen = false;
@@ -61,6 +71,11 @@ class Interaction implements Module {
   /** Pom napped: clear the air. Waves restart; a boss keeps its damage (cozy, never a full reset). */
   napReset() { this.turds = []; this.spits = []; this.pickups = []; if (this.boss) { this.boss.reenter(); this.cats = []; } else this.clearAll(); }
   liveCats() { return this.cats.length + (this.boss ? 1 : 0); }
+  /** True when the stage has a floor to cast shadows on. */
+  grounded() { return !AIRBORNE.has(this.g.state.areaId); }
+  /** Rim colour for combat sprites at this time of day (undefined: no rim needed in daylight). */
+  rimKey() { return TOD_RIM[this.g.state.tod]; }
+  tint() { return TOD_TINT[this.g.state.tod]; }
 
   private mkCat(def: EnemyDef, x: number, y: number, st: CatState, extra: Partial<Cat> = {}): Cat {
     return { id: this.nextId++, def, hp: def.hp, x, y, vx: 0, vy: 0, st, slot: [x, y], track: null, s: 0, speed: 0, lat: 0, weave: 0,
@@ -75,9 +90,12 @@ class Interaction implements Module {
     g.reseed(areaId, i);
     this.wave = w; this.waveT = 0; this.active = true; this.mode = 'wave';
     const T = this.T = tuning(g, w.fireRate, w.diveRate);
-    this.fireT = 120; this.diveT = 60; this.breathMix = 0; this.entryDone = false; this.clearHold = 0;
-    // content may ask for 10 columns: the grid is capped at 8 (rows keep their parity, so sparse capturer rows stay sparse)
-    const cols = Math.min(MAX_COLS, w.formation.cols);
+    this.fireT = 120; this.diveT = 60; this.breathMix = 0; this.entryDone = false; this.clearHold = 0; this.hurry = 0;
+    // content may ask for 10 columns: the grid is capped at 8. Full rows fill all 8 slots; sparser rows are re-spread
+    // symmetrically around the centre (half-column steps allowed), so the grid never has a hole or a lopsided row.
+    const srcCols = w.formation.cols; const cols = Math.min(MAX_COLS, srcCols);
+    const holderWave = w.cats.some(c => this.enemy(c.breed).behavior === 'capturer') && !g.state.flags['pup_' + areaId];
+    const top = this.formTop = FORM_TOP + (holderWave ? PUP_LIFT : 0);
     const rows = Math.min(MAX_ROWS, Math.max(1, ...w.cats.map(c => c.row + 1)));
     const rowSp = this.rowSp = rows >= 5 ? 34 : 36; this.colSp = COL_SP;
     const x0 = WORLD_W / 2 - ((cols - 1) * COL_SP) / 2;
@@ -86,8 +104,14 @@ class Interaction implements Module {
     for (const grp of w.cats) {
       if (grp.row >= MAX_ROWS) continue;
       const def = this.enemy(grp.breed);
-      const colsList = (grp.cols ?? Array.from({ length: w.formation.cols }, (_, k) => k)).filter(c => c < cols);
-      for (const c of colsList) slots.push({ def, slot: [x0 + c * COL_SP, FORM_TOP + grp.row * rowSp] });
+      const src = grp.cols ?? Array.from({ length: srcCols }, (_, k) => k);
+      let colsList: number[];
+      if (srcCols <= MAX_COLS) colsList = src;
+      else {
+        const k = Math.min(MAX_COLS, src.length); const step = k <= 1 ? 0 : Math.min(2, (MAX_COLS - 1) / (k - 1));
+        colsList = Array.from({ length: k }, (_, i) => (MAX_COLS - 1) / 2 + (i - (k - 1) / 2) * step);
+      }
+      for (const c of colsList) slots.push({ def, slot: [x0 + c * COL_SP, top + grp.row * rowSp] });
     }
     // streams of 8: single file for 'loop' (two mirrored groups at once), pairs for the others
     const single = w.entry === 'loop' || !['split', 'swirl-left', 'swirl-right', 'rain'].includes(w.entry);
@@ -171,7 +195,8 @@ class Interaction implements Module {
     const bm = this.breathMix;
     const sw = Math.sin(this.sway / 80) * 14 * (1 - bm);
     const br = (1 - Math.cos(this.sway / 40)) * 0.5 * bm;   // 0..1
-    return [WORLD_W / 2 + (c.slot[0] - WORLD_W / 2) * (1 + br * 0.12) + sw, FORM_TOP - 4 + (c.slot[1] - FORM_TOP + 4) * (1 + br * 0.16)];
+    const top = this.formTop;
+    return [WORLD_W / 2 + (c.slot[0] - WORLD_W / 2) * (1 + br * 0.12) + sw, top - 4 + (c.slot[1] - top + 4) * (1 + br * 0.16)];
   }
 
   private boop(c: Cat, viaTurd = true) {
@@ -181,12 +206,19 @@ class Interaction implements Module {
     if (viaTurd) g.state.stats.hits++;
     g.mods.effects?.burst(c.x, c.y, 'boop'); g.mods.effects?.floatText(c.x, c.y - 10, String(pts));
     g.mods.audio?.sfx('meow');
-    if (c.pup) { this.spawnPickup('pup', c.x, c.y + 14); g.mods.effects?.burst(c.x, c.y + 14, 'sparkle'); }
+    if (c.pup) { const [px, py] = this.pupPos(c); this.spawnPickup('pup', px, py); g.mods.effects?.burst(px, py, 'sparkle'); }
     if (this.wave?.pickup && g.rng.chance(0.06)) this.spawnPickup(this.wave.pickup, c.x, c.y);
     if (c.def.behavior === 'splitter') for (const s of [-1, 1]) this.spawnKitten(c.x + s * 6, c.y, s * 1.5, -1.6, c.slot);
     if (this.bonus) this.bonus.hits++;
     c.dead = true;
     g.bus.emit('cat:boop', { breed: c.def.id, x: c.x, y: c.y, points: pts, glow: !!c.glow, bonus: this.mode === 'bonus' });
+  }
+
+  /** Where the captive pup floats: above its holder in formation (as Galaga parks the captured fighter), 12px below its
+   *  feet in flight, swinging around the side in between so the bubble never covers a face. */
+  pupPos(c: Cat): [number, number] {
+    const k = c.pupK ?? -1; const d = (c.def.size ?? 32) / 2 + 12 + 10;
+    return [c.x + (1 - k * k) * 26 * (c.side || 1) + Math.round(Math.sin(c.t / 12) * 2), c.y + k * d];
   }
 
   /** Kittens pop out in a little arc, then tumble down toward Pom. */
@@ -219,13 +251,21 @@ class Interaction implements Module {
     if (this.entryDone && this.breathMix < 1) this.breathMix = Math.min(1, this.breathMix + 1 / 90);
 
     // schedulers: dives and formation fire (Galaga style: a steady drumbeat, not random noise)
+    // last stand: once only ~20% of the wave is left, the stragglers dive back to back, then give up and fly off
+    if (this.mode === 'wave' && this.entryDone && !this.hurry) {
+      const alive = this.cats.filter(c => c.st !== 'leave' && c.st !== 'kdive').length;
+      if (alive <= Math.max(2, Math.ceil(this.total * 0.2))) { this.hurry = 1; this.diveT = Math.min(this.diveT, 20); }
+    }
+    if (this.hurry) this.hurry++;
+    const hurryOut = this.hurry > HURRY_LEAVE;
+    const special = (c: Cat) => !!c.pup || !!c.glow;   // a lost pup or a memory never flies away undelivered
     if (this.mode === 'wave' && w && !timedOut) {
       const inForm = this.cats.filter(c => c.st === 'form');
       if (this.entryDone && --this.diveT <= 0) {
         const groups = new Set(this.cats.filter(c => c.st === 'dive').map(c => c.group)).size;
-        if (groups < T.diveGroups && inForm.length) this.launchDive(inForm);
+        if ((this.hurry || groups < T.diveGroups) && inForm.length) this.launchDive(inForm);
         const left = inForm.length / Math.max(1, this.total);
-        this.diveT = Math.round(T.diveEvery * g.rng.range(0.7, 1.3) * (0.45 + 0.55 * left));
+        this.diveT = this.hurry ? Math.round(g.rng.range(34, 52)) : Math.round(T.diveEvery * g.rng.range(0.7, 1.3) * (0.45 + 0.55 * left));
       }
       if (--this.fireT <= 0) {
         this.fireT = Math.round(T.fireEvery * g.rng.range(0.6, 1.4));
@@ -262,7 +302,7 @@ class Interaction implements Module {
             else if (c.st === 'flyby') { c.st = 'leave'; c.dead = true; }
             else { // dive done: wrap to the top if it flew off the bottom, then glide home
               if (c.y > H) { c.x = this.liveSlot(c)[0]; c.y = -28; }
-              c.st = timedOut ? 'leave' : 'return'; c.speed = 2.4;
+              c.st = timedOut || (hurryOut && !special(c)) ? 'leave' : 'return'; c.speed = 2.4;
             }
           }
           if (c.st === 'dive' && c.shots > 0 && c.tell === 0 && c.y > 110 && c.y < 220 && P && Math.abs(c.x - P.x) < 120 && this.spits.length < T.spitCap && g.rng.chance(0.05)) { c.shots--; c.tell = T.tell; }
@@ -273,12 +313,12 @@ class Interaction implements Module {
           const sp = c.st === 'home' ? c.speed : Math.min(c.speed, 1 + d * 0.05);
           if (d <= sp + 0.5) { c.x = sx; c.y = sy; c.st = 'form'; }
           else { c.x += dx / d * sp; c.y += dy / d * sp; }
-          if (timedOut) c.st = 'leave';
+          if (timedOut || (hurryOut && !special(c))) c.st = 'leave';
           break;
         }
         case 'form': {
           const [sx, sy] = this.liveSlot(c); c.x = sx; c.y = sy;
-          if (timedOut) c.st = 'leave';
+          if (timedOut || (hurryOut && !special(c))) c.st = 'leave';
           break;
         }
         case 'kdive': {
@@ -291,6 +331,7 @@ class Interaction implements Module {
       }
       c.vx = c.st === 'kdive' ? c.vx : c.x - ox; if (c.st !== 'kdive') c.vy = c.y - oy;
       c.up = (c.st === 'enter' || c.st === 'dive' || c.st === 'flyby') && c.vy < -0.9 * Math.max(0.5, Math.abs(c.vx));
+      if (c.pup) { const want = c.st === 'form' || c.st === 'home' ? -1 : 1; c.pupK = (c.pupK ?? want) + Math.max(-0.06, Math.min(0.06, want - (c.pupK ?? want))); }
       // wind-up, then cough a hairball
       if (c.tell > 0 && --c.tell === 0 && !c.dead && c.st !== 'leave' && c.st !== 'wait') this.spit(c, P);
 
@@ -301,7 +342,7 @@ class Interaction implements Module {
           if (Math.abs(s.x - c.x) < r + 2 && Math.abs(s.y - c.y) < r + 3) {
             s.y = -999; c.hp--; g.mods.audio?.sfx('thud');
             if (c.hp <= 0) this.boop(c);
-            else { c.flash = 14; g.mods.effects?.burst(s.x, c.y + 6, 'splat'); c.y -= 3; }   // tanks shrug it off, flashing
+            else { c.flash = 14; g.mods.effects?.burst(s.x + (s.x < c.x ? -8 : 8), c.y - 8, 'splat'); c.y -= 3; }   // tanks shrug it off, flashing
             break;
           }
         }
@@ -433,7 +474,15 @@ class Interaction implements Module {
     else P.power(e.kind, e.ticks ?? 600);
     g.ops.addItem(item.id, 0);
     g.bus.emit('item:get', { itemId: item.id, count: 1 });
-    g.mods.ui?.toast(item.name.toUpperCase());
+    this.toast(item.name.toUpperCase());
+  }
+
+  /** Pickup toasts merge: a repeat of a banner still on screen bumps its counter ('SPICY CHILI X3') instead of stacking. */
+  private toast(name: string) {
+    const ui = this.g.mods.ui; const list = ui?.toasts as { text: string; t: number; n?: number }[] | undefined;
+    const m = Array.isArray(list) ? list.find(o => o.text === name || o.text.startsWith(name + ' X')) : undefined;
+    if (m) { m.n = (m.n ?? 1) + 1; m.text = `${name} X${m.n}`; m.t = Math.max(m.t, 150); return; }
+    ui?.toast(name);
   }
 
   /**
@@ -464,8 +513,9 @@ class Interaction implements Module {
     const rows = F[name] ?? F.capturer;
     this.cats = []; this.spits = []; this.turds = []; this.pickups = []; this.boss = null;
     this.mode = 'wave'; this.active = true; this.entryDone = true; this.breathMix = 1; this.waveT = 100; this.fireT = 1e9; this.diveT = 1e9;
-    this.rowSp = 36; this.colSp = COL_SP; const x0 = WORLD_W / 2 - (7 * COL_SP) / 2;
-    rows.forEach(([breed, cs], ri) => { const def = this.enemy(breed); for (const c of cs) { const slot: Pt = [x0 + c * COL_SP, FORM_TOP + ri * 36]; this.cats.push(this.mkCat(def, slot[0], slot[1], 'form', { slot })); } });
+    this.rowSp = 36; this.colSp = COL_SP; const x0 = WORLD_W / 2 - (7 * COL_SP) / 2; this.hurry = 0;
+    const top = this.formTop = FORM_TOP + (rows.some(([b]) => this.enemy(b).behavior === 'capturer') ? PUP_LIFT : 0);
+    rows.forEach(([breed, cs], ri) => { const def = this.enemy(breed); for (const c of cs) { const slot: Pt = [x0 + c * COL_SP, top + ri * 36]; this.cats.push(this.mkCat(def, slot[0], slot[1], 'form', { slot })); } });
     this.total = this.cats.length; this.sway = 40 * Math.PI * 2; // breathing at rest
     const holder = this.cats.find(c => c.def.behavior === 'capturer' && c.slot[0] > WORLD_W / 2 - COL_SP && c.slot[0] < WORLD_W / 2);
     if (holder) holder.pup = true;
@@ -490,7 +540,7 @@ class Interaction implements Module {
       case 'tank': {
         const c = find('tank');
         if (t === 2) shoot(c);
-        if (at ? t >= at : !!c && c.flash > 0 && ((c.flash >> 1) & 1) === 1 && c.flash < 13) return freeze();
+        if (at ? t >= at : !!c && c.flash === 9) return freeze();
         break;
       }
       case 'dive': {
@@ -513,13 +563,15 @@ class Interaction implements Module {
   render(g: Game, r: any) {
     const sc = g.state.scene;
     if (sc !== 'play' && sc !== 'bonus' && sc !== 'dialogue') return;
+    const ground = this.grounded(), rim = this.rimKey(), tint = this.tint();
     for (const c of this.cats) {
       if (c.st === 'wait' || c.y < -30 || c.dead) continue;
       const frame = Math.floor((c.t + c.id * 7) / 12) % 2;
       const sz = c.def.size ?? 32;
       const x = c.x, y = c.y;
-      // shadows fall on the ground far below, so they are offset down-right and drawn as a 50% ink dither
-      r.push(1, y, (ctx: CanvasRenderingContext2D) => ditherShadow(ctx, x + 4, y + sz / 2 + 10, sz * 0.6, sz > 20 ? 4 : 2));
+      // drop shadow: an ink-dither oval about as wide as the cat, offset a consistent 6px right and peeking 4-8px below it,
+      // only on stages with a floor (no shadows in the sky or in space)
+      if (ground) r.push(1, y, (ctx: CanvasRenderingContext2D) => ditherShadow(ctx, x + 6, y + sz * 0.5, sz * 0.72, Math.max(3, Math.round(sz * 0.22))));
       if (c.beam && c.id === c.group) { // the beam is drawn under the cats so the capturer reads as its source
         const k = Math.min(1, (BEAM_TICKS - c.beam) / 18, c.beam / 10);
         r.push(1, y + 1, (ctx: CanvasRenderingContext2D) => captureBeam(ctx, x, y + 12, Math.min(140, H - y), c.t, k));
@@ -529,24 +581,34 @@ class Interaction implements Module {
           pxDither(ctx, x, y, 17, 'f', (c.t >> 3) & 1);
           pxRing(ctx, x, y, 18, (c.t >> 3) & 1 ? 'f' : '7', 3, c.t / 20);
         }
-        const flash = c.flash > 0 && ((c.flash >> 1) & 1) === 1;
-        drawSprite(ctx, c.def.sprite, x, y, { frame, flash, flipY: c.up });
-        if (flash) { // tanks shrug a hit off: a white silhouette plus a little star of impact
-          pxSpark(ctx, x - 9, y - 8, '6', 2); pxSpark(ctx, x + 10, y - 4, 'f', 1);
+        // hit flash in two beats: a white silhouette for 3 ticks, then the real cat with a blinking red rim,
+        // so the breed stays readable while it is clearly "hurt"
+        const sil = c.flash > 11, hurt = c.flash > 0 && !sil;
+        const rk = hurt ? ((c.flash >> 1) & 1 ? 'r' : 'f') : (c.glow ? undefined : rim);
+        drawCombat(ctx, c.def.sprite, x, y, { frame, flipY: c.up, sil: sil ? '6' : undefined, rim: rk, recolor: tint });
+        if (sil) { pxSpark(ctx, x - 10, y - 9, '6', 2); pxSpark(ctx, x + 11, y - 5, 'f', 1); }
+        // a tank that has been hit wears a plaster (and sweats) so players learn it takes several turds
+        if (!sil && c.hp < c.def.hp && c.def.hp > 1) {
+          plaster(ctx, x + 8, y + (c.up ? 6 : -6));
+          if (c.hp <= 1) { const d = (c.t >> 3) % 5; ctx.fillStyle = col('0'); ctx.fillRect(Math.round(x) - 12, Math.round(y) - 10 + d, 3, 5); ctx.fillStyle = col('s'); ctx.fillRect(Math.round(x) - 11, Math.round(y) - 9 + d, 1, 3); }
         }
         if (c.tell > 0) { // wind-up tell: a hairball glints at the mouth, growing before the cough
           const my = Math.round(y + (c.up ? -12 : 12)); const big = c.tell < this.T.tell / 2;
-          pxDisc(ctx, x, my, big ? 2 : 1, 'f'); ctx.fillStyle = col('6'); ctx.fillRect(Math.round(x) - 1, my - 1, 1, 1);
-          if ((c.tell >> 2) & 1) pxSpark(ctx, x + 5, my - 4, '6');
+          pxDisc(ctx, x, my, big ? 3 : 2, '0'); pxDisc(ctx, x, my, big ? 2 : 1, 'd'); ctx.fillStyle = col('6'); ctx.fillRect(Math.round(x) - 1, my - 1, 1, 1);
+          if ((c.tell >> 2) & 1) pxSpark(ctx, x + 6, my - 4, '6');
         }
       });
-      if (c.pup) { // the captive pup hangs below the Scottish Fold in a bubble, drawn in the air layer above every cat
+      if (c.pup) { // the captive pup in its bubble, tethered to the holder by a 1px shimmering beam line
         r.push(3, y + 40, (ctx: CanvasRenderingContext2D) => {
-          const sw = Math.round(Math.sin(c.t / 12) * 2); const py = y + 27;
-          ctx.fillStyle = col('0'); ctx.fillRect(Math.round(x) - 1, Math.round(y + 8), 3, 8);
-          ctx.fillStyle = col('d'); ctx.fillRect(Math.round(x), Math.round(y + 8), 1, 8);
-          bubble(ctx, x + sw, py, 11, c.t);
-          drawSprite(ctx, 'pup', x + sw, py, { frame: (c.t >> 4) & 1 });
+          const [px, py] = this.pupPos(c); const k = c.pupK ?? -1;
+          const hy = Math.round(y + Math.sign(k || 1) * (sz / 2 - 1)), ey = Math.round(py - Math.sign(k || 1) * 11);
+          const n = Math.max(Math.abs(ey - hy), Math.abs(Math.round(px) - Math.round(x)), 1);
+          for (let i = 0; i <= n; i++) {
+            const lx = Math.round(x + (px - x) * i / n), ly = Math.round(hy + (ey - hy) * i / n);
+            ctx.fillStyle = col(((i + (c.t >> 1)) & 3) < 2 ? 'l' : 's'); ctx.fillRect(lx, ly, 1, 1);
+          }
+          bubble(ctx, px, py, 10, c.t);
+          drawSprite(ctx, 'pup', px, py, { frame: (c.t >> 4) & 1 });
         });
       }
     }
