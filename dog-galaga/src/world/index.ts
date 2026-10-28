@@ -3,7 +3,7 @@ import { W, H, PF_X, PF_W } from '../core/game';
 import type { AreaDef, Scene, Tod } from '../core/types';
 import { evalCond } from '../core/conditions';
 import { Background } from './bg';
-import { text } from '../art/font';
+import { text, textWidth } from '../art/font';
 
 type Phase = 'intro' | 'wave' | 'between' | 'bonus' | 'boss' | 'outro' | 'nap' | 'done';
 
@@ -157,23 +157,10 @@ class World implements Module {
 
   overlay(g: Game, ctx: CanvasRenderingContext2D) {
     const sc = g.state.scene;
-    if ((sc === 'play' || sc === 'dialogue') && this.titleCard > 0) {
-      const a = this.area(); if (a) {
-        const t = this.titleCard; const alpha = Math.min(1, t / 30, (150 - t) / 20 + 0.01);
-        ctx.globalAlpha = Math.max(0, alpha);
-        const cx = PF_X + PF_W / 2;
-        ctx.fillStyle = '#0b0a14cc'; ctx.fillRect(PF_X, 130, PF_W, 64);
-        ctx.fillStyle = '#4ef2e6'; ctx.fillRect(PF_X, 130, PF_W, 1); ctx.fillRect(PF_X, 193, PF_W, 1);
-        const idx = g.content.areas.indexOf(a);
-        text(ctx, `SECTOR ${String(idx + 1).padStart(2, '0')}`, cx, 140, '#4ef2e6', { align: 'center' });
-        text(ctx, a.name, cx, 154, '#ffffff', { align: 'center', scale: 2, shadow: '#a3285f' });
-        if (a.subtitle) text(ctx, a.subtitle, cx, 176, '#c9a2ff', { align: 'center' });
-        ctx.globalAlpha = 1;
-      }
-    }
+    if ((sc === 'play' || sc === 'dialogue') && this.titleCard > 0) { const a = this.area(); if (a) titleCard(ctx, a.name, a.subtitle ?? '', g.content.areas.indexOf(a) + 1, g.content.areas.length, 150 - this.titleCard, this.titleCard); }
     if (sc === 'play' && this.phase === 'nap') {
       const cx = PF_X + PF_W / 2;
-      ctx.fillStyle = '#1d1b33aa'; ctx.fillRect(PF_X, 0, PF_W, H);
+      dither(ctx, PF_X, 0, PF_W, H, 10, '#1d1b33');
       text(ctx, 'POM IS TAKING A NAP', cx, 150, '#ffd166', { align: 'center', scale: 2, shadow: '#0b0a14' });
       text(ctx, 'Z z z . . .  BACK IN A SEC!', cx, 176, '#b9c1f2', { align: 'center' });
     }
@@ -185,16 +172,127 @@ class World implements Module {
       }
     }
     if (this.trans) {
-      const p = this.trans.t / this.trans.dur; const k = p < 0.5 ? p * 2 : (1 - p) * 2;
-      if (this.trans.kind === 'fade') { ctx.fillStyle = `rgba(11,10,20,${k})`; ctx.fillRect(0, 0, W, H); }
-      else {
-        const rad = Math.max(0, (1 - k) * 380);
-        ctx.save(); ctx.fillStyle = '#0b0a14'; ctx.beginPath(); ctx.rect(0, 0, W, H);
-        ctx.arc(W / 2, H / 2, rad, 0, Math.PI * 2, true); ctx.fill('evenodd'); ctx.restore();
-        // pawprint sparkle ring
-        if (rad > 4 && rad < 360) { ctx.strokeStyle = '#4ef2e6'; ctx.beginPath(); ctx.arc(W / 2, H / 2, rad, 0, Math.PI * 2); ctx.stroke(); }
-      }
+      const p = this.trans.t / this.trans.dur; const k = p < 0.5 ? p * 2 : (1 - p) * 2; // 0 open .. 1 closed
+      if (this.trans.kind === 'fade') dissolve(ctx, k, p < 0.5);
+      else pawIris(ctx, k);
     }
   }
+}
+
+// ------------------------------------------------------------------ pixel-exact overlays
+const INK = '#0b0a14', CYAN = '#4ef2e6', TEAL = '#26a6c9', PINK = '#e8578f', MAG = '#a3285f', VIOLET = '#c9a2ff', DEEP = '#1d1b33';
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+const patterns = new Map<string, CanvasPattern | null>();
+/** ordered-dither fill (level 0..16) in one palette colour: palette-exact "translucency" */
+function dither(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, level: number, color = INK) {
+  level = Math.max(0, Math.min(16, Math.round(level))); if (level === 0 || w <= 0 || h <= 0) return;
+  if (level === 16) { ctx.fillStyle = color; ctx.fillRect(x, y, w, h); return; }
+  const key = color + level; let pat = patterns.get(key);
+  if (pat === undefined) {
+    const c = document.createElement('canvas'); c.width = c.height = 4; const cx = c.getContext('2d')!; cx.fillStyle = color;
+    for (let i = 0; i < 16; i++) if (BAYER[i] < level) cx.fillRect(i & 3, i >> 2, 1, 1);
+    pat = ctx.createPattern(c, 'repeat'); patterns.set(key, pat);
+  }
+  if (!pat) return; ctx.fillStyle = pat; ctx.fillRect(x, y, w, h);
+}
+/** fade: an ordered-dither dissolve that sweeps down the screen with a teal scan edge */
+function dissolve(ctx: CanvasRenderingContext2D, k: number, closing: boolean) {
+  const band = 8; let edge = -1;
+  for (let y = 0; y < H; y += band) {
+    const f = closing ? y / H : 1 - y / H;
+    const lv = Math.round((k * 1.6 - 0.6 * f) * 16);
+    dither(ctx, 0, y, W, band, lv);
+    if (edge < 0 && lv < 16) edge = y;
+  }
+  if (k > 0.02 && k < 0.98 && edge >= 0) { ctx.fillStyle = TEAL; ctx.fillRect(0, edge, W, 1); }
+}
+type Span = [number, number];
+/** union of ellipse row-spans for the paw iris at scale s (grow adds px to every radius) */
+function pawRow(y: number, s: number, grow: number): Span[] {
+  const cx = W / 2, cy = H / 2 + 6;
+  const shapes: [number, number, number, number][] = [
+    [cx, cy + 0.15 * s, 0.55 * s, 0.45 * s],
+    [cx - 0.62 * s, cy - 0.3 * s, 0.19 * s, 0.23 * s], [cx + 0.62 * s, cy - 0.3 * s, 0.19 * s, 0.23 * s],
+    [cx - 0.25 * s, cy - 0.68 * s, 0.2 * s, 0.25 * s], [cx + 0.25 * s, cy - 0.68 * s, 0.2 * s, 0.25 * s],
+  ];
+  const out: Span[] = [];
+  for (const [ex, ey, rx0, ry0] of shapes) {
+    const rx = rx0 + grow, ry = ry0 + grow; if (rx0 <= 0.5) continue;
+    const dy = (y + 0.5 - ey) / ry; const t = 1 - dy * dy; if (t < 0) continue;
+    const hw = rx * Math.sqrt(t); out.push([Math.round(ex - hw), Math.round(ex + hw)]);
+  }
+  out.sort((a, b) => a[0] - b[0]);
+  const m: Span[] = [];
+  for (const sp of out) { const l = m[m.length - 1]; if (l && sp[0] <= l[1]) l[1] = Math.max(l[1], sp[1]); else m.push([sp[0], sp[1]]); }
+  return m;
+}
+function fillOutside(ctx: CanvasRenderingContext2D, y: number, spans: Span[], color: string) {
+  ctx.fillStyle = color; let x = 0;
+  for (const [a, b] of spans) { if (a > x) ctx.fillRect(x, y, Math.min(a, W) - x, 1); x = Math.max(x, b); }
+  if (x < W) ctx.fillRect(x, y, W - x, 1);
+}
+function fillBetween(ctx: CanvasRenderingContext2D, y: number, outer: Span[], inner: Span[], color: string) {
+  ctx.fillStyle = color;
+  for (const [a, b] of outer) {
+    let x = a;
+    for (const [c, d] of inner) { if (d <= x || c >= b) continue; if (c > x) ctx.fillRect(x, y, c - x, 1); x = Math.max(x, d); }
+    if (x < b) ctx.fillRect(x, y, b - x, 1);
+  }
+}
+/** iris: a paw-print shaped hole, pixel-exact row spans, with cyan + pink rims */
+function pawIris(ctx: CanvasRenderingContext2D, k: number) {
+  if (k <= 0) return;
+  if (k >= 1) { ctx.fillStyle = INK; ctx.fillRect(0, 0, W, H); return; }
+  const e = 1 - k; const s = e * e * 1000;
+  for (let y = 0; y < H; y++) {
+    const o = pawRow(y, s, 5), m = pawRow(y, s, 3), i = pawRow(y, s, 0);
+    fillOutside(ctx, y, o, INK);
+    fillBetween(ctx, y, o, m, CYAN);
+    fillBetween(ctx, y, m, i, PINK);
+  }
+}
+/** futuristic sector title card: scan line -> chamfered panel -> typed text -> collapse */
+function titleCard(ctx: CanvasRenderingContext2D, name: string, sub: string, idx: number, total: number, e: number, left: number) {
+  const cx = PF_X + PF_W / 2, cy = 162;
+  const open = Math.min(1, e / 12) * Math.min(1, left / 10);          // horizontal line grow / final collapse
+  const tall = Math.max(0, Math.min(1, (e - 10) / 12, (left - 10) / 12)); // vertical open
+  const halfW = Math.round(((PF_W - 24) / 2) * open);
+  if (halfW <= 0) return;
+  const hh = Math.round(36 * tall);
+  const x0 = cx - halfW, x1 = cx + halfW, y0 = cy - hh, y1 = cy + hh;
+  if (hh > 0) {
+    const ch = Math.min(10, hh); // chamfer top-left + bottom-right
+    for (let y = y0; y < y1; y++) {
+      const top = y - y0, bot = y1 - 1 - y;
+      const l = x0 + Math.max(0, ch - top), r = x1 - Math.max(0, ch - bot);
+      dither(ctx, l, y, r - l, 1, (y & 1) ? 14 : 11, INK);
+      ctx.fillStyle = TEAL; ctx.fillRect(l, y, 1, 1); ctx.fillRect(r - 1, y, 1, 1);
+    }
+    ctx.fillStyle = CYAN;
+    ctx.fillRect(x0 + ch, y0, x1 - x0 - ch, 1); ctx.fillRect(x0, y1 - 1, x1 - x0 - ch, 1);
+    for (let i = 0; i < ch; i++) { ctx.fillRect(x0 + ch - 1 - i, y0 + i, 1, 1); ctx.fillRect(x1 - ch + i, y1 - 1 - i, 1, 1); }
+    // corner brackets + tick marks
+    ctx.fillStyle = PINK;
+    ctx.fillRect(x1 - 14, y0 - 3, 14, 2); ctx.fillRect(x1 - 2, y0 - 3, 2, 8);
+    ctx.fillRect(x0, y1 + 1, 14, 2); ctx.fillRect(x0, y1 - 5, 2, 8);
+    ctx.fillStyle = TEAL; for (let x = x0 + ch + 6; x < x1 - 20; x += 8) ctx.fillRect(x, y0 + 2, 1, (x / 8) % 4 ? 1 : 3);
+  } else { ctx.fillStyle = CYAN; ctx.fillRect(x0, cy, x1 - x0, 1); ctx.fillStyle = INK; ctx.fillRect(x0, cy + 1, x1 - x0, 1); }
+  if (hh < 30) return;
+  const typed = (str: string, start: number, speed = 1.5) => str.slice(0, Math.max(0, Math.floor((e - start) * speed)));
+  const label = `SECTOR ${String(idx).padStart(2, '0')}`;
+  const lx = x0 + 16;
+  text(ctx, typed(label, 22), lx, y0 + 8, CYAN);
+  const meta = `${String(idx).padStart(2, '0')}/${String(total).padStart(2, '0')}`;
+  if (e > 30) { text(ctx, meta, x1 - 18, y0 + 8, VIOLET, { align: 'right' }); ctx.fillStyle = MAG; for (let i = 0; i < 3; i++) chevron(ctx, lx + 60 + i * 6, y0 + 8, (Math.floor(e / 4) % 3) === i ? PINK : MAG); }
+  const nm = typed(name, 28, 1.2); const nw = textWidth(name, 2);
+  text(ctx, nm, cx - nw / 2, cy - 7, '#ffffff', { scale: 2, shadow: MAG });
+  if (Math.floor(e / 6) % 2 === 0 && nm.length < name.length) { ctx.fillStyle = CYAN; ctx.fillRect(cx - nw / 2 + textWidth(nm, 2) + 2, cy - 7, 8, 14); }
+  if (sub) { const st = typed(sub, 46, 2); text(ctx, st, cx - textWidth(sub) / 2, cy + 13, VIOLET); }
+  // progress bar
+  const bw = Math.round((x1 - x0 - 40) * Math.min(1, Math.max(0, (e - 30) / 80)));
+  ctx.fillStyle = DEEP; ctx.fillRect(x0 + 20, y1 - 6, x1 - x0 - 40, 2); ctx.fillStyle = CYAN; ctx.fillRect(x0 + 20, y1 - 6, bw, 2);
+}
+function chevron(ctx: CanvasRenderingContext2D, x: number, y: number, color: string) {
+  ctx.fillStyle = color; for (let i = 0; i < 4; i++) { ctx.fillRect(x + i, y + i, 2, 1); ctx.fillRect(x + i, y + 6 - i, 2, 1); }
 }
 export const makeWorld = (): Module => new World();
