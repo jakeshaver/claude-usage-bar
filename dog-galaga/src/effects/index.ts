@@ -2,11 +2,11 @@ import type { Game, Module } from '../core/game';
 import { H, PF_X, PF_W } from '../core/game';
 import { PALETTE, KEY } from '../core/palette';
 import { text } from '../art/font';
-import { drawSprite, spriteRows } from '../art/sprite';
+import { drawSprite, spriteRows, spriteCanvas } from '../art/sprite';
 import { Rng } from '../core/rng';
 import {
   SEQ, SEQS, MERGED_FLAG, BOOP_FRAMES, BOOP_DUR, shapeCanvas, circleCanvas, outlinedText, ditherCanvas,
-  CIRCLE_RING, CIRCLE_DASH, CIRCLE_FILL,
+  CIRCLE_RING, CIRCLE_DASH, CIRCLE_FILL, bannerCanvas, BANNER_W, BANNER_H, silhouette,
 } from './shapes';
 
 /**
@@ -21,7 +21,7 @@ const P = (k: string) => KEY.indexOf(k);
 const MAX_PARTS = 560, MAX_RINGS = 24, MAX_TEXT = 24, MAX_SCHED = 32, MAX_ANIM = 32;
 
 // particle flags
-const F_BLINK = 1, F_CONFETTI = 2, F_RAMP = 4, F_SWAY = 8;
+const F_BLINK = 1, F_CONFETTI = 2, F_RAMP = 4, F_SWAY = 8, F_CYCLE = 16;
 /** pastel fireball ramp for explosion puffs: white -> yellow -> orange -> pink -> lavender */
 const RAMP = [P('6'), P('6'), P('f'), P('f'), P('g'), P('c'), P('7'), P('5')];
 const PASTEL = [P('c'), P('f'), P('l'), P('i'), P('t'), P('6'), P('s')];
@@ -29,15 +29,22 @@ const STARC = [P('f'), P('6'), P('c'), P('s')];
 const BOOPC = [P('f'), P('f'), P('t'), P('s'), P('l')];
 const HEARTC = [P('c'), P('d'), P('c')];
 const TURD = [P('9'), P('a'), P('9')];
+const STINK = [P('i'), P('o'), P('i')];
 const CONFETTI = [P('c'), P('f'), P('l'), P('i'), P('t'), P('6'), P('g'), P('d')];
 const FUR_DEFAULT = [P('7'), P('6'), P('5')];
-const LIFT = 6; // labels spawn this much above the caller's y, so they clear the kill pop
+const LIFT = 18; // labels spawn this much above the caller's y, so they clear the 49px kill pop
+/** top edge the finale banner may reach (the HUD toast row lives above it) */
+const BANNER_TOP = 26;
+/** the 8 showcase kinds and the age (ticks) at which each one reads best */
+const STAGE_KINDS = ['boop', 'splat', 'sparkle', 'shield', 'poof', 'hearts', 'confetti', 'boom'];
+const STAGE_PEAK = [9, 4, 6, 7, 8, 16, 34, 9];
+const STRIP_T = [3, 9, 18, 32];
 const BOOP_TOTAL = BOOP_DUR.reduce((a, b) => a + b, 0);
 
 interface Part { x: number; y: number; vx: number; vy: number; g: number; drag: number; life: number; max: number; c: number; seq: number; f: number; ph: number }
 interface Ring { x: number; y: number; r0: number; r1: number; life: number; max: number; delay: number; c: number; mode: number }
 interface Txt { x: number; y: number; vy: number; life: number; max: number; val: number; combo: number; w: number; cv: HTMLCanvasElement | null; pop: HTMLCanvasElement | null }
-interface Sched { t: number; x: number; y: number; kind: number }
+interface Sched { t: number; x: number; y: number; kind: number; sz: number }
 interface Anim { x: number; y: number; t: number; c: number }
 
 // scheduled sub-event kinds (boss explosion sequence)
@@ -58,7 +65,9 @@ class Effects implements Module {
 
   shakeAmt = 0; shakeT = 0; shakeMax = 1; shakeSign = 1;
   private off = { x: 0, y: 0 };
-  flashC = ''; flashT = 0; flashMax = 1;
+  flashC = 6; flashT = 0; flashMax = 1;
+  /** showcase staging: '' = live game; grid / strip / boss = a frozen, labeled stage on a plain backdrop */
+  stageMode = ''; stageWorld = false; private pendingStage: { mode: string; t: number } | null = null;
   tick = 0;
 
   // boss death: the defeated boss lingers as a wobbling, white-flashing sprite until the finale
@@ -71,12 +80,21 @@ class Effects implements Module {
     for (let i = 0; i < MAX_PARTS; i++) this.parts.push({ x: 0, y: 0, vx: 0, vy: 0, g: 0, drag: 1, life: 0, max: 1, c: 0, seq: 0, f: 0, ph: 0 });
     for (let i = 0; i < MAX_RINGS; i++) this.rings.push({ x: 0, y: 0, r0: 0, r1: 0, life: 0, max: 1, delay: 0, c: 0, mode: 0 });
     for (let i = 0; i < MAX_TEXT; i++) this.texts.push({ x: 0, y: 0, vy: 0, life: 0, max: 1, val: 0, combo: 0, w: 0, cv: null, pop: null });
-    for (let i = 0; i < MAX_SCHED; i++) this.sched.push({ t: 0, x: 0, y: 0, kind: 0 });
+    for (let i = 0; i < MAX_SCHED; i++) this.sched.push({ t: 0, x: 0, y: 0, kind: 0, sz: 1 });
     for (let i = 0; i < MAX_ANIM; i++) this.anims.push({ x: 0, y: 0, t: 0, c: 0 });
   }
 
   init(g: Game) {
     this.g = g;
+    // ?showcase=effects stages itself on a plain backdrop the first time it renders (after the showcase setup):
+    // ?fx=grid (default) | strip | boss | live, ?fxt=N age in ticks (default: each kind's peak frame)
+    try {
+      const q = typeof location !== 'undefined' ? new URLSearchParams(location.search) : null;
+      if (q && q.get('showcase') === 'effects' && !g.headless) {
+        const t = q.get('fxt') ?? q.get('advance');
+        this.pendingStage = { mode: q.get('fx') ?? 'grid', t: t === null ? -1 : +t };
+      }
+    } catch { /* no location: tests */ }
     // fur puffs in the booped cat's own coat colors (garnish around the designed pop)
     g.bus.on('cat:boop', (p: any) => { if (p && !g.headless) this.fur(p.x, p.y, this.furOf(p.breed), 4); });
     // the boss explosion (burst 'bigboop') fires in the same tick, just before boss:defeat
@@ -101,21 +119,22 @@ class Effects implements Module {
         this.ring(x, y, 8, 23, 16, P('6'), CIRCLE_RING, 6);
         for (let i = 0; i < 4; i++) {
           const a = (i + 0.5) * Math.PI / 2 + r.range(-0.3, 0.3), s = r.range(2.2, 2.8);
-          this.spawn(x, y, Math.cos(a) * s, Math.sin(a) * s, 0.02, 0.9, r.int(22, 28), r.pick(STARC), i & 1 ? SEQ.spark : SEQ.star, F_BLINK);
+          this.spawn(x, y, Math.cos(a) * s, Math.sin(a) * s, 0.02, 0.9, r.int(30, 36), r.pick(STARC), i & 1 ? SEQ.spark : SEQ.star, F_BLINK);
         }
         break;
       }
-      case 'splat': { // turd hits something that doesn't pop (yet): squash, hold, crumbs with a cream rim
-        this.spawn(x, y, 0, 0, 0, 1, 14, P('a'), SEQ.splat, 0);
-        for (let i = 0; i < 5; i++) { const a = r.range(-Math.PI * 0.95, -Math.PI * 0.05); const s = r.range(0.8, 2.2); this.spawn(x, y, Math.cos(a) * s, Math.sin(a) * s, 0.14, 0.95, r.int(16, 24), r.pick(TURD), SEQ.chunk, 0); }
-        for (let i = 0; i < 2; i++) this.radial(x, y, 0.5, 1.4, SEQ.dot, P('7'), 12, 0.9, 0.05, F_BLINK);
+      case 'splat': { // turd hits something that doesn't pop (yet): the signature 'cute gross' beat
+        this.spawn(x, y, 0, 0, 0, 1, 34, P('a'), SEQ.splat, F_BLINK);           // 15x9 squash -> 17x9 splat -> dry smear
+        this.spawn(x, y - 1, 0, 0, 0, 1, 9, P('7'), SEQ.impact, 0);              // 3-frame cream impact star
+        for (let i = 0; i < 4; i++) { const a = r.range(-Math.PI * 0.95, -Math.PI * 0.05); const s = r.range(1, 2.4); this.spawn(x, y, Math.cos(a) * s, Math.sin(a) * s, 0.14, 0.95, r.int(18, 26), r.pick(TURD), SEQ.chunk, 0); }
+        for (let i = 0; i < 3; i++) this.spawn(x + (i - 1) * 6 + r.range(-1, 1), y - 6 - r.range(0, 3), r.range(-0.1, 0.1), -0.45 - r.range(0, 0.2), 0, 0.99, r.int(30, 40), STINK[i], SEQ.stink, F_CYCLE | F_SWAY | F_BLINK);
         break;
       }
       case 'hearts': {
         for (let i = 0; i < 7; i++) this.spawn(x + r.range(-14, 14), y + r.range(-8, 8), r.range(-0.9, 0.9), r.range(-1.8, -0.6), -0.005, 0.975, r.int(36, 54), r.pick(HEARTC), i % 3 ? SEQ.heartSmall : SEQ.heart, F_BLINK | F_SWAY);
         break;
       }
-      case 'confetti': this.confetti(x, y, 36, 3.2, 4); break;
+      case 'confetti': this.confetti(x, y, 40, 0.9, 6); break;
       case 'fur': this.fur(x, y, tint && P(tint) >= 0 ? [P(tint)] : FUR_DEFAULT, 10); break;
       case 'boom': this.boom(x, y, 1); break;
       case 'bigboop': this.bossExplode(x, y); break;
@@ -172,15 +191,24 @@ class Effects implements Module {
   }
 
   shake(px: number, ticks: number) {
-    if (!this.g.state.settings.shake) return;
+    const st: any = this.g.state.settings;
+    if (!st.shake || st.reduceMotion) return;
     px = Math.round(px);
     if (this.shakeT <= 0 || px >= this.shakeAmt * (this.shakeT / this.shakeMax)) { this.shakeAmt = px; this.shakeT = this.shakeMax = Math.max(1, ticks); }
     else this.shakeT = Math.max(this.shakeT, ticks);
   }
 
+  /** Screen flash in a palette color. `c` is a palette key ('6', 'f', 'r'); a hex string is accepted only when it
+   *  is exactly one of the 32 palette entries (anything else is refused and reported). Honors settings.flash === false
+   *  and settings.reduceMotion. */
   flash(c: string, ticks: number) {
+    const s: any = this.g.state.settings;
+    if (s && (s.flash === false || s.reduceMotion)) return;
+    let idx = c.length === 1 ? KEY.indexOf(c) : -1;
+    if (idx < 0 && c[0] === '#') { const lc = c.toLowerCase(); idx = PALETTE.findIndex(h => h.toLowerCase() === lc); }
+    if (idx < 0) { this.g.reportError('effects', new Error(`flash color '${c}' is not in the palette`)); return; }
     if (this.flashT > 0 && ticks < this.flashT && this.flashT / this.flashMax > 0.5) return; // don't stomp a stronger flash
-    this.flashC = c; this.flashT = this.flashMax = Math.max(1, ticks);
+    this.flashC = idx; this.flashT = this.flashMax = Math.max(1, Math.min(10, ticks));
   }
 
   /** Integer pixel offset for the playfield camera. Zero when shake is disabled or the game is paused. */
@@ -192,7 +220,54 @@ class Effects implements Module {
   /** Advance the effects timeline n ticks even while the game is paused (showcase / tests / critics). */
   step(n = 1) { for (let i = 0; i < n; i++) this.advance(); }
 
-  clear() { this.nParts = 0; this.nRings = 0; this.nTexts = 0; this.nSched = 0; this.nAnims = 0; this.dying.until = 0; this.banner.t = -1; this.shakeT = 0; this.flashT = 0; }
+  /** Stage a frozen, labeled showcase on a plain backdrop. mode: grid (8 kinds at their peak, or all at age t),
+   *  strip (each kind at 4 ages side by side), boss (boss explosion at age t). Effects stay frozen until clear(). */
+  stage(mode: string, t = -1) {
+    this.clear();
+    if (mode === 'live') return;
+    // '<mode>-world' keeps the area's own backdrop (e.g. boss-world on the moon) instead of the plain strip
+    this.stageWorld = mode.endsWith('-world'); mode = mode.replace('-world', '');
+    this.stageMode = mode === 'strip' || mode === 'boss' ? mode : 'grid';
+    const camX = Math.round(this.g.mods.player?.camera?.x ?? 0);
+    if (this.stageMode === 'boss') {
+      const def = this.enemyDef('boss_whiskers');
+      const x = camX + (PF_W >> 1), y = 150;
+      this.bossExplode(x, y);
+      this.dying.sprite = def?.sprite ?? ''; this.dying.tint = this.furOf('boss_whiskers');
+      this.step(t < 0 ? 30 : t);
+    } else if (this.stageMode === 'grid') {
+      const peak = t < 0;
+      const maxT = peak ? Math.max(...STAGE_PEAK) : t;
+      for (let k = 0; k <= maxT; k++) {
+        for (let i = 0; i < 8; i++) {
+          if ((peak ? maxT - STAGE_PEAK[i] : 0) !== k) continue;
+          const [x, y] = this.gridCell(camX, i);
+          this.burst(x, y, STAGE_KINDS[i]);
+          if (i === 0) { this.fur(x, y, this.furOf('calico'), 4); this.floatText(x, y, '400'); }
+        }
+        if (k < maxT) this.step(1);
+      }
+    } else { // strip: rows = kinds, columns = ages STRIP_T
+      const maxT = STRIP_T[STRIP_T.length - 1];
+      for (let k = 0; k <= maxT; k++) {
+        for (let i = 0; i < 8; i++) for (let j = 0; j < STRIP_T.length; j++) {
+          if (maxT - STRIP_T[j] !== k) continue;
+          const [x, y] = this.stripCell(camX, i, j);
+          this.burst(x, y, STAGE_KINDS[i]);
+        }
+        if (k < maxT) this.step(1);
+      }
+    }
+    this.shakeT = 0; this.off.x = 0; this.off.y = 0; this.flashT = 0;
+  }
+  private gridCell(camX: number, i: number): [number, number] {
+    return [camX + 48 + (i % 4) * 96, i < 4 ? 112 : (i === 6 ? 318 : 288)];
+  }
+  private stripCell(camX: number, i: number, j: number): [number, number] {
+    return [camX + 104 + j * 76, 26 + i * 44 + (i === 6 ? 16 : 0)];
+  }
+
+  clear() { this.stageMode = ''; this.nParts = 0; this.nRings = 0; this.nTexts = 0; this.nSched = 0; this.nAnims = 0; this.dying.until = 0; this.banner.t = -1; this.shakeT = 0; this.flashT = 0; }
 
   // ---------------------------------------------------------------- spawning helpers
   private spawn(x: number, y: number, vx: number, vy: number, g: number, drag: number, life: number, c: number, seq: number, f: number) {
@@ -218,13 +293,15 @@ class Effects implements Module {
   private fur(x: number, y: number, cols: number[], n: number) {
     for (let i = 0; i < n; i++) this.radial(x, y, 0.4, 1.5, SEQ.fur, cols[i % cols.length], 30, 0.93, -0.015, F_BLINK | F_SWAY);
   }
-  /** festive paper: 2x4 strips and 3x3 squares that flip front/shade/edge-on, plus a few wavy streamers */
+  /** festive paper fountain: 3x3 squares and 2x4 strips (ink-outlined, flipping front/shade/edge-on) plus
+   *  9px streamers. Launches up hard (vy -3.6..-5.2 at power 1: a 50-80px apex), then flutters down slowly
+   *  while drifting out to ~ +-80px. power scales the launch. */
   private confetti(x: number, y: number, n: number, power: number, streamers: number) {
     const r = this.rng;
     for (let i = 0; i < n + streamers; i++) {
-      const a = r.range(-Math.PI * 0.92, -Math.PI * 0.08), s = r.range(0.45, 1) * power;
+      const vy = -r.range(3.6, 5.2) * power, vx = r.range(-1, 1) * (0.5 + (5.2 + vy / power) * 1.5) * power;
       const seq = i >= n ? SEQ.streamer : i & 1 ? SEQ.confRect : SEQ.confSq;
-      this.spawn(x + r.range(-6, 6), y + r.range(-4, 4), Math.cos(a) * s * 1.2, Math.sin(a) * s, 0.05, 0.96, r.int(110, 160), r.pick(CONFETTI), seq, F_CONFETTI | F_BLINK);
+      this.spawn(x + r.range(-8, 8), y + r.range(-4, 4), vx, vy, 0.12, 0.985, r.int(140, 190), r.pick(CONFETTI), seq, F_CONFETTI | F_BLINK);
     }
   }
   /** one cute pastel explosion: pop disc, fire puffs, sparks, ring */
@@ -240,22 +317,25 @@ class Effects implements Module {
     const d = this.dying, r = this.rng;
     d.x = x; d.y = y; d.t = this.tick; d.until = this.tick + 64; d.sprite = ''; d.tint = FUR_DEFAULT;
     this.boom(x, y, 2);
-    this.flash('#ffffff', 4);
-    // a crescendo of pops all over the boss, getting faster, then the finale
+    this.flash('6', 4);
+    // a crescendo of pops all over (and past) the boss, getting faster and bigger, then the finale
     const T = [6, 14, 21, 27, 32, 37, 41, 45, 49, 52, 55, 58, 61];
-    for (let i = 0; i < T.length; i++) this.schedule(T[i], x + r.int(-28, 28), y + r.int(-24, 24), S_BOOM);
-    this.schedule(64, x, y, S_FINALE);
+    for (let i = 0; i < T.length; i++) this.schedule(T[i], x + r.int(-36, 36), y + r.int(-30, 30), S_BOOM, i < 4 ? 1 : i < 9 ? 1.5 : 2);
+    this.schedule(64, x, y, S_FINALE, 1);
   }
-  private schedule(dt: number, x: number, y: number, kind: number) {
+  private schedule(dt: number, x: number, y: number, kind: number, sz: number) {
     if (this.nSched >= MAX_SCHED) return;
-    const s = this.sched[this.nSched++]; s.t = this.tick + dt; s.x = x; s.y = y; s.kind = kind;
+    const s = this.sched[this.nSched++]; s.t = this.tick + dt; s.x = x; s.y = y; s.kind = kind; s.sz = sz;
   }
   private runSched(s: Sched) {
     const r = this.rng;
-    if (s.kind === S_BOOM) { this.boom(s.x, s.y, 1); this.shake(2 + (r.next() < 0.5 ? 1 : 0), 8); return; }
+    if (s.kind === S_BOOM) {
+      this.boom(s.x, s.y, s.sz); this.fur(s.x, s.y, this.dying.tint, 3);
+      this.shake(Math.round(1 + s.sz) + (r.next() < 0.5 ? 1 : 0), 8); return;
+    }
     // finale: the big one
     const x = s.x, y = s.y;
-    this.flash('#ffffff', 8); this.shake(8, 40);
+    this.flash('6', 8); this.shake(8, 40);
     this.anim(x, y, P('f'));
     this.ring(x, y, 10, 22, 5, P('6'), CIRCLE_FILL, 0);
     this.ring(x, y, 10, 48, 20, P('6'), CIRCLE_RING, 0);
@@ -265,8 +345,8 @@ class Effects implements Module {
     for (let i = 0; i < 8; i++) this.radial(x, y, 1.2, 3, SEQ.star, r.pick(STARC), 44, 0.95, 0.02, F_BLINK);
     for (let i = 0; i < 8; i++) this.radial(x, y, 0.8, 2.2, SEQ.heart, r.pick(HEARTC), 50, 0.95, -0.01, F_BLINK | F_SWAY);
     this.fur(x, y, this.dying.tint, 12);
-    this.confetti(x, y, 56, 4.2, 8);
-    this.banner.t = 0; this.banner.x = Math.round(x); this.banner.y = Math.max(14, Math.round(y) - 46);
+    this.confetti(x, y, 64, 1.2, 12);
+    this.banner.t = 0; this.banner.x = Math.round(x); this.banner.y = Math.max(BANNER_TOP + (BANNER_H >> 1), Math.round(y) - 52);
     this.dying.until = 0;
   }
 
@@ -290,7 +370,7 @@ class Effects implements Module {
 
   // ---------------------------------------------------------------- simulation (visual only)
   update(g: Game) {
-    if (g.paused) return; // frozen with the game; step(n) advances regardless
+    if (g.paused || this.stageMode) return; // frozen with the game (or staged); step(n) advances regardless
     this.advance();
   }
   private advance() {
@@ -325,7 +405,7 @@ class Effects implements Module {
       if (b.t > 96) b.t = -1;
       else if (b.t > 6 && b.t < 80 && b.t % 5 === 0) {
         const side = (b.t / 5) & 1 ? 1 : -1;
-        this.spawn(b.x + side * this.rng.range(28, 40), b.y + this.rng.range(-6, 10), side * 0.3, -0.3, 0, 0.97, 20, this.rng.pick(STARC), SEQ.spark, F_BLINK);
+        this.spawn(b.x + side * this.rng.range(40, 50), b.y + this.rng.range(-8, 10), side * 0.3, -0.3, 0, 0.97, 20, this.rng.pick(STARC), SEQ.spark, F_BLINK);
       }
     }
     // particles (swap-remove)
@@ -334,7 +414,10 @@ class Effects implements Module {
       const p = this.parts[i];
       if (--p.life <= 0) { const last = this.parts[--this.nParts]; this.parts[this.nParts] = p; this.parts[i] = last; continue; }
       p.vy += p.g; p.vx *= p.drag; p.vy *= p.drag;
-      if (p.f & F_CONFETTI) { if (p.vy > 0.55) p.vy = 0.55; p.x += p.vx + Math.sin(tick * 0.07 + p.ph) * 0.5; }
+      if (p.f & F_CONFETTI) { // fountain up, then a slow sideways flutter down
+        if (p.vy > 0.5) p.vy = 0.5; else p.vx *= 0.99;
+        p.x += p.vx + (p.vy > 0 ? Math.sin(tick * 0.08 + p.ph) * 0.45 : 0);
+      }
       else if (p.f & F_SWAY) p.x += p.vx + Math.sin(tick * 0.15 + p.ph) * 0.25;
       else p.x += p.vx;
       p.y += p.vy;
@@ -363,25 +446,52 @@ class Effects implements Module {
   // ---------------------------------------------------------------- drawing (pixel-exact)
   private drawFn = (ctx: CanvasRenderingContext2D) => this.draw(ctx);
   render(_g: Game, r: any) {
+    if (this.pendingStage) { const s = this.pendingStage; this.pendingStage = null; this.stage(s.mode, s.t); }
+    if (this.stageMode && !this.stageWorld) r.push(4, -1e9, this.stageFn);
     if (this.nParts || this.nRings || this.nTexts || this.nAnims || this.banner.t >= 0 || this.dying.until > this.tick) r.push(4, 0, this.drawFn);
   }
+  /** plain high-contrast showcase backdrop (night sky navy with a few stars) + cell labels */
+  private stageFn = (ctx: CanvasRenderingContext2D) => {
+    const camX = Math.round(this.g.mods.player?.camera?.x ?? 0);
+    ctx.fillStyle = PALETTE[P('1')]; ctx.fillRect(camX, 0, PF_W, H);
+    ctx.fillStyle = PALETTE[P('2')];
+    for (let i = 0; i < 40; i++) ctx.fillRect(camX + ((i * 97) % PF_W), (i * 53) % H, 1, 1);
+    const lab = PALETTE[P('5')], dim = PALETTE[P('3')];
+    if (this.stageMode === 'grid') {
+      ctx.fillStyle = dim; ctx.fillRect(camX, 179, PF_W, 1);
+      for (let c = 1; c < 4; c++) ctx.fillRect(camX + c * 96, 0, 1, H);
+      for (let i = 0; i < 8; i++) { const [x] = this.gridCell(camX, i); const s = STAGE_KINDS[i].toUpperCase(); text(ctx, s, x - s.length * 3, i < 4 ? 30 : 186, lab, {}); }
+    } else if (this.stageMode === 'strip') {
+      for (let i = 0; i < 8; i++) { const [, y] = this.stripCell(camX, i, 0); text(ctx, STAGE_KINDS[i].toUpperCase(), camX + 4, y - 3, lab, {}); }
+      for (let j = 0; j < STRIP_T.length; j++) { const [x] = this.stripCell(camX, 0, j); const s = 'T' + STRIP_T[j]; text(ctx, s, x - s.length * 3, H - 10, dim, {}); }
+    } else {
+      text(ctx, 'BOSS DEFEAT', camX + 4, H - 10, dim, {});
+    }
+  };
   private draw(ctx: CanvasRenderingContext2D) {
     const tick = this.tick;
     // dying boss: wobbles and strobes white until the finale
     const d = this.dying;
     if (d.until > tick && d.sprite) {
-      const k = tick - d.t;
-      drawSprite(ctx, d.sprite, d.x + ((k >> 1) % 2 ? 1 : -1) * (1 + (k >> 4)), d.y + ((k >> 2) % 2), { flash: (k >> 2) % 2 === 0 });
+      // 2-on / 2-off white strobe with a 1px outline that flickers ink <-> white against it
+      const k = tick - d.t, on = ((k >> 1) & 1) === 0;
+      const x = d.x + ((k >> 1) % 2 ? 1 : -1) * (1 + (k >> 4)), y = d.y + ((k >> 2) % 2);
+      const base = spriteCanvas(d.sprite, 0, false);
+      if (base) {
+        const sil = silhouette(base, on ? PALETTE[0] : PALETTE[6]);
+        const sx = Math.round(x - base.width / 2), sy = Math.round(y - base.height / 2);
+        ctx.drawImage(sil, sx - 1, sy); ctx.drawImage(sil, sx + 1, sy); ctx.drawImage(sil, sx, sy - 1); ctx.drawImage(sil, sx, sy + 1);
+      }
+      drawSprite(ctx, d.sprite, x, y, { flash: on });
     }
     // rings + pop discs
     for (let i = 0; i < this.nRings; i++) {
       const q = this.rings[i]; if (q.delay > 0) continue;
       const u = 1 - q.life / q.max, e = 1 - (1 - u) * (1 - u); // ease-out
       const rad = Math.round(q.r0 + (q.r1 - q.r0) * e);
-      let mode = q.mode;
-      if (mode === CIRCLE_RING && u > 0.6) mode = CIRCLE_DASH; // fade by breaking up, not by alpha
-      if (mode === CIRCLE_DASH && u > 0.85 && (tick & 1)) continue;
-      const c = circleCanvas(rad, q.c, mode);
+      // fade by an ordered-dither erase along the arc (solid -> 75% -> 50% -> 25%), never by alpha or blinking
+      const erase = q.mode === CIRCLE_FILL ? 0 : u < 0.5 ? 0 : u < 0.68 ? 1 : u < 0.84 ? 2 : 3;
+      const c = circleCanvas(rad, q.c, q.mode, erase);
       ctx.drawImage(c, Math.round(q.x) - rad, Math.round(q.y) - rad);
     }
     // particles. Pass 1: ink silhouettes of merged puffs; pass 2: puff fills (one outlined cloud);
@@ -391,7 +501,7 @@ class Effects implements Module {
         const p = this.parts[i];
         if ((p.f & F_BLINK) && p.life < p.max * 0.25 && ((p.life >> 1) & 1)) continue;
         const seq = SEQS[p.seq], u = (p.max - p.life) / p.max;
-        const shape = (p.f & F_CONFETTI) ? seq[(((tick + ((p.ph * 40) | 0)) / 5) | 0) % seq.length] : seq[Math.min(seq.length - 1, (u * seq.length) | 0)];
+        const shape = (p.f & (F_CONFETTI | F_CYCLE)) ? seq[(((tick + ((p.ph * 40) | 0)) / 5) | 0) % seq.length] : seq[Math.min(seq.length - 1, (u * seq.length) | 0)];
         const merged = MERGED_FLAG[shape];
         if (pass === 2 ? merged : !merged) continue;
         const c = (p.f & F_RAMP) ? RAMP[Math.min(RAMP.length - 1, (u * RAMP.length) | 0)] : p.c;
@@ -421,20 +531,23 @@ class Effects implements Module {
     // 'BOOPED!' banner: integer-scale bounce in over 6 frames, hold, blink out
     const b = this.banner;
     if (b.t >= 0 && !(b.t > 84 && (b.t & 2))) {
-      const SC = [1, 1, 3, 3, 2, 2], BY = [-14, -10, -4, 3, 1, 0];
-      const k = Math.min(b.t, 5), sc = b.t < 6 ? SC[k] : 2, oy = b.t < 6 ? BY[k] : Math.round(Math.sin(b.t * 0.12) * 1.5);
-      const cv = outlinedText(text, 'BOOPED!', PALETTE[P('f')], sc, PALETTE[P('d')]);
-      const half = cv.width >> 1;
+      // hand-drawn 1x ribbon banner: drops in, flashes white for 2 frames, bounces, then bobs by 1px
+      const BY = [-18, -11, -4, 3, 1, 0];
+      const oy = b.t < 6 ? BY[b.t] : ((b.t >> 4) & 1);
+      const cv = bannerCanvas(b.t < 2);
+      const half = BANNER_W >> 1;
       const x = Math.max(camX + 2 + half, Math.min(camX + PF_W - 2 - half, b.x));
-      ctx.drawImage(cv, x - half, b.y + oy - (cv.height >> 1));
+      const y = Math.max(BANNER_TOP, b.y - (BANNER_H >> 1) + oy);
+      ctx.drawImage(cv, x - half, y);
     }
   }
 
   overlay(g: Game, ctx: CanvasRenderingContext2D) {
     if (this.flashT <= 0 || g.paused) return;
     // palette-legal stepped flash: 50% checker -> 25% grid -> 12% sprinkle of the flash color, playfield only
+    // gentle by design: never denser than a 25% grid, stepping down to 12.5% (photosensitivity-friendly)
     const u = this.flashT / this.flashMax;
-    ctx.drawImage(ditherCanvas(this.flashC, PF_W, H, u > 0.6 ? 2 : u > 0.3 ? 4 : 8), PF_X, 0);
+    ctx.drawImage(ditherCanvas(PALETTE[this.flashC] ?? PALETTE[6], PF_W, H, u > 0.5 ? 4 : 8), PF_X, 0);
   }
 
   /** count of live particles (for tests/budget checks) */

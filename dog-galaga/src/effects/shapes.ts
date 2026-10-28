@@ -78,7 +78,6 @@ function star(g: Grid, R: number, r: number, core: number) {
 }
 const HEART7P = ['.pp.pp.', 'pwppppp', 'pwppppq', 'ppppppq', '.ppppq.', '..ppq..', '...q...'];
 const HEART5P = ['pp.pp', 'pwppp', 'ppppq', '.ppq.', '..q..'];
-const HEART3P = ['p.p', 'ppp', '.q.'];
 const SPARK5W = ['..w..', '..w..', 'wwwww', '..w..', '..w..'];
 function hearts(g: Grid, d: number, rows: string[]) {
   const o = Math.round(d * 0.7071);
@@ -102,8 +101,8 @@ function boopFrame(n: number): string[] {
     case 2: star(g, 13, 6, 3); break;
     case 3: star(g, 17, 8, 3); stamp(g, SPARK5W, BS, BS); break;
     case 4: hearts(g, 13, HEART7P); stamp(g, ['.w.', 'wxw', '.w.'], BS, BS); break;
-    case 5: hearts(g, 18, HEART5P); stamp(g, ['x'], BS, BS - 14); stamp(g, ['x'], BS, BS + 14); stamp(g, ['x'], BS - 14, BS); stamp(g, ['x'], BS + 14, BS); break;
-    default: hearts(g, 22, HEART3P); break;
+    case 5: hearts(g, 18, HEART7P); stamp(g, ['x'], BS, BS - 15); stamp(g, ['x'], BS, BS + 15); stamp(g, ['x'], BS - 15, BS); stamp(g, ['x'], BS + 15, BS); break;
+    default: hearts(g, 22, HEART5P); break;
   }
   outline(g);
   return g.map(r => r.join(''));
@@ -123,20 +122,25 @@ const DEFS: Record<string, string[]> = {
   chunk3: ['ll.', 'lxx', '.xo'],
   chunk4: ['.ll.', 'lxxx', 'lxxo', '.oo.'],
   chunk5: ['.lll.', 'lxxxl', 'lxxxo', 'xxxoo', '.ooo.'],
-  splatSquash: ['..l.lll.l..', '.lxxxxxxxl.', 'lxxxxxxxxxo', '.oxxxxxxoo.', '..o.ooo.o..'],
-  splat9: ['l...l...l', '.x.lll.x.', '..lllxx..', 'xxlxxxxxo', '..xxxxo..', '.o.xxo.o.', 'o...o...o'],
-  splat11: ['l....l....l', '.x...l...x.', '..x.lll.x..', '...llxxx...', 'xxllxxxxxxo', '...xxxxxo..', '..o.xxo.o..', '.o...o...o.', 'o.........o'],
-  // confetti: 2x4 strip and 3x3 square, front -> shade -> edge-on flip
-  c24f: ['xx', 'xh', 'xx', 'xx'], c24s: ['oo', 'oo', 'oo', 'oo'], c24e: ['o', 'o', 'o', 'o'], c24d: ['x.', 'xo', 'xo', '.o'],
-  c33f: ['xxx', 'xhx', 'xxx'], c33s: ['ooo', 'ooo', 'ooo'], c33e: ['xxx'], c33d: ['.xo', 'xxo', 'xo.'],
-  // streamers: 1px wavy ribbon, 6 tall, two phases
-  strA: ['x.', 'x.', '.x', '.o', 'x.', 'o.'], strB: ['.x', '.x', 'x.', 'o.', '.x', '.o'],
+  // the signature 'cute gross' turd splat: a 15x9 squash with a cream highlight blob and drips,
+  // spreading to a 17x9 splat, then drying to an 11x6 smear. All get the 1px ink outline.
+  splatSquash: ['.....xxxxx.....', '..xx.xllxxx.xx.', '.xxxxxlllxxxxx.', 'xxxxxxxllxxxxxx', 'xxxxxxxxxxxxxxo', '.oxxxxxxxxxxxo.', 'x.ooxxxxxxxoo.x', '...o.ooooo.o...', '..o.........o..'],
+  splat17: ['x...xx.xxx.xx...x', '.x..xllxxxxxx..x.', '..xxxxlllxxxxxx..', '.xxxxxxlxxxxxxxx.', 'xxxxxxxxxxxxxxxxo', '..oxxxxxxxxxxxo..', '.o..ooxxxxxoo..o.', 'o....o.ooo.o....o', '.......o.o.......'],
+  splatDry: ['...xxxxx...', '.xxxllxxxx.', 'xxxxxlxxxxo', 'xoxxxxxxxoo', '.o.ooooo.o.', '..o.....o..'],
+  // stink squiggles: wavy 1px lines, two phases so they wiggle as they rise
+  stinkA: ['x.', '.x', 'x.', '.x', 'x.'], stinkB: ['.x', 'x.', '.x', 'x.', '.x'],
+  // confetti: 2x4 strip and 3x3 square, front -> shade -> edge-on flip (never thinner than 2px; ink-outlined)
+  c24f: ['xh', 'xx', 'xx', 'xo'], c24s: ['oo', 'oo', 'oo', 'oo'], c24e: ['xo', 'xo', 'xo'], c24d: ['x..', 'xx.', '.xo', '..o'],
+  c33f: ['xhx', 'xxx', 'xxo'], c33s: ['ooo', 'ooo', 'ooo'], c33e: ['xxx', 'ooo'], c33d: ['.x.', 'xxo', '.o.'],
+  // streamers: 1px wavy ribbon, 9 tall, two phases
+  strA: ['x.', 'x.', '.x', '.x', 'x.', 'x.', '.x', '.o', 'o.'], strB: ['.x', '.x', 'x.', 'x.', '.x', '.x', 'x.', 'o.', '.o'],
   puff1: circleBitmap(1), puff2: circleBitmap(2), puff3: circleBitmap(3), puff4: circleBitmap(4),
   puff5: circleBitmap(5), puff6: circleBitmap(6),
   boop0: boopFrame(0), boop1: boopFrame(1), boop2: boopFrame(2), boop3: boopFrame(3), boop4: boopFrame(4), boop5: boopFrame(5), boop6: boopFrame(6),
 };
 /** shapes that get a 1px dark outline so they pop off busy backgrounds (Galaga-crisp) */
-const OUTLINED = new Set(['star5', 'star7', 'heart5', 'heart7', 'spark5', 'chunk3', 'chunk4', 'chunk5', 'splat9', 'splat11', 'splatSquash']);
+const OUTLINED = new Set(['star5', 'star7', 'heart5', 'heart7', 'spark5', 'chunk3', 'chunk4', 'chunk5', 'splat17', 'splatDry', 'splatSquash',
+  'stinkA', 'stinkB', 'c24f', 'c24s', 'c24e', 'c24d', 'c33f', 'c33s', 'c33e', 'c33d', 'strA', 'strB']);
 /** shapes drawn in two passes (all ink silhouettes first, then all fills) so overlapping clusters merge
  *  into one outlined cloud instead of a honeycomb of separately outlined circles */
 const MERGED = new Set(['puff2', 'puff3', 'puff4', 'puff5', 'puff6']);
@@ -156,7 +160,9 @@ export const SEQ = {
   heartSmall: seq('heart5', 'heart5', 'heart3', 'dot1'),
   fur: seq('puff2', 'puff3', 'puff3', 'puff2', 'puff2', 'puff1'),
   chunk: seq('chunk5', 'chunk4', 'chunk4', 'chunk3', 'chunk3', 'dot2'),
-  splat: seq('splatSquash', 'splat11', 'splat9', 'splat9', 'splat9', 'splat9', 'chunk5'),
+  splat: seq('splatSquash', 'splatSquash', 'splat17', 'splat17', 'splat17', 'splat17', 'splatDry', 'splatDry'),
+  impact: seq('star7', 'spark5', 'plus3'),
+  stink: seq('stinkA', 'stinkB'),
   boom: seq('puff3', 'puff5', 'puff6', 'puff6', 'puff5', 'puff4', 'puff3', 'puff2', 'puff1'),
   // confetti flips (indexed by its own flutter clock, not by life)
   confRect: seq('c24f', 'c24f', 'c24d', 'c24e', 'c24s', 'c24s', 'c24d', 'c24e'),
@@ -165,7 +171,7 @@ export const SEQ = {
 };
 /** the designed kill pop: frame shape ids and per-frame durations (ticks) */
 export const BOOP_FRAMES = ['boop0', 'boop1', 'boop2', 'boop3', 'boop4', 'boop5', 'boop6'].map(n => ID[n]);
-export const BOOP_DUR = [4, 4, 4, 4, 5, 5, 5];
+export const BOOP_DUR = [3, 3, 5, 5, 5, 5, 6];
 
 const shapeCache: (HTMLCanvasElement | undefined)[] = [];
 /** mode 0 = normal, 1 = ink silhouette grown by 1px (for merged two-pass clusters) */
@@ -196,10 +202,11 @@ export function shapeCanvas(shape: number, color: number, mode = 0): HTMLCanvasE
 
 export const CIRCLE_RING = 0, CIRCLE_DASH = 1, CIRCLE_FILL = 2;
 const circCache: (HTMLCanvasElement | undefined)[] = [];
-/** Midpoint circle of radius r (canvas is 2r+1 square; draw at cx-r, cy-r). */
-export function circleCanvas(r: number, color: number, mode: number): HTMLCanvasElement {
-  r = Math.max(0, Math.min(127, r | 0));
-  const key = (r * 32 + color) * 3 + mode;
+/** Midpoint circle of radius r (canvas is 2r+1 square; draw at cx-r, cy-r).
+ *  `erase` 0..3 is an ordered-dither fade along the arc: solid, 75%, 50%, 25% of the pixels kept. */
+export function circleCanvas(r: number, color: number, mode: number, erase = 0): HTMLCanvasElement {
+  r = Math.max(0, Math.min(127, r | 0)); erase = Math.max(0, Math.min(3, erase | 0));
+  const key = ((r * 32 + color) * 3 + mode) * 4 + erase;
   let c = circCache[key];
   if (c) return c;
   const n = r * 2 + 1;
@@ -216,7 +223,8 @@ export function circleCanvas(r: number, color: number, mode: number): HTMLCanvas
     let x = r, y = 0, err = 1 - r, step = 0;
     while (x >= y) {
       // dashed: keep 2 of every 4 steps along the arc
-      if (mode !== CIRCLE_DASH || (step & 2) === 0) {
+      const keep = erase === 0 || (erase === 1 ? (step & 3) !== 3 : erase === 2 ? (step & 1) === 0 : (step & 3) === 0);
+      if (keep && (mode !== CIRCLE_DASH || (step & 2) === 0)) {
         const pts = [r + x, r + y, r - x, r + y, r + x, r - y, r - x, r - y, r + y, r + x, r - y, r + x, r + y, r - x, r - y, r - x];
         for (let i = 0; i < 16; i += 2) g.fillRect(pts[i], pts[i + 1], 1, 1);
       }
@@ -257,4 +265,77 @@ export function ditherCanvas(color: string, w: number, h: number, density: numbe
     if (on) x.fillRect(i, y, 1, 1);
   }
   flashCache.set(key, c); return c;
+}
+
+// ------------------------------------------------------------ 'BOOPED!' finale banner (hand-drawn, 1x)
+// Chunky 7x8 letters (2px strokes) in yellow with a white top bevel and orange foot, a 1px ink outline,
+// a 2px plum drop shadow, on an opaque hot-pink ribbon plate with forked tails. Opaque, so it reads on
+// any backdrop (moon signboards, string lights, navy sky).
+const GLYPH: Record<string, string[]> = {
+  B: ['xxxxxx.', 'xx...xx', 'xx...xx', 'xxxxxx.', 'xx...xx', 'xx...xx', 'xx...xx', 'xxxxxx.'],
+  O: ['.xxxxx.', 'xx...xx', 'xx...xx', 'xx...xx', 'xx...xx', 'xx...xx', 'xx...xx', '.xxxxx.'],
+  P: ['xxxxxx.', 'xx...xx', 'xx...xx', 'xx...xx', 'xxxxxx.', 'xx.....', 'xx.....', 'xx.....'],
+  E: ['xxxxxxx', 'xx.....', 'xx.....', 'xxxxxx.', 'xx.....', 'xx.....', 'xx.....', 'xxxxxxx'],
+  D: ['xxxxx..', 'xx..xx.', 'xx...xx', 'xx...xx', 'xx...xx', 'xx...xx', 'xx..xx.', 'xxxxx..'],
+  '!': ['xx', 'xx', 'xx', 'xx', 'xx', '..', 'xx', 'xx'],
+};
+export const BANNER_W = 86, BANNER_H = 24;
+let bannerCv: HTMLCanvasElement | null = null, bannerWhite: HTMLCanvasElement | null = null;
+/** white = all-white letters (the entry flash frame) */
+export function bannerCanvas(white = false): HTMLCanvasElement {
+  const hit = white ? bannerWhite : bannerCv; if (hit) return hit;
+  const W = BANNER_W, H = BANNER_H, g: string[][] = [];
+  for (let y = 0; y < H; y++) { g.push([]); for (let x = 0; x < W; x++) g[y].push('.'); }
+  const set = (x: number, y: number, k: string) => { if (x >= 0 && y >= 0 && x < W && y < H) g[y][x] = k; };
+  // forked tails (behind the plate, lower)
+  for (let y = 7; y < 22; y++) for (let x = 0; x < 13; x++) {
+    const notch = Math.abs(y - 14.5) < 4 - x * 0.75; // V cut on the outer edge
+    if (!notch) { set(x, y, 'e'); set(W - 1 - x, y, 'e'); }
+  }
+  for (let x = 0; x < 13; x++) { set(x, 7, 'd'); set(W - 1 - x, 7, 'd'); } // tail highlight
+  // fold shading where tails tuck under the plate
+  for (let y = 16; y < 22; y++) { set(9, y, 'v'); set(10, y, 'v'); set(W - 10, y, 'v'); set(W - 11, y, 'v'); }
+  // plate x 8..77, y 1..19, corners cut
+  for (let y = 1; y < 20; y++) for (let x = 9; x < W - 9; x++) {
+    if ((y === 1 || y === 19) && (x < 11 || x > W - 12)) continue;
+    if ((y === 2 || y === 18) && (x < 10 || x > W - 11)) continue;
+    set(x, y, y <= 3 ? 'c' : y >= 17 ? 'e' : 'd');
+  }
+  // stitch dots along the plate edges
+  for (let x = 13; x < W - 13; x += 3) { set(x, 3, '7'); set(x, 17, 'c'); }
+  // letters: B O O P E D !
+  const word = 'BOOPED!'; let w = 0; for (const ch of word) w += GLYPH[ch][0].length + 2; w -= 2;
+  let ox = Math.round((W - w) / 2), oy = 6;
+  const letters: [number, number][] = [];
+  for (const ch of word) {
+    const rows = GLYPH[ch];
+    for (let y = 0; y < rows.length; y++) for (let x = 0; x < rows[y].length; x++) if (rows[y][x] === 'x') letters.push([ox + x, oy + y]);
+    ox += rows[0].length + 2;
+  }
+  const isL = new Set(letters.map(([x, y]) => y * W + x));
+  // 2px drop shadow (down-right), then 1px ink outline (8-neighbour), then the letter fill
+  for (const [x, y] of letters) for (let d = 1; d <= 2; d++) if (!isL.has((y + d) * W + x + 1)) set(x + 1, y + d, 'v');
+  for (const [x, y] of letters) for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) if (!isL.has((y + j) * W + x + i)) set(x + i, y + j, '0');
+  for (const [x, y] of letters) set(x, y, white ? '6' : y === oy ? '6' : y >= oy + 6 ? 'g' : 'f');
+  // ink outline around the whole plate + tails
+  const src = g.map(r => r.slice());
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (src[y][x] !== '.') continue;
+    if ((x > 0 && src[y][x - 1] !== '.') || (x < W - 1 && src[y][x + 1] !== '.') || (y > 0 && src[y - 1][x] !== '.') || (y < H - 1 && src[y + 1][x] !== '.')) g[y][x] = '0';
+  }
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d')!;
+  for (let y = 0; y < H; y++) for (let i = 0; i < W; i++) { const k = g[y][i]; if (k === '.') continue; x.fillStyle = PALETTE[P(k)]; x.fillRect(i, y, 1, 1); }
+  if (white) bannerWhite = c; else bannerCv = c;
+  return c;
+}
+
+/** Silhouette of any canvas in one palette color (for 1px sprite outline flicker), cached per (canvas, color). */
+const silCache = new WeakMap<HTMLCanvasElement, Map<string, HTMLCanvasElement>>();
+export function silhouette(src: HTMLCanvasElement, color: string): HTMLCanvasElement {
+  let m = silCache.get(src); if (!m) { m = new Map(); silCache.set(src, m); }
+  let c = m.get(color); if (c) return c;
+  c = document.createElement('canvas'); c.width = src.width; c.height = src.height;
+  const x = c.getContext('2d')!; x.drawImage(src, 0, 0); x.globalCompositeOperation = 'source-in'; x.fillStyle = color; x.fillRect(0, 0, c.width, c.height);
+  m.set(color, c); return c;
 }

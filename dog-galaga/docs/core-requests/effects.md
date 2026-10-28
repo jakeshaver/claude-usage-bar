@@ -74,3 +74,38 @@ deterministic). Also consider calling `floatText(c.x, c.y - 10, ...)` unchanged:
 
 ## 3. core/input.ts (critic note, not effects-owned)
 `poll()` allocates a new Set every tick; reuse two preallocated Sets and swap them.
+
+# Round 3 requests from `effects`
+
+API additions (backward compatible):
+- `flash(c, ticks)` now takes a **palette key** (`'6'`, `'f'`, `'r'`). A hex string still works, but only when it
+  matches one of the 32 palette entries exactly. Anything else is refused and reported via `g.reportError`.
+  Flashes are never denser than a 25% ordered dither and are capped at 10 ticks.
+- `flash()` and `shake()` honor `settings.flash === false` and `settings.reduceMotion === true` when present.
+- `stage(mode, t)`: a frozen, labeled showcase on a plain navy backdrop. Modes: `grid` (8 kinds, each at its
+  peak frame, or all at age t), `strip` (each kind at ages 3/9/18/32 side by side), `boss` (boss defeat at age t),
+  and `<mode>-world` to keep the area backdrop (e.g. `boss-world` with `--area=moon`). It stays frozen until `clear()`.
+  Until the showcase calls it, effects bootstraps this itself from the URL: with `?showcase=effects`, `?fx=` picks the mode
+  (default grid; `live` keeps the old behavior) and `?fxt=` (or `?advance=`) sets the age.
+
+## 1. showcase: call stage() directly (src/showcase/index.ts, case 'effects')
+Replace the effects case body after `g.setScene('play');` with:
+```ts
+      g.mods.effects.stage(p.get('fx') ?? 'grid', p.has('fxt') ? +p.get('fxt')! : -1); break;
+```
+After that, the URL bootstrap in effects/index.ts init() can be deleted.
+
+## 2. core/types.ts + core/state.ts + ui settings: accessibility toggles
+Add `flash: boolean` (default true) and `reduceMotion: boolean` (default false) to `settings`, and show both in
+the settings menu. Effects already reads them through `(settings as any)`.
+
+## 3. callers: pass palette keys to flash()
+- src/interaction/boss.ts:74 `flash('#ffd166', 6)` -> `flash('f', 6)`
+- src/player/index.ts:32 `flash('#ff5a4f', 6)` -> `flash('r', 6)`
+
+## 4. core/input.ts (repeat): stop allocating in poll()
+`poll()` creates two new Sets every frame. Preallocate `cur`/`prev`, then swap them and `clear()` the new `cur`.
+
+## 5. ui: touch override
+`--touch=1` did not show touch controls on a desktop viewport. Please confirm that `settings.touch = 'on'` forces them on.
+Also, the gamepad path has never been exercised at runtime. A tiny test with a stubbed `navigator.getGamepads` would cover it.
