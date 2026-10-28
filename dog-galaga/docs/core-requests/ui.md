@@ -19,3 +19,25 @@
 4. **Input (optional).** `Input.lastDevice` drives the button hints (keyboard / gamepad / touch). The
    gamepad only flips `lastDevice` when a new action is added that frame; fine for now. It would be
    nice if pressing a gamepad button also cleared `touch` so hints switch back.
+
+# Core requests from ui (round 2)
+
+5. **Showcase: believable ending stats.** `showcase=ending` leaves score/stats at zero, so the stat chips
+   read `0 PTS / 0 MIN / 0 NAPS`. In `src/showcase/index.ts` case `'ending'`, seed e.g.
+   `g.state.score = 184250; g.state.hiScore = 184250; g.state.stats = { ...g.state.stats, shots: 2140, hits: 1610, catsBooped: 1312, naps: 3, playTicks: 60 * 60 * 47 }; g.state.memories = g.content.memories.slice(0, 14).map(m => m.id);`
+
+6. **Quest: respect `g.paused` in `quest.update`.** The dialogue engine reads confirm/fire even when the
+   game is paused. ui now maps the pause key during dialogue to "skip conversation" (calls
+   `quest.advance()` until the dialogue closes), so nothing is broken today, but if pause-from-dialogue is
+   ever wanted, `Quest.update` must early-return when `g.paused`.
+
+7. **World (optional): dawn tint.** The playfield at dawn looks identical to day. The ui panels now tint
+   per time of day (amber dawn, magenta dusk, violet/teal night); a warm palette-safe dawn overlay in
+   world would complete the effect.
+
+8. **Showcase (optional):** `--tod` seems not to apply to `showcase=ui --menu=pause --touch=1` in some
+   runs (panel shows DAY). Low priority.
+
+9. **Bundle budget heads-up.** After this round the single JS chunk is ~411 KB (was ~398 KB); ui added
+   ~13 KB (sector glyphs, HUD blocks). `verify` does not enforce the 400 KB budget from ARCHITECTURE.md.
+   If the integrator wants it enforced, ui can pack the 16x16 map glyphs into hex masks (~2.5 KB saving).

@@ -1,7 +1,7 @@
 import type { Game } from '../core/game';
 import type { Action } from '../core/input';
 import { W, H, PF_X, PF_W } from '../core/game';
-import { C, chamferFill, chamferLine, disc, ring, arrow, rect, frame, darkOf } from './draw';
+import { C, chamferFill, chamferLine, disc, ring, arrow, rect, frame, darkOf, header } from './draw';
 import { text } from '../art/font';
 
 /**
@@ -10,9 +10,9 @@ import { text } from '../art/font';
  * so controls never overlap HUD text. Left deck: 8-way d-pad. Right deck: PAUSE key + TOOT button.
  */
 export const TOUCH_TOP = 236;
-const PAD = { x: 64, y: 296, arm: 20 };          // d-pad center + arm size
-const FIRE = { x: 576, y: 306, r: 28 };          // TOOT button
-const PAUSE = { x: 548, y: 246, w: 56, h: 15 };   // pause key (rect)
+const PAD = { x: 64, y: 304, arm: 24 };          // d-pad center + arm size
+const FIRE = { x: 576, y: 308, r: 28 };          // TOOT button
+const PAUSE = { x: 548, y: 252, w: 56, h: 15 };   // pause key (rect)
 const RX = PF_X + PF_W;
 
 export class Touch {
@@ -29,8 +29,10 @@ export class Touch {
       for (const t of Array.from(e.touches)) {
         const x = (t.clientX - r.left) / r.width * W, y = (t.clientY - r.top) / r.height * H;
         for (const a of this.hit(x, y)) set.add(a);
-        // a tap in the playfield acts as confirm outside of gameplay (menus, dialogue, map)
-        if (x > PF_X && x < PF_X + PF_W && g.state.scene !== 'play') set.add('confirm');
+        // tap a menu row to select + confirm it; otherwise a playfield tap confirms outside of gameplay
+        const ui = g.mods.ui;
+        if (ui?.tapRow?.(x, y)) set.add('confirm');
+        else if (x > PF_X && x < PF_X + PF_W && g.state.scene !== 'play' && (ui?.menuOpen ?? 'none') === 'none') set.add('confirm');
       }
       g.input.touch = set;
     };
@@ -43,7 +45,7 @@ export class Touch {
   hit(x: number, y: number): Action[] {
     const out: Action[] = [];
     const dx = x - PAD.x, dy = y - PAD.y;
-    if (Math.abs(dx) < 60 && dy > -62 && dy < 64 && x < PF_X) {
+    if (Math.abs(dx) < 62 && dy > -60 && dy < 60 && x < PF_X) {
       if (dx < -7) out.push('left'); if (dx > 7) out.push('right');
       if (dy < -7) out.push('up'); if (dy > 7) out.push('down');
     }
@@ -59,8 +61,10 @@ export class Touch {
     if (!hud) { frame(ctx, 2, TOUCH_TOP - 4, PF_X - 4, H - TOUCH_TOP + 2, C.line, C.night); frame(ctx, RX + 2, TOUCH_TOP - 4, W - RX - 4, H - TOUCH_TOP + 2, C.hot, C.night); }
     else {
       rect(ctx, 8, TOUCH_TOP - 4, PF_X - 16, 1, C.indigo); rect(ctx, RX + 8, TOUCH_TOP - 4, W - RX - 16, 1, C.indigo);
-      text(ctx, 'MOVE', 10, TOUCH_TOP + 2, C.peri);
     }
+    header(ctx, 'MOVE', 10, TOUCH_TOP + 2, PF_X - 20, C.line, t);
+    header(ctx, 'ACTION', RX + 10, TOUCH_TOP + 2, W - RX - 20, C.hot, t);
+    const menuOpen = (g.mods.ui?.menuOpen ?? 'none') !== 'none' || sc !== 'play' && sc !== 'bonus';
     // ---- d-pad: a beveled cross with pixel arrows; pressed arms glow hot
     const { x: cx, y: cy, arm: a } = PAD; const hlf = a >> 1;
     disc(ctx, cx, cy, a + hlf + 6, C.ink); ring(ctx, cx, cy, a + hlf + 6, C.indigo);
@@ -91,6 +95,6 @@ export class Touch {
     disc(ctx, fx, fy, r, fp ? C.pink : C.hot);
     if (!fp) { disc(ctx, fx, fy + 1, r - 4, C.mag); disc(ctx, fx, fy, r - 4, C.hot); }
     disc(ctx, fx - 8, fy - 10, 3, fp ? C.text : C.pink);
-    text(ctx, 'TOOT', fx, fy - 3, C.text, { align: 'center', shadow: C.mag });
+    text(ctx, menuOpen ? 'OK' : 'TOOT', fx, fy - 3, C.text, { align: 'center', shadow: C.mag });
   }
 }

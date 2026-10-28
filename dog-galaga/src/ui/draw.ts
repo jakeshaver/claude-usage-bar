@@ -193,28 +193,72 @@ export function icon(ctx: CanvasRenderingContext2D, name: string, x: number, y: 
   if (shadow) { ctx.fillStyle = shadow; put(1, 1); }
   ctx.fillStyle = color; put(0, 0);
 }
-/** Vertical menu. Selected row: chamfered plum bar, hot caps, animated pixel arrows. */
-export function menu(ctx: CanvasRenderingContext2D, items: string[], sel: number, cx: number, y: number, t: number, gap = 16, icons?: string[], width?: number) {
+export interface Row { x: number; y: number; w: number; h: number }
+/**
+ * Vertical menu. Selected row: chamfered plum bar, hot caps, animated pixel arrows.
+ * opts.center centers every row (icon + label) on cx instead of sharing a left edge.
+ * opts.disabled rows draw dimmed with an optional right-hand tag. Returns each row's hit rect (touch).
+ */
+export function menu(ctx: CanvasRenderingContext2D, items: string[], sel: number, cx: number, y: number, t: number, gap = 16, icons?: string[], width?: number, opts: { center?: boolean; disabled?: boolean[]; tag?: string[] } = {}): Row[] {
   const maxW = Math.max(...items.map(s => textWidth(s))) + (icons ? 12 : 0);
   const w = width ?? maxW + 40;
-  const tx = Math.round(cx - maxW / 2) + (icons ? 12 : 0);
+  const bx = Math.round(cx - w / 2);
+  const rows: Row[] = [];
   items.forEach((it, i) => {
-    const on = i === sel; const yy = y + i * gap;
+    const on = i === sel; const yy = y + i * gap; const off = !!opts.disabled?.[i];
+    rows.push({ x: bx, y: yy - 4, w, h: Math.max(13, gap) });
     if (on) {
-      const bx = Math.round(cx - w / 2);
       chamferFill(ctx, bx, yy - 3, w, 13, C.plum, 3); chamferLine(ctx, bx, yy - 3, w, 13, C.mag, 3);
       rect(ctx, bx + 1, yy, 1, 7, C.hot); rect(ctx, bx + w - 2, yy, 1, 7, C.hot);
       const o = (t >> 3) % 2;
       if (!icons) { arrow(ctx, bx + 8 + o, yy + 3, 'r', 4, C.gold); arrow(ctx, bx + w - 9 - o, yy + 3, 'l', 4, C.gold); }
     }
-    if (icons?.[i]) icon(ctx, icons[i], tx - 12 - (on && (t >> 3) % 2 ? 1 : 0), yy, on ? C.gold : C.peri, on ? C.mag : undefined);
-    text(ctx, it, tx, yy, on ? C.gold : C.text, { shadow: on ? C.mag : C.ink });
+    const rowW = textWidth(it) + (icons ? 12 : 0);
+    const tx = opts.tag?.some(Boolean) ? bx + 30 : (opts.center ? Math.round(cx - rowW / 2) : Math.round(cx - maxW / 2)) + (icons ? 12 : 0);
+    const ic = off ? C.indigo : on ? C.gold : C.peri;
+    if (icons?.[i]) icon(ctx, icons[i], tx - 12 - (on && (t >> 3) % 2 ? 1 : 0), yy, ic, on ? C.mag : undefined);
+    text(ctx, it, tx, yy, off ? C.peri : on ? C.gold : C.text, { shadow: on ? C.mag : C.ink });
+    const tag = opts.tag?.[i];
+    if (tag) { const tw = textWidth(tag) + 6; const tx2 = bx + w - tw - 6; chamferFill(ctx, tx2, yy - 1, tw, 9, C.ink, 2); text(ctx, tag, tx2 + 3, yy, C.indigo); }
   });
+  return rows;
+}
+/** Corner tick brackets just outside a rect (the HUD's targeting-frame motif). */
+export function ticks(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, c: string, len = 6, gap = 3) {
+  const l = x - gap, r = x + w - 1 + gap, tp = y - gap, b = y + h - 1 + gap;
+  rect(ctx, l, tp, len, 1, c); rect(ctx, l, tp, 1, len, c);
+  rect(ctx, r - len + 1, tp, len, 1, c); rect(ctx, r, tp, 1, len, c);
+  rect(ctx, l, b, len, 1, c); rect(ctx, l, b - len + 1, 1, len, c);
+  rect(ctx, r - len + 1, b, len, 1, c); rect(ctx, r, b - len + 1, 1, len, c);
+}
+// ---- palette remap dimming: every pixel maps to a darker palette color (calm, no dither noise)
+let remap: Map<number, number> | null = null;
+const rgbOf = (h: string) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+function nearestDark(r: number, g: number, b: number): number {
+  // target: 38% brightness pulled toward deep navy, then snapped to the nearest palette color
+  const tr = r * 0.34 + 18, tg = g * 0.34 + 16, tb = b * 0.34 + 34;
+  let best = 0, bd = 1e9;
+  P.forEach((h, i) => { const [pr, pg, pb] = rgbOf(h); const d = (pr - tr) ** 2 * 0.8 + (pg - tg) ** 2 + (pb - tb) ** 2 * 0.7; if (d < bd) { bd = d; best = i; } });
+  const [pr, pg, pb] = rgbOf(P[best]);
+  return (255 << 24 | pb << 16 | pg << 8 | pr) >>> 0; // little-endian RGBA as uint32
+}
+/** Darken a screen rect by remapping each pixel to a dark palette neighbor (pause/modal backdrop). */
+export function dimRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
+  if (!remap) remap = new Map();
+  let img: ImageData;
+  try { img = ctx.getImageData(x, y, w, h); } catch { dither(ctx, x, y, w, h, C.ink); return; }
+  const d = new Uint32Array(img.data.buffer);
+  for (let i = 0; i < d.length; i++) {
+    const v = d[i]; let o = remap.get(v);
+    if (o === undefined) { o = nearestDark(v & 255, (v >> 8) & 255, (v >> 16) & 255); if (remap.size < 8192) remap.set(v, o); }
+    d[i] = o;
+  }
+  ctx.putImageData(img, x, y);
 }
 export type Device = 'keyboard' | 'gamepad' | 'touch';
 /** Device-aware button names for hints. */
 export function keys(dev: Device) {
-  if (dev === 'gamepad') return { ok: 'A', back: 'B', pause: 'START', move: 'D-PAD', fire: 'A' };
-  if (dev === 'touch') return { ok: 'TOOT', back: 'II', pause: 'II', move: 'PAD', fire: 'TOOT' };
-  return { ok: 'SPACE', back: 'ESC', pause: 'ESC', move: 'ARROWS', fire: 'SPACE' };
+  if (dev === 'gamepad') return { ok: 'A', back: 'B', pause: 'START', move: 'D-PAD', fire: 'A', next: 'A', skip: 'START', adj: 'D-PAD' };
+  if (dev === 'touch') return { ok: 'TOOT', back: 'II', pause: 'II', move: 'PAD', fire: 'TOOT', next: 'TAP', skip: 'II', adj: 'PAD' };
+  return { ok: 'SPACE', back: 'ESC', pause: 'ESC', move: 'ARROWS', fire: 'SPACE', next: 'SPACE', skip: 'ESC', adj: '< >' };
 }
