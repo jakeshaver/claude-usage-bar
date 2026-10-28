@@ -129,9 +129,11 @@ class World implements Module {
     }
     if (g.paused) return;
     const sc = g.state.scene;
-    if (sc === 'play' || sc === 'bonus' || sc === 'title' || sc === 'map' || sc === 'ending') this.bg.update(g);
+    // the world keeps drifting during dialogue (eased down to a gentle pace), so area entry never freezes
+    if (sc === 'play' || sc === 'bonus' || sc === 'title' || sc === 'map' || sc === 'ending' || sc === 'dialogue') this.bg.update(g, sc === 'dialogue' ? 0.45 : 1);
+    // the sector card plays over the intro dialogue too, so it is gone before the first wave arrives
+    if ((sc === 'play' || sc === 'dialogue') && this.titleCard > 0) this.titleCard--;
     if (sc !== 'play' && sc !== 'bonus') return;
-    if (this.titleCard > 0) this.titleCard--;
     switch (this.phase) {
       case 'intro': if (--this.timer <= 0) this.startNext(); break;
       case 'between': if (--this.timer <= 0) this.startNext(); break;

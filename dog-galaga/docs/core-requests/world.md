@@ -34,3 +34,19 @@ the transition drawing there.
 # Round 2
 
 No new requests. Still optional: #4 (`overlayTop` hook so transitions can cover the HUD side panels).
+
+# Round 3
+
+## 5. (ui owner, verification only) `--touch=on` screenshot param does not show the touch controls
+The critic's `--touch=on` play capture showed no on-screen controls: `tools/screenshot.mjs` forwards `?touch=on`, but
+`src/ui/touch.ts` reads `settings.touch`. Please map the URL param to `state.settings.touch = 'on'` at boot (e.g. in
+`core/boot.ts` next to the other `?area=/?tod=` params, or in ui init) so touch can be verified visually. Not a world defect.
+
+## 6. ARCHITECTURE.md section 2 wording (update of request #3)
+Replace "Time-of-day is a palette-safe overlay tint" with:
+"Time of day is lighting, not a tint: segments are painted into a palette-index buffer in day colours, then remapped
+through per-time-of-day ramps told apart by colour temperature (dawn: cool pale lift with pink-peach highlights and long
+blue shadows; day: identity; dusk: amber/rust/rose mids and highs with purple kept in the shadows plus amber rim light on
+west faces; night: blue, darker, lit windows and lamp pools). Ramps may ordered-dither two palette entries. Tilesets can
+add a screen-fixed backdrop (sky gradient bands) and per-frame `fx` blits (conveyor belts, water swells). Layers are
+far / main / fg 448x256 segments painted once (about 2-7 ms each) and cached as canvases; layers under an opaque layer are skipped."
