@@ -30,13 +30,13 @@ export function tuning(g: Game, fireRate = 0.0016, diveRate = 0.0022): Tuning {
   const fr = Math.sqrt(Math.max(0.0004, fireRate) / 0.0016), dr = Math.sqrt(Math.max(0.0004, diveRate) / 0.0022);
   return {
     d,
-    spitSpeed: lerp(1.45, 2.25, d),
-    spitCap: Math.round(lerp(3, 9, d)),
-    bossSpitCap: Math.round(lerp(14, 26, d)),
+    spitSpeed: lerp(1.35, 2.1, d),
+    spitCap: Math.round(lerp(3, 6, d)),
+    bossSpitCap: Math.round(lerp(12, 18, d)),
     fireEvery: Math.round(lerp(90, 58, d) / fr),
     diveEvery: Math.round(lerp(150, 100, d) / dr),
-    diveGroups: d < 0.2 ? 1 : d < 0.5 ? 2 : 3,
-    diveSpeed: lerp(2.7, 3.5, d),
+    diveGroups: d < 0.2 ? 1 : d < 0.88 ? 2 : 3,   // 3 groups only in sectors 12-13
+    diveSpeed: lerp(2.6, 3.3, d),
     entrySpeed: lerp(2.7, 3.3, d),
     diveShots: d < 0.15 ? 1 : 2,
     tell: Math.round(lerp(22, 14, d)),

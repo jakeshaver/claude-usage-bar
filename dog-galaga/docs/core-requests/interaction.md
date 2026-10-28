@@ -28,3 +28,32 @@
    `street > alley > rooftops > cafe > factory > sky > moon` is the one lost, still `allReachEnding: true`).
    Fix: have bot-core set a flag that disables `ui.autopilotNav` map picks (e.g. `g.mods.ui.botDrivesMap = true`),
    or have autopilotNav wait ~20 ticks after the map scene opens.
+
+# Core requests from `interaction` (builder round 2)
+
+1. **`pxShadow` in `src/core/pixel.ts` still uses `ctx.globalAlpha`** (breaks the fixed palette: muddy tints that change
+   with the floor). Interaction no longer calls it (it uses its own `ditherShadow` in `src/interaction/art.ts`, a 50%
+   checkerboard of ink `0`). Please switch `pxShadow` to the same checkerboard (or re-export `ditherShadow` from core)
+   for any other caller.
+2. **`effects.flash(color, ticks)` takes a raw CSS colour.** Interaction now passes `col('f')` (palette-derived). Nicer:
+   let `flash` accept a palette key (`'f'`) and resolve it with `col()` inside effects.
+3. **Bigger Big Cats (art).** Boss sprites are 64x64 canvases but the drawn cat fills only ~48-52px. Interaction now
+   adds a per-tier craft around them (tier 1 hover jets for alley..factory, tier 2 saucer for sky..station, tier 3 a
+   winged throne for the Empress: see `bossRig` in `src/interaction/art.ts`), a playfield HP bar, bandage/sweat damage
+   marks and a 1px hit recoil. What only art can do: redraw `boss_*` so the cat fills 64-72px of its canvas (Empress
+   80px, needs an 80x80 canvas; interaction centers by canvas size so nothing else changes), and give every boss 3 idle
+   frames (interaction already cycles `frameCount(sprite)` frames). Keep each boss's face roughly centered in the upper
+   half: interaction draws bandages at (+17,-19) and (-22,+9) from the sprite center.
+4. **Showcase stages (showcase + tools).** `?showcase=interaction&stage=<name>` is handled inside interaction (it reads
+   `location.search` in `init` as a fallback): stages `capturer | rescue | splitter | tank | dive | tell | boss | bullets
+   | play` (default `play` = autopilot flies and shoots), `&at=<ticks>` overrides the freeze tick, `&phase=1|2` stages a
+   bruised boss. Please (a) call `g.mods.interaction.stage(p.get('stage') ?? 'play')` explicitly from the `interaction`
+   showcase case after the wave starts, and (b) add `stage`, `at`, `phase` to the forwarded keys in
+   `tools/screenshot.mjs` (today they only work through `--url=http://127.0.0.1:4206/?stage=tank`).
+5. **Content mismatch (quest/content, from the critic):** the docks intro dialogue says "FISH MARKET DOCKS AT DAWN" even
+   when `tod=dusk`. Either drop the time of day from the line or add per-tod variants with `when` conditions.
+6. **Formation size in `content/waves.json` (optional):** interaction now caps every formation at 8 columns x 5 rows
+   (38px columns, 34-36px rows) and drops columns >= 8, so the 10-column waves (cafe onward) lose columns 8-9. Content
+   could be re-authored to 8 columns so the data matches what is flown.
+7. **Audio (optional):** the capturer's tractor beam plays `blip`; a dedicated `beam` sfx (a soft rising warble, ~1.4s)
+   would sell the Galaga capture moment.
