@@ -2,20 +2,26 @@ import type { Game, Module } from '../core/game';
 import { WORLD_W, H } from '../core/game';
 import type { EnemyDef, WaveDef, BonusDef } from '../core/types';
 import { drawSprite } from '../art/sprite';
-import { entryPath, bonusPath, sample, pathLen, type Pt } from './paths';
+import { col } from '../core/palette';
+import { entryPath, divePath, bonusPath, Track, type Pt, type TrackPos } from './paths';
+import { tuning, type Tuning } from './tuning';
+import { pxRing, pxDither, pxShadow, pxSpark, pxDisc } from './pixel';
 import { Boss } from './boss';
 
+export type CatState = 'wait' | 'enter' | 'home' | 'form' | 'dive' | 'return' | 'leave' | 'flyby' | 'kdive';
 export interface Cat {
-  id: number; def: EnemyDef; hp: number; x: number; y: number;
-  st: 'wait' | 'enter' | 'form' | 'dive' | 'return' | 'leave' | 'flyby' | 'kdive';
-  slot: Pt; path: Pt[]; u: number; du: number; delay: number; t: number; flash: number;
-  pup?: boolean; glow?: boolean; side: number; diveSeed: number;
+  id: number; def: EnemyDef; hp: number; x: number; y: number; vx: number; vy: number;
+  st: CatState;
+  slot: Pt; track: Track | null; s: number; speed: number; lat: number; weave: number;
+  delay: number; t: number; flash: number; tell: number; shots: number; group: number;
+  pup?: boolean; glow?: boolean; side: number; diveSeed: number; dead?: boolean; up?: boolean;
 }
 export interface Shot { x: number; y: number; vx: number; vy: number; kind: 'turd' | 'hairball' | 'yarn'; t: number }
-export interface Pickup { kind: string; x: number; y: number; vy: number; t: number }
+export interface Pickup { kind: string; x: number; y: number; vy: number; t: number; vx?: number }
 
 const WAVE_LIMIT = 75 * 60;  // cats lose interest after 75s, so waves can never stall
-const MAX_TURDS = 4, MAX_SPIT = 10;
+const MAX_TURDS = 4;
+const tp: TrackPos = { x: 0, y: 0, hx: 0, hy: 1 };
 
 /** Interaction: turds, cats, formations, dives, damage, bosses, pickups. */
 class Interaction implements Module {
@@ -27,14 +33,21 @@ class Interaction implements Module {
   wave: WaveDef | null = null; waveT = 0; active = false; mode: 'none' | 'wave' | 'boss' | 'bonus' = 'none';
   bonus: { def: BonusDef; hits: number; total: number } | null = null;
   sway = 0; nextId = 1; pupHolder = -1;
+  T: Tuning = { d: 0, spitSpeed: 1.5, spitCap: 3, bossSpitCap: 14, fireEvery: 90, diveEvery: 180, diveGroups: 1, diveSpeed: 2.7, entrySpeed: 2.7, diveShots: 1, tell: 22 };
+  fireT = 0; diveT = 0; breathMix = 0; entryDone = false; clearHold = 0; total = 0;
 
   init(g: Game) { this.g = g; }
   enemy(id: string) { return this.g.content.enemies.find(e => e.id === id) ?? this.g.content.enemies[0]; }
 
   clearAll() { this.cats = []; this.turds = []; this.spits = []; this.pickups = []; this.boss = null; this.active = false; this.mode = 'none'; this.bonus = null; }
   /** Pom napped: clear the air. Waves restart; a boss keeps its damage (cozy, never a full reset). */
-  napReset() { this.turds = []; this.spits = []; this.pickups = []; if (this.boss) { this.boss.y = -60; this.boss.entering = true; } else this.clearAll(); }
+  napReset() { this.turds = []; this.spits = []; this.pickups = []; if (this.boss) { this.boss.reenter(); this.cats = []; } else this.clearAll(); }
   liveCats() { return this.cats.length + (this.boss ? 1 : 0); }
+
+  private mkCat(def: EnemyDef, x: number, y: number, st: CatState, extra: Partial<Cat> = {}): Cat {
+    return { id: this.nextId++, def, hp: def.hp, x, y, vx: 0, vy: 0, st, slot: [x, y], track: null, s: 0, speed: 0, lat: 0, weave: 0,
+      delay: 0, t: 0, flash: 0, tell: 0, shots: 0, group: 0, side: 1, diveSeed: 0, ...extra };
+  }
 
   startWave(areaId: string, i: number) {
     const g = this.g; const area = g.mods.world.area(areaId);
@@ -43,22 +56,34 @@ class Interaction implements Module {
     if (!w) { g.reportError('interaction', `missing wave ${wid}`); g.bus.emit('wave:clear', { areaId, waveIndex: i }); return; }
     g.reseed(areaId, i);
     this.wave = w; this.waveT = 0; this.active = true; this.mode = 'wave';
+    const T = this.T = tuning(g, w.fireRate, w.diveRate);
+    this.fireT = 120; this.diveT = 60; this.breathMix = 0; this.entryDone = false; this.clearHold = 0;
     const sp = w.formation.spacing ?? 36; const cols = w.formation.cols;
     const x0 = WORLD_W / 2 - ((cols - 1) * sp) / 2;
+    const gap = Math.round(96 - 26 * T.d);
     let n = 0;
     for (const grp of w.cats) {
       const def = this.enemy(grp.breed);
       const colsList = grp.cols ?? Array.from({ length: cols }, (_, k) => k);
       for (const c of colsList) {
         const slot: Pt = [x0 + c * sp, 44 + grp.row * 30];
-        const side = (n % 2) ? -1 : 1;
-        const kind = w.entry === 'swirl-left' || w.entry === 'swirl-right' ? (Math.floor(n / 8) % 2 ? (w.entry === 'swirl-left' ? 'swirl-right' : 'swirl-left') : w.entry) : w.entry;
-        const path = entryPath(kind, side, slot);
-        this.cats.push({ id: this.nextId++, def, hp: def.hp, x: path[0][0], y: path[0][1], st: 'wait', slot, path, u: 0, du: 2.6 / pathLen(path),
-          delay: Math.floor(n / 8) * 100 + (n % 8) * 9, t: 0, flash: 0, side, diveSeed: g.rng.next() });
+        const gi = Math.floor(n / 8), k = n % 8;
+        let kind: string = w.entry, side = 1, lat = 0, delay = gi * gap;
+        switch (w.entry) {
+          case 'split': side = k % 2 ? -1 : 1; delay += Math.floor(k / 2) * 12; break;           // two crossing streams
+          case 'swirl-left': case 'swirl-right':                                                  // pairs abreast, groups alternate sides
+            side = gi % 2 ? -1 : 1; lat = k % 2 ? -15 : 15; delay += Math.floor(k / 2) * 14; break;
+          case 'loop': side = gi % 2 ? -1 : 1; delay += k * 10; break;                             // single file, alternating sides
+          case 'rain': side = k % 2 ? -1 : 1; delay += Math.floor(k / 2) * 11; break;          // two mirrored pours
+          default: delay += k * 10;
+        }
+        const track = new Track(entryPath(kind, side, slot));
+        const p0 = track.at(0, tp);
+        this.cats.push(this.mkCat(def, p0.x, p0.y, 'wait', { slot, track, speed: T.entrySpeed, lat, delay, side, diveSeed: g.rng.next() }));
         n++;
       }
     }
+    this.total = this.cats.length;
     // a capturer may carry a lost pup (once per area)
     const holder = this.cats.find(c => c.def.behavior === 'capturer');
     if (holder && !g.state.flags['pup_' + areaId]) holder.pup = true;
@@ -67,6 +92,7 @@ class Interaction implements Module {
 
   startBoss(id: string) {
     this.clearAll(); this.g.reseed('boss', id);
+    this.T = tuning(this.g);
     const def = this.enemy(id);
     this.boss = new Boss(this.g, this, def); this.active = true; this.mode = 'boss';
     this.g.bus.emit('boss:start', { bossId: id });
@@ -74,18 +100,22 @@ class Interaction implements Module {
 
   startBonus(def: BonusDef, total = def.groups * 8) {
     this.clearAll(); this.g.reseed('bonus', def.id);
+    this.T = tuning(this.g); this.waveT = 0;
     this.mode = 'bonus'; this.active = true; this.bonus = { def, hits: 0, total };
     const ed = this.enemy(def.breed);
-    for (let gi = 0; gi < def.groups; gi++) for (let k = 0; k < 8; k++) {
-      const path = bonusPath(def.pattern, gi);
-      this.cats.push({ id: this.nextId++, def: { ...ed, hp: 1 }, hp: 1, x: path[0][0], y: path[0][1], st: 'wait', slot: [0, 0], path, u: 0, du: 2.4 / pathLen(path),
-        delay: gi * 150 + k * 10, t: 0, flash: 0, side: 1, diveSeed: 0 });
+    for (let gi = 0; gi < def.groups; gi++) {
+      const track = new Track(bonusPath(def.pattern, gi)); const p0 = track.at(0, tp);
+      for (let k = 0; k < 8; k++)
+        this.cats.push(this.mkCat({ ...ed, hp: 1 }, p0.x, p0.y, 'wait', { track, speed: 2.5, lat: k % 2 ? -8 : 8, delay: gi * 140 + Math.floor(k / 2) * 16 }));
     }
   }
 
   markGlow() { const c = this.cats.find(c => !c.pup && !c.glow && c.def.behavior !== 'capturer'); if (c) c.glow = true; }
 
-  spawnPickup(kind: string, x: number, y: number) { this.pickups.push({ kind, x, y, vy: 0.7, t: 0 }); }
+  spawnPickup(kind: string, x: number, y: number) {
+    const pup = kind === 'pup';
+    this.pickups.push({ kind, x, y, vy: pup ? -1.4 : 0.7, t: 0, vx: 0 });
+  }
 
   fireTurds(x: number, y: number, pattern: { dx: number; vx: number }[]) {
     if (this.turds.length + pattern.length > MAX_TURDS + 4 || this.turds.length >= MAX_TURDS + (pattern.length - 1) * 2) return false;
@@ -93,13 +123,29 @@ class Interaction implements Module {
     return true;
   }
 
-  threats() { return [...this.spits, ...this.cats.filter(c => c.st === 'dive' || c.st === 'kdive')]; }
+  /** Everything that can hurt Pom, with velocities, for the autopilot's danger projection. */
+  threats() {
+    const out: { x: number; y: number; vx: number; vy: number; st?: string }[] = [...this.spits];
+    for (const c of this.cats) if ((c.st === 'dive' || c.st === 'kdive' || c.st === 'return') && c.y > 60) out.push({ x: c.x, y: c.y, vx: c.vx, vy: c.vy, st: c.st });
+    if (this.boss) out.push(...this.boss.threats());
+    return out;
+  }
   target(px: number) {
-    const live = this.cats.filter(c => c.st !== 'wait' && c.y > 0 && c.y < 260);
     if (this.boss) return { x: this.boss.x };
     let best: Cat | null = null, bd = 1e9;
-    for (const c of live) { const d = Math.abs(c.x - px) - c.y * 0.3; if (d < bd) { bd = d; best = c; } }
+    for (const c of this.cats) {
+      if (c.st === 'wait' || c.st === 'leave' || c.y < 0 || c.y > 260) continue;
+      const d = Math.abs(c.x - px) - c.y * 0.3; if (d < bd) { bd = d; best = c; }
+    }
     return best;
+  }
+
+  /** Formation home of a slot right now: sways side to side while cats arrive, then breathes in and out. */
+  private liveSlot(c: Cat): Pt {
+    const bm = this.breathMix;
+    const sw = Math.sin(this.sway / 80) * 14 * (1 - bm);
+    const br = (1 - Math.cos(this.sway / 40)) * 0.5 * bm;   // 0..1
+    return [WORLD_W / 2 + (c.slot[0] - WORLD_W / 2) * (1 + br * 0.14) + sw, 36 + (c.slot[1] - 36) * (1 + br * 0.22)];
   }
 
   private boop(c: Cat, viaTurd = true) {
@@ -109,14 +155,18 @@ class Interaction implements Module {
     if (viaTurd) g.state.stats.hits++;
     g.mods.effects?.burst(c.x, c.y, 'boop'); g.mods.effects?.floatText(c.x, c.y - 10, String(pts));
     g.mods.audio?.sfx('meow');
-    if (c.pup) this.spawnPickup('pup', c.x, c.y);
+    if (c.pup) { this.spawnPickup('pup', c.x, c.y + 14); g.mods.effects?.burst(c.x, c.y + 14, 'sparkle'); }
     if (this.wave?.pickup && g.rng.chance(0.06)) this.spawnPickup(this.wave.pickup, c.x, c.y);
-    if (c.def.behavior === 'splitter') for (const s of [-1, 1]) {
-      const kd = this.enemy('kitten');
-      this.cats.push({ id: this.nextId++, def: kd, hp: 1, x: c.x + s * 6, y: c.y, st: 'kdive', slot: c.slot, path: [], u: 0, du: 0, delay: 0, t: 0, flash: 0, side: s, diveSeed: g.rng.next() });
-    }
+    if (c.def.behavior === 'splitter') for (const s of [-1, 1]) this.spawnKitten(c.x + s * 6, c.y, s * 1.5, -1.6, c.slot);
     if (this.bonus) this.bonus.hits++;
+    c.dead = true;
     g.bus.emit('cat:boop', { breed: c.def.id, x: c.x, y: c.y, points: pts, glow: !!c.glow, bonus: this.mode === 'bonus' });
+  }
+
+  /** Kittens pop out in a little arc, then tumble down toward Pom. */
+  spawnKitten(x: number, y: number, vx: number, vy: number, slot: Pt = [x, y]) {
+    const kd = this.enemy('kitten');
+    this.cats.push(this.mkCat(kd, x, y, 'kdive', { vx, vy, slot, side: Math.sign(vx) || 1, diveSeed: this.g.rng.next() }));
   }
 
   update(g: Game) {
@@ -124,136 +174,210 @@ class Interaction implements Module {
     if ((sc !== 'play' && sc !== 'bonus') || g.paused) return;
     this.sway++;
     const P = g.mods.player; const pb = P?.hitbox();
+    const T = this.T;
     // turds
     for (const s of this.turds) { s.x += s.vx; s.y += s.vy; s.t++; }
     this.turds = this.turds.filter(s => s.y > -16 && s.x > -10 && s.x < WORLD_W + 10);
     // spits
     for (const s of this.spits) { s.x += s.vx; s.y += s.vy; s.t++; }
-    this.spits = this.spits.filter(s => s.y < H + 10 && s.x > -10 && s.x < WORLD_W + 10);
+    this.spits = this.spits.filter(s => s.y < H + 10 && s.y > -20 && s.x > -10 && s.x < WORLD_W + 10);
     if (this.active) this.waveT++;
 
-    const sw = Math.sin(this.sway / 70) * 14;
-    const breathe = 1 + Math.sin(this.sway / 45) * 0.04;
-    const w = this.wave;
-    const formCount = this.cats.filter(c => c.st === 'form').length;
-    for (const c of this.cats) {
-      c.t++; if (c.flash > 0) c.flash--;
-      const sx = WORLD_W / 2 + (c.slot[0] - WORLD_W / 2) * breathe + sw, sy = c.slot[1];
-      switch (c.st) {
-        case 'wait': if (--c.delay <= 0) c.st = this.mode === 'bonus' ? 'flyby' : 'enter'; break;
-        case 'enter': case 'flyby': {
-          c.u += c.du;
-          const path = c.st === 'enter' ? [...c.path.slice(0, -1), [sx, sy] as Pt] : c.path;
-          const [nx, ny] = sample(path, Math.min(1, c.u)); c.x = nx; c.y = ny;
-          if (c.u >= 1) { if (c.st === 'enter') c.st = 'form'; else c.st = 'leave'; }
-          if (c.st === 'enter' && w && g.rng.chance(w.fireRate * 0.5)) this.spit(c, P);
-          break;
-        }
-        case 'form': {
-          c.x += (sx - c.x) * 0.2; c.y += (sy - c.y) * 0.2;
-          if (this.waveT > WAVE_LIMIT) { c.st = 'leave'; break; }
-          if (!w) break;
-          const isDiver = c.def.behavior === 'diver' || c.def.behavior === 'zigzag' || c.def.behavior === 'capturer';
-          const rate = w.diveRate * (isDiver ? 1.8 : 1) * (1 + (1 - formCount / Math.max(1, this.cats.length)) * 1.5);
-          const enteringDone = !this.cats.some(o => o.st === 'wait' || o.st === 'enter');
-          if (enteringDone && this.diving() < 3 + Math.floor(this.g.state.areasCleared.length / 3) && g.rng.chance(rate)) this.startDive(c);
-          else if (g.rng.chance(w.fireRate * (c.def.behavior === 'shooter' ? 3 : 1) * 0.3)) this.spit(c, P);
-          break;
-        }
-        case 'dive': {
-          c.u += c.du;
-          const z = c.def.behavior === 'zigzag' ? Math.sin(c.t / 9) * 3 : 0;
-          const [nx, ny] = sample(c.path, Math.min(1, c.u)); c.x = nx + z; c.y = ny;
-          if (w && c.y < 260 && g.rng.chance(w.fireRate * (c.def.behavior === 'shooter' ? 6 : 3))) this.spit(c, P);
-          if (c.u >= 1) { c.st = 'return'; c.x = sx; c.y = -30; }
-          break;
-        }
-        case 'kdive': { c.y += 2.6; c.x += Math.sin(c.t / 8 + c.side) * 1.6; if (c.y > H + 20) c.st = 'leave'; break; }
-        case 'return': {
-          c.x += (sx - c.x) * 0.08; c.y += Math.min(3, (sy - c.y) * 0.08 + 1);
-          if (Math.abs(c.y - sy) < 2) c.st = 'form';
-          if (this.waveT > WAVE_LIMIT) c.st = 'leave';
-          break;
-        }
-        case 'leave': c.y -= 3; break;
+    const w = this.wave; const bonus = this.mode === 'bonus';
+    const timedOut = this.waveT > WAVE_LIMIT && this.mode === 'wave';
+    if (!this.entryDone && this.mode === 'wave' && !this.cats.some(o => o.st === 'wait' || o.st === 'enter' || o.st === 'home')) this.entryDone = true;
+    if (this.entryDone && this.breathMix < 1) this.breathMix = Math.min(1, this.breathMix + 1 / 90);
+
+    // schedulers: dives and formation fire (Galaga style: a steady drumbeat, not random noise)
+    if (this.mode === 'wave' && w && !timedOut) {
+      const inForm = this.cats.filter(c => c.st === 'form');
+      if (this.entryDone && --this.diveT <= 0) {
+        const groups = new Set(this.cats.filter(c => c.st === 'dive').map(c => c.group)).size;
+        if (groups < T.diveGroups && inForm.length) this.launchDive(inForm);
+        const left = inForm.length / Math.max(1, this.total);
+        this.diveT = Math.round(T.diveEvery * g.rng.range(0.7, 1.3) * (0.45 + 0.55 * left));
       }
-      // turd collisions
-      if (c.st !== 'wait' && c.st !== 'leave') {
-        const r = (c.def.size ?? 32) / 2 - 4;
-        for (const s of this.turds) {
-          if (Math.abs(s.x - c.x) < r && Math.abs(s.y - c.y) < r) {
-            s.y = -999; c.hp--; c.flash = 6; g.mods.audio?.sfx('thud');
-            if (c.hp <= 0) { this.boop(c); c.st = 'leave'; c.y = -9999; }
-            break;
-          }
-        }
-        // body collision with player
-        if (pb && c.y > 0 && (c.st === 'dive' || c.st === 'kdive') && Math.abs(c.x - (pb.x + 5)) < 13 && Math.abs(c.y - (pb.y + 5)) < 13) {
-          if (P.hit()) { this.boop(c, false); c.st = 'leave'; c.y = -9999; }
+      if (--this.fireT <= 0) {
+        this.fireT = Math.round(T.fireEvery * g.rng.range(0.6, 1.4));
+        if (inForm.length && this.spits.length < T.spitCap) {
+          const px = P?.x ?? WORLD_W / 2; let tot = 0;
+          const wt = inForm.map(c => { const v = (c.def.behavior === 'shooter' ? 4 : 1) * (Math.abs(c.x - px) < 90 ? 2 : 1) * (c.tell ? 0 : 1); tot += v; return v; });
+          let r = g.rng.next() * tot;
+          for (let k = 0; k < inForm.length; k++) { r -= wt[k]; if (r <= 0 && wt[k]) { inForm[k].tell = T.tell; break; } }
         }
       }
     }
-    this.cats = this.cats.filter(c => !(c.st === 'leave' && (c.y < -40 || c.y > H + 30 || c.y === -9999)));
+
+    const arr = this.cats;
+    for (const c of arr) {
+      if (c.dead) continue;
+      c.t++; if (c.flash > 0) c.flash--;
+      const ox = c.x, oy = c.y;
+      switch (c.st) {
+        case 'wait': if (--c.delay <= 0) c.st = bonus ? 'flyby' : 'enter'; break;
+        case 'enter': case 'flyby': case 'dive': {
+          const tr = c.track!; c.s += c.speed; tr.at(c.s, tp);
+          // lateral offset: pairs flying abreast, zigzag weave; fades in after the peel and out near the end
+          const fade = Math.min(1, c.s / 40, (tr.len - c.s) / 50);
+          const off = c.lat * Math.max(0, fade) + (c.weave ? Math.sin(c.t / 8) * c.weave * Math.max(0, Math.min(1, (c.s - 60) / 40)) : 0);
+          c.x = tp.x - tp.hy * off; c.y = tp.y + tp.hx * off;
+          if (c.s >= tr.len) {
+            if (c.st === 'enter') c.st = 'home';
+            else if (c.st === 'flyby') { c.st = 'leave'; c.dead = true; }
+            else { // dive done: wrap to the top if it flew off the bottom, then glide home
+              if (c.y > H) { c.x = this.liveSlot(c)[0]; c.y = -28; }
+              c.st = timedOut ? 'leave' : 'return'; c.speed = 2.4;
+            }
+          }
+          if (c.st === 'dive' && c.shots > 0 && c.tell === 0 && c.y > 110 && c.y < 220 && P && Math.abs(c.x - P.x) < 120 && this.spits.length < T.spitCap && g.rng.chance(0.05)) { c.shots--; c.tell = T.tell; }
+          break;
+        }
+        case 'home': case 'return': {
+          const [sx, sy] = this.liveSlot(c); const dx = sx - c.x, dy = sy - c.y; const d = Math.hypot(dx, dy);
+          const sp = c.st === 'home' ? c.speed : Math.min(c.speed, 1 + d * 0.05);
+          if (d <= sp + 0.5) { c.x = sx; c.y = sy; c.st = 'form'; }
+          else { c.x += dx / d * sp; c.y += dy / d * sp; }
+          if (timedOut) c.st = 'leave';
+          break;
+        }
+        case 'form': {
+          const [sx, sy] = this.liveSlot(c); c.x = sx; c.y = sy;
+          if (timedOut) c.st = 'leave';
+          break;
+        }
+        case 'kdive': {
+          c.vy = Math.min(2.4, c.vy + 0.07); c.vx *= 0.985;
+          c.x += c.vx + Math.sin(c.t / 9 + c.side) * 0.5; c.y += c.vy;
+          if (c.y > H + 20) c.dead = true;
+          break;
+        }
+        case 'leave': c.y -= 3; if (c.y < -40) c.dead = true; break;
+      }
+      c.vx = c.st === 'kdive' ? c.vx : c.x - ox; if (c.st !== 'kdive') c.vy = c.y - oy;
+      c.up = (c.st === 'enter' || c.st === 'dive' || c.st === 'flyby') && c.vy < -0.9 * Math.max(0.5, Math.abs(c.vx));
+      // wind-up, then cough a hairball
+      if (c.tell > 0 && --c.tell === 0 && !c.dead && c.st !== 'leave' && c.st !== 'wait') this.spit(c, P);
+
+      // turd collisions: generous cat boxes
+      if (c.st !== 'wait' && c.st !== 'leave' && !c.dead && c.y > -10) {
+        const r = (c.def.size ?? 32) / 2 - 3;
+        for (const s of this.turds) {
+          if (Math.abs(s.x - c.x) < r + 2 && Math.abs(s.y - c.y) < r + 3) {
+            s.y = -999; c.hp--; g.mods.audio?.sfx('thud');
+            if (c.hp <= 0) this.boop(c);
+            else { c.flash = 14; c.y -= 3; g.mods.effects?.burst(c.x, c.y - 6, 'poof'); }   // tanks shrug it off, flashing
+            break;
+          }
+        }
+        // body collision with Pom (small player box)
+        if (!c.dead && pb && c.y > 150 && (c.st === 'dive' || c.st === 'kdive' || c.st === 'return') &&
+          Math.abs(c.x - (pb.x + pb.w / 2)) < 8 + pb.w / 2 && Math.abs(c.y - (pb.y + pb.h / 2)) < 8 + pb.h / 2) {
+          if (P.hit()) this.boop(c, false);
+          if (this.cats !== arr) return; // Pom napped: the wave was reset
+        }
+      }
+    }
+    this.cats = this.cats.filter(c => !c.dead);
 
     // boss
     if (this.boss) {
       this.boss.update();
       const b = this.boss;
-      for (const s of this.turds) if (Math.abs(s.x - b.x) < b.r && Math.abs(s.y - b.y) < b.r) {
-        s.y = -999; b.damage(1); g.state.stats.hits++; g.mods.audio?.sfx('thud');
+      for (const s of this.turds) if (Math.abs(s.x - b.x) < b.r && Math.abs(s.y - b.y) < b.r + 4) {
+        s.y = -999;
+        if (b.vulnerable()) { b.damage(1); g.state.stats.hits++; g.mods.audio?.sfx('thud'); }
+        else g.mods.effects?.burst(s.x, b.y + 20, 'sparkle');
       }
       if (b.dead) {
         g.ops.addScore(b.def.points); g.mods.effects?.burst(b.x, b.y, 'bigboop'); g.mods.effects?.shake(6, 30);
         g.mods.audio?.sfx('bossdown'); this.spawnPickup('pk_heart', b.x, b.y);
+        for (const s of this.spits) g.mods.effects?.burst(s.x, s.y, 'sparkle');
+        this.spits = []; for (const c of this.cats) if (c.st === 'kdive') { c.st = 'leave'; }
         g.bus.emit('boss:defeat', { bossId: b.def.id, napped: b.napped });
         this.boss = null; this.active = false; this.mode = 'none';
+      } else if (pb && b.touches(pb)) {
+        P.hit();
+        if (!this.boss) return;
       }
     }
 
-    // spit vs player
+    // spit vs Pom: the hairball's fuzzy edge never counts, only its core
     if (pb) for (const s of this.spits) {
-      if (s.x > pb.x - 2 && s.x < pb.x + pb.w + 2 && s.y > pb.y - 2 && s.y < pb.y + pb.h + 2) { if (P.hit()) s.y = 9999; else s.y = 9999; }
+      const rr = s.kind === 'yarn' ? 3 : 2;
+      if (s.x > pb.x - rr && s.x < pb.x + pb.w + rr && s.y > pb.y - rr && s.y < pb.y + pb.h + rr) {
+        s.y = 9999; P.hit();
+        if (this.spits.length === 0) break; // napReset cleared the air
+      }
     }
 
     // pickups
+    const catsGone = this.cats.length === 0;
     for (const k of this.pickups) {
-      k.t++; k.y += k.vy; k.x += Math.sin(k.t / 15) * 0.4;
-      if (P) { const dx = P.x - k.x, dy = P.y - k.y; const d = Math.hypot(dx, dy);
-        if (d < 48 && (k.kind === 'pup' || k.kind.startsWith('memory'))) { k.x += dx * 0.05; k.y += dy * 0.05; }
-        if (d < 18) { this.collect(k); k.y = 9999; } }
+      k.t++;
+      const important = k.kind === 'pup' || k.kind.startsWith('memory');
+      if (k.kind === 'pup') {
+        // pops free, then floats down gently and hovers at Pom's altitude until caught
+        k.vy = Math.min(0.45, k.vy + 0.05); k.y += k.vy; k.x += Math.sin(k.t / 20) * 0.35;
+        if (k.y > 318) k.y = 318;
+      } else { k.y += k.vy; k.x += Math.sin(k.t / 15) * 0.4; }
+      if (P) {
+        const dx = P.x - k.x, dy = P.y - k.y; const d = Math.hypot(dx, dy) || 1;
+        if (important && (catsGone || d < 56)) { const sp = catsGone && this.mode !== 'boss' ? 3 : 1.2; k.x += dx / d * Math.min(sp, d); k.y += dy / d * Math.min(sp, d); }
+        if (d < 18) { this.collect(k); k.y = 9999; }
+      }
     }
     this.pickups = this.pickups.filter(k => k.y < H + 20);
 
-    // completion
-    if (this.mode === 'wave' && this.active && !this.cats.length && this.waveT > 30) {
+    // completion (lost pups and memories are always delivered first)
+    const holding = this.pickups.some(k => k.kind === 'pup' || k.kind.startsWith('memory'));
+    if (holding && catsGone) this.clearHold++; else this.clearHold = 0;
+    if (this.mode === 'wave' && this.active && catsGone && this.waveT > 30 && (!holding || this.clearHold > 240)) {
       this.active = false; this.mode = 'none';
       g.bus.emit('wave:clear', { areaId: g.state.areaId, waveIndex: g.state.waveIndex, timedOut: this.waveT > WAVE_LIMIT });
     }
-    if (this.mode === 'bonus' && this.active && !this.cats.length && this.waveT > 30) {
+    if (this.mode === 'bonus' && this.active && catsGone && this.waveT > 30) {
       this.active = false; this.mode = 'none';
       const b = this.bonus!; g.bus.emit('bonus:result', { id: b.def.id, hits: b.hits, total: b.total });
     }
   }
 
-  private diving() { return this.cats.filter(c => c.st === 'dive').length; }
-
-  private startDive(c: Cat) {
-    const g = this.g; const P = g.mods.player; const px = P?.x ?? WORLD_W / 2;
-    const s = c.x < WORLD_W / 2 ? -1 : 1; const r = g.rng;
-    const aim = c.def.behavior === 'diver' ? px : px + r.range(-60, 60);
-    c.path = [[c.x, c.y], [c.x + 30 * s, c.y - 24], [c.x + 50 * s, c.y + 10], [aim + r.range(-40, 40), 200], [aim, 300], [aim - 40 * s, H + 40]];
-    c.u = 0; c.du = (c.def.behavior === 'diver' ? 3.4 : 2.7) / pathLen(c.path); c.st = 'dive';
+  /** Peel a leader (plus escorts for capturers and tanks, sometimes a wingmate) out of the formation. */
+  private launchDive(inForm: Cat[]) {
+    const g = this.g; const r = g.rng; const T = this.T; const P = g.mods.player; const px = P?.x ?? WORLD_W / 2;
+    let tot = 0;
+    const wt = inForm.map(c => { const b = c.def.behavior; const v = b === 'diver' || b === 'zigzag' ? 2 : b === 'capturer' ? 1.6 : 1; tot += v; return v; });
+    let pick = r.next() * tot, leader = inForm[0];
+    for (let k = 0; k < inForm.length; k++) { pick -= wt[k]; if (pick <= 0) { leader = inForm[k]; break; } }
+    const b = leader.def.behavior;
+    const maxEsc = b === 'capturer' || b === 'tank' ? 2 : (b === 'basic' || b === 'splitter') && r.chance(0.4) ? 1 : 0;
+    const sp = this.wave?.formation.spacing ?? 36;
+    const esc = inForm.filter(o => o !== leader && o.slot[1] > leader.slot[1] && o.slot[1] - leader.slot[1] < 34 && Math.abs(o.slot[0] - leader.slot[0]) < sp * 1.2)
+      .sort((a, c) => Math.abs(a.slot[0] - leader.slot[0]) - Math.abs(c.slot[0] - leader.slot[0])).slice(0, maxEsc);
+    const path = divePath(leader.x, leader.y, px + r.range(-30, 30), b === 'splitter' ? 'basic' : b, r.range(-1, 1), H);
+    const speed = T.diveSpeed * (b === 'diver' ? 1.15 : b === 'tank' ? 0.8 : b === 'capturer' ? 0.9 : 1);
+    for (const c of [leader, ...esc]) {
+      const ox = c.x - leader.x, oy = c.y - leader.y;
+      c.track = new Track(path.map(p => [p[0] + ox, p[1] + oy] as Pt)); c.s = 0; c.speed = speed; c.lat = 0;
+      c.weave = c.def.behavior === 'zigzag' ? 14 : 0;
+      c.st = 'dive'; c.group = leader.id;
+      c.shots = r.int(0, T.diveShots) + (c.def.behavior === 'shooter' ? 1 : 0);
+    }
     g.mods.audio?.sfx('dive');
   }
 
   private spit(c: Cat, P: any) {
-    if (this.spits.length >= MAX_SPIT || !P || this.mode === 'bonus') return;
-    const dx = P.x - c.x, dy = P.y - c.y; const d = Math.hypot(dx, dy) || 1; const sp = 2.1;
-    const kind = c.def.behavior === 'capturer' ? 'yarn' : 'hairball';
-    this.spits.push({ x: c.x, y: c.y + 8, vx: (dx / d) * sp * 0.6, vy: Math.max(1.2, (dy / d) * sp), kind, t: 0 });
+    if (!P || this.mode === 'bonus' || this.spits.length >= this.T.spitCap + (this.boss ? 4 : 0)) return;
+    const yarn = c.def.behavior === 'capturer';
+    const sp = this.T.spitSpeed * (yarn ? 0.85 : 1);
+    const dx = P.x - c.x, dy = Math.max(40, P.y - c.y); const d = Math.hypot(dx, dy) || 1;
+    const aim = c.def.behavior === 'shooter' ? 1 : 0.6; // shooters aim true, everyone else lobs mostly downward
+    let vx = (dx / d) * sp * aim; vx = Math.max(-0.55 * sp, Math.min(0.55 * sp, vx));
+    const vy = Math.sqrt(Math.max(0.5, sp * sp - vx * vx));
+    this.spits.push({ x: c.x, y: c.y + 10, vx, vy, kind: yarn ? 'yarn' : 'hairball', t: 0 });
+    this.g.mods.audio?.sfx('hack');
   }
 
-  bossSpit(x: number, y: number, vx: number, vy: number) { if (this.spits.length < MAX_SPIT + 14) this.spits.push({ x, y, vx, vy, kind: 'hairball', t: 0 }); }
+  bossSpit(x: number, y: number, vx: number, vy: number) { if (this.spits.length < this.T.bossSpitCap) this.spits.push({ x, y, vx, vy, kind: 'hairball', t: 0 }); }
 
   private collect(k: Pickup) {
     const g = this.g; const P = g.mods.player;
@@ -279,24 +403,47 @@ class Interaction implements Module {
     const sc = g.state.scene;
     if (sc !== 'play' && sc !== 'bonus' && sc !== 'dialogue') return;
     for (const c of this.cats) {
-      if (c.st === 'wait' || c.y < -30) continue;
+      if (c.st === 'wait' || c.y < -30 || c.dead) continue;
       const frame = Math.floor((c.t + c.id * 7) / 12) % 2;
       const sz = c.def.size ?? 32;
-      r.push(1, c.y, (ctx: CanvasRenderingContext2D) => { ctx.fillStyle = 'rgba(11,10,20,0.28)'; ctx.fillRect(Math.round(c.x - sz / 4), Math.round(c.y + sz / 2 + 10), Math.round(sz / 2), 2); });
-      r.push(2, c.y, (ctx: CanvasRenderingContext2D) => {
-        if (c.glow) { ctx.fillStyle = (c.t >> 3) % 2 ? 'rgba(255,209,102,0.35)' : 'rgba(255,209,102,0.2)'; ctx.beginPath(); ctx.arc(Math.round(c.x), Math.round(c.y), 18, 0, 7); ctx.fill(); }
-        const flip = c.st === 'dive' && c.path.length ? false : false;
-        drawSprite(ctx, c.def.sprite, c.x, c.y, { frame, flash: c.flash > 0, flipX: flip });
-        if (c.pup) drawSprite(ctx, 'pup', c.x, c.y + 18);
+      const x = c.x, y = c.y;
+      r.push(1, y, (ctx: CanvasRenderingContext2D) => pxShadow(ctx, x + 3, y + sz / 2 + 8, sz * 0.55, 0.26));
+      r.push(2, y, (ctx: CanvasRenderingContext2D) => {
+        if (c.glow) { // memory cat: a warm, dithered pixel halo with orbiting sparkles
+          pxDither(ctx, x, y, 17, 'f', (c.t >> 3) & 1);
+          pxRing(ctx, x, y, 18, (c.t >> 3) & 1 ? 'f' : '7', 3, c.t / 20);
+        }
+        if (c.pup) { // the lost pup dangles from a strand of yarn, swinging
+          const sw = Math.round(Math.sin(c.t / 12) * 2);
+          ctx.fillStyle = col('d'); ctx.fillRect(Math.round(x), Math.round(y + 8), 1, 8 + (sw ? 1 : 0));
+          drawSprite(ctx, 'pup', x + sw, y + 22);
+        }
+        const flash = c.flash > 0 && ((c.flash >> 1) & 1) === 1;
+        drawSprite(ctx, c.def.sprite, x, y, { frame, flash, flipY: c.up });
+        if (c.tell > 0) { // wind-up tell: a hairball glints at the mouth, growing before the cough
+          const my = Math.round(y + (c.up ? -12 : 12)); const big = c.tell < this.T.tell / 2;
+          pxDisc(ctx, x, my, big ? 2 : 1, 't'); ctx.fillStyle = col('6'); ctx.fillRect(Math.round(x) - 1, my - 1, 1, 1);
+          if ((c.tell >> 2) & 1) pxSpark(ctx, x + 5, my - 4, '6');
+        }
       });
     }
     if (this.boss) this.boss.render(r);
     for (const s of this.turds) r.push(3, s.y, (ctx: CanvasRenderingContext2D) => drawSprite(ctx, 'turd', s.x, s.y, { frame: 0 }));
-    for (const s of this.spits) r.push(3, s.y, (ctx: CanvasRenderingContext2D) => drawSprite(ctx, s.kind === 'yarn' ? 'yarn' : 'hairball', s.x, s.y));
+    for (const s of this.spits) r.push(3, s.y, (ctx: CanvasRenderingContext2D) => {
+      const yarn = s.kind === 'yarn';
+      // a hard 1px contrast ring makes hairballs pop on any background
+      pxRing(ctx, s.x, s.y, yarn ? 7 : 5, ((s.t >> 2) & 1) ? '6' : (yarn ? 'c' : 't'));
+      drawSprite(ctx, yarn ? 'yarn' : 'hairball', s.x, s.y);
+    });
     for (const k of this.pickups) r.push(3, k.y, (ctx: CanvasRenderingContext2D) => {
-      const name = k.kind === 'pup' ? 'pup' : k.kind.startsWith('memory:') ? 'pk_memory' : (g.content.items.find(i => i.id === k.kind)?.sprite ?? k.kind);
-      if ((k.t >> 3) % 2) { ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.beginPath(); ctx.arc(Math.round(k.x), Math.round(k.y), 11, 0, 7); ctx.fill(); }
-      drawSprite(ctx, name, k.x, k.y + Math.round(Math.sin(k.t / 10)));
+      const pup = k.kind === 'pup';
+      const name = pup ? 'pup' : k.kind.startsWith('memory:') ? 'pk_memory' : (g.content.items.find(i => i.id === k.kind)?.sprite ?? k.kind);
+      const bob = Math.round(Math.sin(k.t / 10));
+      if (pup) { // floating in a bubble, so it reads as "catch me"
+        pxDither(ctx, k.x, k.y + bob, 11, 's', (k.t >> 4) & 1);
+        pxRing(ctx, k.x, k.y + bob, 12, 's'); ctx.fillStyle = col('6'); ctx.fillRect(Math.round(k.x) - 6, Math.round(k.y + bob) - 8, 2, 2);
+      } else pxRing(ctx, k.x, k.y + bob, 10, (k.t >> 3) & 1 ? '6' : 'f', 4, k.t / 15);
+      drawSprite(ctx, name, k.x, k.y + bob);
     });
   }
 }
