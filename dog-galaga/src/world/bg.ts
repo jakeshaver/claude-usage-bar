@@ -6,8 +6,6 @@ import { col } from '../core/palette';
 import { TILESETS, SEG, SW, type Tileset, type LayerDef } from './tiles';
 import { Painter, TOD_RAMP, SPACE_RAMP, INDOOR_RAMP } from './paint';
 
-/** Areas whose content still points at a shared tileset but have their own look (see docs/core-requests/world.md). */
-const AREA_TILESET: Record<string, string> = { nebula: 'nebula' };
 const LAYERS = ['far', 'main', 'fg'] as const;
 type LayerKey = typeof LAYERS[number];
 
@@ -26,7 +24,7 @@ export class Background {
 
   setArea(a: AreaDef, g: Game) {
     this.area = a;
-    this.ts = TILESETS[AREA_TILESET[a.id] ?? a.tileset] ?? TILESETS[a.tileset] ?? TILESETS.backyard;
+    this.ts = TILESETS[a.tileset] ?? TILESETS.backyard;
     this.speed = a.scroll ?? this.ts.speed; this.scroll = 0;
     this.seed = hash(g.state.seed, a.id);
     this.cache.clear();
@@ -37,12 +35,16 @@ export class Background {
     const key = layer + ':' + s;
     let c = this.cache.get(key);
     if (c) { this.cache.delete(key); this.cache.set(key, c); return c; } // LRU touch
-    c = document.createElement('canvas'); c.width = SW; c.height = SEG;
-    const p = new Painter(c, SW, SEG, tod);
+    // paint on a CPU-readable scratch canvas, then copy into a GPU-friendly one: a
+    // willReadFrequently canvas would be re-uploaded on every drawImage (that was the rooftops fps drop)
+    const scratch = document.createElement('canvas'); scratch.width = SW; scratch.height = SEG;
+    const p = new Painter(scratch, SW, SEG, tod);
     if (def.opaque) p.r(this.ts.base, 0, 0, SW, SEG);
     const r = new Rng(hash(this.seed, layer, s));
     def.paint(p, { s, r, seed: this.seed, wy: (y: number) => (s + 1) * SEG - y });
-    p.finish((this.ts.space ? SPACE_RAMP : this.ts.indoor ? INDOOR_RAMP : TOD_RAMP)[tod], tod === 'night' || (tod === 'dusk' && !this.ts.space), this.ts.indoor ? TOD_RAMP.day : undefined);
+    p.finish(this.ts.ramps?.[tod] ?? (this.ts.space ? SPACE_RAMP : this.ts.indoor ? INDOOR_RAMP : TOD_RAMP)[tod], tod === 'night' || (tod === 'dusk' && !this.ts.space), this.ts.indoor ? TOD_RAMP.day : undefined);
+    c = document.createElement('canvas'); c.width = SW; c.height = SEG;
+    const cx = c.getContext('2d')!; cx.imageSmoothingEnabled = false; cx.drawImage(scratch, 0, 0);
     this.cache.set(key, c);
     while (this.cache.size > 16) this.cache.delete(this.cache.keys().next().value!);
     return c;
@@ -62,7 +64,7 @@ export class Background {
       }
       if (ts.anim) {
         const px = (k: string, x: number, y: number, w = 1, h = 1) => { ctx.fillStyle = col(k); ctx.fillRect(x, y, w, h); };
-        ts.anim(px, Math.floor(this.scroll), this.t, this.seed);
+        ts.anim(px, Math.floor(this.scroll), this.t, this.seed, tod);
       }
     });
     // paint the next segment of one layer ahead of time, spread over frames, so a fresh one never hitches

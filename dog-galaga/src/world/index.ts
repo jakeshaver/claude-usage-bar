@@ -197,14 +197,21 @@ function dither(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, 
 }
 /** fade: an ordered-dither dissolve that sweeps down the screen with a teal scan edge */
 function dissolve(ctx: CanvasRenderingContext2D, k: number, closing: boolean) {
-  const band = 8; let edge = -1;
+  const band = 8; let edge = -1; let prevSolid: boolean | null = null;
   for (let y = 0; y < H; y += band) {
     const f = closing ? y / H : 1 - y / H;
     const lv = Math.round((k * 1.6 - 0.6 * f) * 16);
     dither(ctx, 0, y, W, band, lv);
-    if (edge < 0 && lv < 16) edge = y;
+    const solid = lv >= 16;
+    if (edge < 0 && prevSolid !== null && solid !== prevSolid) edge = y;
+    prevSolid = solid;
   }
-  if (k > 0.02 && k < 0.98 && edge >= 0) { ctx.fillStyle = TEAL; ctx.fillRect(0, edge, W, 1); }
+  // scan edge: 2px teal line on the solid/dissolving boundary with a trailing dithered cyan row
+  if (k > 0.02 && k < 0.98 && edge >= 0) {
+    ctx.fillStyle = TEAL; ctx.fillRect(0, edge - 1, W, 2);
+    if (closing) { dither(ctx, 0, edge + 1, W, 2, 8, CYAN); dither(ctx, 0, edge + 3, W, 2, 3, CYAN); }
+    else { dither(ctx, 0, edge - 3, W, 2, 8, CYAN); dither(ctx, 0, edge - 5, W, 2, 3, CYAN); }
+  }
 }
 type Span = [number, number];
 /** union of ellipse row-spans for the paw iris at scale s (grow adds px to every radius) */
@@ -265,16 +272,16 @@ function titleCard(ctx: CanvasRenderingContext2D, name: string, sub: string, idx
     for (let y = y0; y < y1; y++) {
       const top = y - y0, bot = y1 - 1 - y;
       const l = x0 + Math.max(0, ch - top), r = x1 - Math.max(0, ch - bot);
-      dither(ctx, l, y, r - l, 1, (y & 1) ? 14 : 11, INK);
+      ctx.fillStyle = (y - y0) % 3 === 2 ? DEEP : INK; ctx.fillRect(l, y, r - l, 1); // solid panel with scanlines (no see-through ghosts)
       ctx.fillStyle = TEAL; ctx.fillRect(l, y, 1, 1); ctx.fillRect(r - 1, y, 1, 1);
     }
     ctx.fillStyle = CYAN;
     ctx.fillRect(x0 + ch, y0, x1 - x0 - ch, 1); ctx.fillRect(x0, y1 - 1, x1 - x0 - ch, 1);
     for (let i = 0; i < ch; i++) { ctx.fillRect(x0 + ch - 1 - i, y0 + i, 1, 1); ctx.fillRect(x1 - ch + i, y1 - 1 - i, 1, 1); }
-    // corner brackets + tick marks
+    // corner brackets, registered exactly on the square corners of the panel
     ctx.fillStyle = PINK;
-    ctx.fillRect(x1 - 14, y0 - 3, 14, 2); ctx.fillRect(x1 - 2, y0 - 3, 2, 8);
-    ctx.fillRect(x0, y1 + 1, 14, 2); ctx.fillRect(x0, y1 - 5, 2, 8);
+    ctx.fillRect(x1 - 14, y0, 14, 2); ctx.fillRect(x1 - 2, y0, 2, 8);
+    ctx.fillRect(x0, y1 - 2, 14, 2); ctx.fillRect(x0, y1 - 8, 2, 8);
     ctx.fillStyle = TEAL; for (let x = x0 + ch + 6; x < x1 - 20; x += 8) ctx.fillRect(x, y0 + 2, 1, (x / 8) % 4 ? 1 : 3);
   } else { ctx.fillStyle = CYAN; ctx.fillRect(x0, cy, x1 - x0, 1); ctx.fillStyle = INK; ctx.fillRect(x0, cy + 1, x1 - x0, 1); }
   if (hh < 30) return;
