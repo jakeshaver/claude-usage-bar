@@ -1,0 +1,362 @@
+[
+ {
+  "id": "backyard",
+  "name": "The Backyard",
+  "subtitle": "Where every good girl starts",
+  "tileset": "backyard",
+  "music": "yard",
+  "ambience": "birds",
+  "tod": "day",
+  "waves": [
+   "backyard-w1",
+   "backyard-w2",
+   "backyard-w3",
+   "backyard-w4",
+   "backyard-w5",
+   "backyard-w6"
+  ],
+  "boss": "boss_whiskers",
+  "exits": [
+   {
+    "to": "street"
+   }
+  ],
+  "intro": "intro-backyard-1",
+  "outro": "outro-backyard-1"
+ },
+ {
+  "id": "street",
+  "name": "Maple Street",
+  "subtitle": "Mailboxes, sprinklers, and trouble",
+  "tileset": "street",
+  "music": "yard",
+  "ambience": "city",
+  "tod": "day",
+  "waves": [
+   "street-w1",
+   "street-w2",
+   "street-w3",
+   "street-w4",
+   "street-w5",
+   "street-w6",
+   "street-w7"
+  ],
+  "boss": "boss_tom",
+  "exits": [
+   {
+    "to": "park"
+   },
+   {
+    "to": "alley"
+   }
+  ],
+  "intro": "intro-street-1",
+  "outro": "outro-street-1",
+  "bonus": "bonus_mailbox"
+ },
+ {
+  "id": "park",
+  "name": "Barkwood Dog Park",
+  "subtitle": "The Duchess has claimed the lawn",
+  "tileset": "park",
+  "music": "yard",
+  "ambience": "birds",
+  "tod": "day",
+  "waves": [
+   "park-w1",
+   "park-w2",
+   "park-w3",
+   "park-w4",
+   "park-w5",
+   "park-w6",
+   "park-w7"
+  ],
+  "boss": "boss_duchess",
+  "exits": [
+   {
+    "to": "rooftops"
+   }
+  ],
+  "intro": "intro-park-1",
+  "outro": "outro-park-1"
+ },
+ {
+  "id": "alley",
+  "name": "Bodega Alley",
+  "subtitle": "Chips, cats, and a very big boss",
+  "tileset": "alley",
+  "music": "city",
+  "ambience": "city",
+  "tod": "dusk",
+  "waves": [
+   "alley-w1",
+   "alley-w2",
+   "alley-w3",
+   "alley-w4",
+   "alley-w5",
+   "alley-w6",
+   "alley-w7"
+  ],
+  "boss": "boss_sal",
+  "exits": [
+   {
+    "to": "rooftops"
+   }
+  ],
+  "intro": "intro-alley-1",
+  "outro": "outro-alley-1"
+ },
+ {
+  "id": "rooftops",
+  "name": "Manhattan Rooftops",
+  "subtitle": "Water towers under the moon",
+  "tileset": "rooftops",
+  "music": "night",
+  "ambience": "wind",
+  "tod": "night",
+  "waves": [
+   "rooftops-w1",
+   "rooftops-w2",
+   "rooftops-w3",
+   "rooftops-w4",
+   "rooftops-w5",
+   "rooftops-w6",
+   "rooftops-w7",
+   "rooftops-w8"
+  ],
+  "boss": "boss_mau",
+  "exits": [
+   {
+    "to": "cafe"
+   },
+   {
+    "to": "docks"
+   }
+  ],
+  "intro": "intro-rooftops-1",
+  "outro": "outro-rooftops-1",
+  "bonus": "bonus_skyline"
+ },
+ {
+  "id": "cafe",
+  "name": "The Purrfect Cup Cafe",
+  "subtitle": "Lattes and lap cats",
+  "tileset": "cafe",
+  "music": "city",
+  "ambience": "cafe",
+  "tod": "dusk",
+  "waves": [
+   "cafe-w1",
+   "cafe-w2",
+   "cafe-w3",
+   "cafe-w4",
+   "cafe-w5",
+   "cafe-w6",
+   "cafe-w7",
+   "cafe-w8"
+  ],
+  "boss": "boss_patches",
+  "exits": [
+   {
+    "to": "factory"
+   }
+  ],
+  "intro": "intro-cafe-1",
+  "outro": "outro-cafe-1"
+ },
+ {
+  "id": "docks",
+  "name": "Fish Market Docks",
+  "subtitle": "It smells like tuna for a reason",
+  "tileset": "docks",
+  "music": "night",
+  "ambience": "water",
+  "tod": "dawn",
+  "waves": [
+   "docks-w1",
+   "docks-w2",
+   "docks-w3",
+   "docks-w4",
+   "docks-w5",
+   "docks-w6",
+   "docks-w7",
+   "docks-w8"
+  ],
+  "boss": "boss_mainsail",
+  "exits": [
+   {
+    "to": "factory"
+   }
+  ],
+  "intro": "intro-docks-1",
+  "outro": "outro-docks-1"
+ },
+ {
+  "id": "factory",
+  "name": "The Yarn Factory",
+  "subtitle": "Where the Armada gets its ammo",
+  "tileset": "factory",
+  "music": "city",
+  "ambience": "factory",
+  "tod": "night",
+  "waves": [
+   "factory-w1",
+   "factory-w2",
+   "factory-w3",
+   "factory-w4",
+   "factory-w5",
+   "factory-w6",
+   "factory-w7",
+   "factory-w8"
+  ],
+  "boss": "boss_fold",
+  "exits": [
+   {
+    "to": "sky"
+   }
+  ],
+  "intro": "intro-factory-1",
+  "outro": "outro-factory-1"
+ },
+ {
+  "id": "sky",
+  "name": "The Stratosphere",
+  "subtitle": "Up, up, and away",
+  "tileset": "sky",
+  "music": "space",
+  "ambience": "wind",
+  "tod": "dawn",
+  "waves": [
+   "sky-w1",
+   "sky-w2",
+   "sky-w3",
+   "sky-w4",
+   "sky-w5",
+   "sky-w6",
+   "sky-w7",
+   "sky-w8"
+  ],
+  "boss": "boss_ace",
+  "exits": [
+   {
+    "to": "moon"
+   },
+   {
+    "to": "nebula",
+    "when": {
+     "memories": 4
+    },
+    "label": "SECRET ROUTE"
+   }
+  ],
+  "intro": "intro-sky-1",
+  "outro": "outro-sky-1",
+  "bonus": "bonus_clouds"
+ },
+ {
+  "id": "moon",
+  "name": "The Litter Moon",
+  "subtitle": "One small step for dog-kind",
+  "tileset": "moon",
+  "music": "space",
+  "ambience": "space",
+  "tod": "night",
+  "waves": [
+   "moon-w1",
+   "moon-w2",
+   "moon-w3",
+   "moon-w4",
+   "moon-w5",
+   "moon-w6",
+   "moon-w7",
+   "moon-w8"
+  ],
+  "boss": "boss_blue",
+  "exits": [
+   {
+    "to": "station"
+   }
+  ],
+  "intro": "intro-moon-1",
+  "outro": "outro-moon-1"
+ },
+ {
+  "id": "nebula",
+  "name": "Catnip Nebula",
+  "subtitle": "A secret route, very groovy",
+  "tileset": "sky",
+  "music": "space",
+  "ambience": "space",
+  "tod": "night",
+  "waves": [
+   "nebula-w1",
+   "nebula-w2",
+   "nebula-w3",
+   "nebula-w4",
+   "nebula-w5",
+   "nebula-w6",
+   "nebula-w7",
+   "nebula-w8"
+  ],
+  "boss": "boss_kingpin",
+  "exits": [
+   {
+    "to": "station"
+   }
+  ],
+  "intro": "intro-nebula-1",
+  "outro": "outro-nebula-1"
+ },
+ {
+  "id": "station",
+  "name": "Scratching-Post Station",
+  "subtitle": "The Armada's last outpost",
+  "tileset": "station",
+  "music": "night",
+  "ambience": "space",
+  "tod": "night",
+  "waves": [
+   "station-w1",
+   "station-w2",
+   "station-w3",
+   "station-w4",
+   "station-w5",
+   "station-w6",
+   "station-w7",
+   "station-w8"
+  ],
+  "boss": "boss_admiral",
+  "exits": [
+   {
+    "to": "mothership"
+   }
+  ],
+  "intro": "intro-station-1",
+  "outro": "outro-station-1"
+ },
+ {
+  "id": "mothership",
+  "name": "The Meowthership",
+  "subtitle": "Bring every pup home",
+  "tileset": "mothership",
+  "music": "boss",
+  "ambience": "space",
+  "tod": "night",
+  "waves": [
+   "mothership-w1",
+   "mothership-w2",
+   "mothership-w3",
+   "mothership-w4",
+   "mothership-w5",
+   "mothership-w6",
+   "mothership-w7",
+   "mothership-w8",
+   "mothership-w9"
+  ],
+  "boss": "boss_empress",
+  "exits": [],
+  "intro": "intro-mothership-1",
+  "outro": "outro-mothership-1",
+  "ending": "ending_good"
+ }
+]

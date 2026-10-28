@@ -1,0 +1,6 @@
+node_modules/
+dist/
+shots/
+tools/out/
+*.log
+!docs/STATUS.json

@@ -1,0 +1,66 @@
+[
+ {
+  "id": "heart",
+  "name": "Heart Biscuit",
+  "sprite": "pk_heart",
+  "desc": "Restores one heart.",
+  "effect": {
+   "kind": "heart",
+   "value": 1
+  }
+ },
+ {
+  "id": "bone",
+  "name": "Double Bone",
+  "sprite": "pk_bone",
+  "desc": "Two turds at once for a while.",
+  "effect": {
+   "kind": "double",
+   "value": 1,
+   "ticks": 900
+  }
+ },
+ {
+  "id": "chili",
+  "name": "Spicy Chili",
+  "sprite": "pk_chili",
+  "desc": "Spread shot. Very spicy. Very effective.",
+  "effect": {
+   "kind": "spread",
+   "value": 1,
+   "ticks": 720
+  }
+ },
+ {
+  "id": "bandana",
+  "name": "Lucky Bandana",
+  "sprite": "pk_bandana",
+  "desc": "Blocks one hit.",
+  "effect": {
+   "kind": "shield",
+   "value": 1,
+   "ticks": 1800
+  }
+ },
+ {
+  "id": "sneaker",
+  "name": "Zoomies Sneaker",
+  "sprite": "pk_sneaker",
+  "desc": "Move faster for a while.",
+  "effect": {
+   "kind": "speed",
+   "value": 1,
+   "ticks": 900
+  }
+ },
+ {
+  "id": "treat",
+  "name": "Peanut Butter Treat",
+  "sprite": "pk_treat",
+  "desc": "500 bonus points.",
+  "effect": {
+   "kind": "treat",
+   "value": 500
+  }
+ }
+]

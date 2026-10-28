@@ -1,0 +1,3995 @@
+[
+ {
+  "id": "backyard-w1",
+  "formation": {
+   "cols": 8,
+   "rows": 3,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "tabby",
+    "row": 0
+   },
+   {
+    "breed": "tabby",
+    "row": 1
+   },
+   {
+    "breed": "tabby",
+    "row": 2
+   }
+  ],
+  "entry": "swirl-left",
+  "diveRate": 0.00205,
+  "fireRate": 0.00155,
+  "pickup": "heart"
+ },
+ {
+  "id": "backyard-w2",
+  "formation": {
+   "cols": 8,
+   "rows": 3,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "tuxedo",
+    "row": 0
+   },
+   {
+    "breed": "tuxedo",
+    "row": 1
+   },
+   {
+    "breed": "tuxedo",
+    "row": 2
+   }
+  ],
+  "entry": "split",
+  "diveRate": 0.00215,
+  "fireRate": 0.00163,
+  "pickup": "bone"
+ },
+ {
+  "id": "backyard-w3",
+  "formation": {
+   "cols": 8,
+   "rows": 3,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "tabby",
+    "row": 0
+   },
+   {
+    "breed": "tabby",
+    "row": 1
+   },
+   {
+    "breed": "tabby",
+    "row": 2
+   }
+  ],
+  "entry": "rain",
+  "diveRate": 0.00225,
+  "fireRate": 0.00171,
+  "pickup": "chili"
+ },
+ {
+  "id": "backyard-w4",
+  "formation": {
+   "cols": 8,
+   "rows": 3,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "tuxedo",
+    "row": 0
+   },
+   {
+    "breed": "tuxedo",
+    "row": 1
+   },
+   {
+    "breed": "tuxedo",
+    "row": 2
+   }
+  ],
+  "entry": "loop",
+  "diveRate": 0.00235,
+  "fireRate": 0.00179,
+  "pickup": "bandana"
+ },
+ {
+  "id": "backyard-w5",
+  "formation": {
+   "cols": 8,
+   "rows": 4,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "tabby",
+    "row": 0
+   },
+   {
+    "breed": "tabby",
+    "row": 1
+   },
+   {
+    "breed": "tabby",
+    "row": 2
+   },
+   {
+    "breed": "tabby",
+    "row": 3
+   }
+  ],
+  "entry": "swirl-right",
+  "diveRate": 0.00245,
+  "fireRate": 0.00187,
+  "pickup": "sneaker"
+ },
+ {
+  "id": "backyard-w6",
+  "formation": {
+   "cols": 8,
+   "rows": 4,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "tuxedo",
+    "row": 0
+   },
+   {
+    "breed": "tuxedo",
+    "row": 1
+   },
+   {
+    "breed": "tuxedo",
+    "row": 2
+   },
+   {
+    "breed": "tuxedo",
+    "row": 3
+   }
+  ],
+  "entry": "swirl-left",
+  "diveRate": 0.00255,
+  "fireRate": 0.00195,
+  "pickup": "treat"
+ },
+ {
+  "id": "street-w1",
+  "formation": {
+   "cols": 8,
+   "rows": 3,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "tuxedo",
+    "row": 0
+   },
+   {
+    "breed": "tabby",
+    "row": 1
+   },
+   {
+    "breed": "siamese",
+    "row": 2
+   }
+  ],
+  "entry": "split",
+  "diveRate": 0.0025,
+  "fireRate": 0.0019,
+  "pickup": "bone"
+ },
+ {
+  "id": "street-w2",
+  "formation": {
+   "cols": 8,
+   "rows": 3,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "tuxedo",
+    "row": 0
+   },
+   {
+    "breed": "tabby",
+    "row": 1
+   },
+   {
+    "breed": "siamese",
+    "row": 2
+   }
+  ],
+  "entry": "rain",
+  "diveRate": 0.0026,
+  "fireRate": 0.00198,
+  "pickup": "chili"
+ },
+ {
+  "id": "street-w3",
+  "formation": {
+   "cols": 8,
+   "rows": 3,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "tuxedo",
+    "row": 0
+   },
+   {
+    "breed": "tabby",
+    "row": 1
+   },
+   {
+    "breed": "siamese",
+    "row": 2
+   }
+  ],
+  "entry": "loop",
+  "diveRate": 0.0027,
+  "fireRate": 0.00206,
+  "pickup": "bandana"
+ },
+ {
+  "id": "street-w4",
+  "formation": {
+   "cols": 8,
+   "rows": 4,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "tuxedo",
+    "row": 0
+   },
+   {
+    "breed": "tabby",
+    "row": 1
+   },
+   {
+    "breed": "siamese",
+    "row": 2
+   },
+   {
+    "breed": "tuxedo",
+    "row": 3
+   }
+  ],
+  "entry": "swirl-right",
+  "diveRate": 0.0028,
+  "fireRate": 0.00214,
+  "pickup": "sneaker"
+ },
+ {
+  "id": "street-w5",
+  "formation": {
+   "cols": 8,
+   "rows": 4,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "tuxedo",
+    "row": 0
+   },
+   {
+    "breed": "tabby",
+    "row": 1
+   },
+   {
+    "breed": "siamese",
+    "row": 2
+   },
+   {
+    "breed": "tuxedo",
+    "row": 3
+   }
+  ],
+  "entry": "swirl-left",
+  "diveRate": 0.0029,
+  "fireRate": 0.00222,
+  "pickup": "treat"
+ },
+ {
+  "id": "street-w6",
+  "formation": {
+   "cols": 8,
+   "rows": 4,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "tuxedo",
+    "row": 0
+   },
+   {
+    "breed": "tabby",
+    "row": 1
+   },
+   {
+    "breed": "siamese",
+    "row": 2
+   },
+   {
+    "breed": "tuxedo",
+    "row": 3
+   }
+  ],
+  "entry": "split",
+  "diveRate": 0.003,
+  "fireRate": 0.0023,
+  "pickup": "heart"
+ },
+ {
+  "id": "street-w7",
+  "formation": {
+   "cols": 8,
+   "rows": 4,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "tuxedo",
+    "row": 0
+   },
+   {
+    "breed": "tabby",
+    "row": 1
+   },
+   {
+    "breed": "siamese",
+    "row": 2
+   },
+   {
+    "breed": "tuxedo",
+    "row": 3
+   }
+  ],
+  "entry": "rain",
+  "diveRate": 0.0031,
+  "fireRate": 0.00238,
+  "pickup": "bone"
+ },
+ {
+  "id": "park-w1",
+  "formation": {
+   "cols": 8,
+   "rows": 3,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "siamese",
+    "row": 0
+   },
+   {
+    "breed": "scottishfold",
+    "row": 1,
+    "cols": [
+     0,
+     2,
+     4,
+     6
+    ]
+   },
+   {
+    "breed": "tuxedo",
+    "row": 2
+   }
+  ],
+  "entry": "rain",
+  "diveRate": 0.00295,
+  "fireRate": 0.00225,
+  "pickup": "chili"
+ },
+ {
+  "id": "park-w2",
+  "formation": {
+   "cols": 8,
+   "rows": 3,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "tabby",
+    "row": 0
+   },
+   {
+    "breed": "siamese",
+    "row": 1
+   },
+   {
+    "breed": "scottishfold",
+    "row": 2,
+    "cols": [
+     1,
+     3,
+     5,
+     7
+    ]
+   }
+  ],
+  "entry": "loop",
+  "diveRate": 0.00305,
+  "fireRate": 0.00233,
+  "pickup": "bandana"
+ },
+ {
+  "id": "park-w3",
+  "formation": {
+   "cols": 8,
+   "rows": 4,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6
+    ]
+   },
+   {
+    "breed": "tabby",
+    "row": 1
+   },
+   {
+    "breed": "siamese",
+    "row": 2
+   },
+   {
+    "breed": "scottishfold",
+    "row": 3,
+    "cols": [
+     0,
+     2,
+     4,
+     6
+    ]
+   }
+  ],
+  "entry": "swirl-right",
+  "diveRate": 0.00315,
+  "fireRate": 0.00241,
+  "pickup": "sneaker"
+ },
+ {
+  "id": "park-w4",
+  "formation": {
+   "cols": 8,
+   "rows": 4,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "tuxedo",
+    "row": 0
+   },
+   {
+    "breed": "calico",
+    "row": 1
+   },
+   {
+    "breed": "tabby",
+    "row": 2
+   },
+   {
+    "breed": "siamese",
+    "row": 3
+   }
+  ],
+  "entry": "swirl-left",
+  "diveRate": 0.00325,
+  "fireRate": 0.00249,
+  "pickup": "treat"
+ },
+ {
+  "id": "park-w5",
+  "formation": {
+   "cols": 8,
+   "rows": 4,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6
+    ]
+   },
+   {
+    "breed": "tuxedo",
+    "row": 1
+   },
+   {
+    "breed": "calico",
+    "row": 2
+   },
+   {
+    "breed": "tabby",
+    "row": 3
+   }
+  ],
+  "entry": "split",
+  "diveRate": 0.00335,
+  "fireRate": 0.00257,
+  "pickup": "heart"
+ },
+ {
+  "id": "park-w6",
+  "formation": {
+   "cols": 8,
+   "rows": 4,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     1,
+     3,
+     5,
+     7
+    ]
+   },
+   {
+    "breed": "scottishfold",
+    "row": 1,
+    "cols": [
+     1,
+     3,
+     5,
+     7
+    ]
+   },
+   {
+    "breed": "tuxedo",
+    "row": 2
+   },
+   {
+    "breed": "calico",
+    "row": 3
+   }
+  ],
+  "entry": "rain",
+  "diveRate": 0.00345,
+  "fireRate": 0.00265,
+  "pickup": "bone"
+ },
+ {
+  "id": "park-w7",
+  "formation": {
+   "cols": 8,
+   "rows": 4,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "tabby",
+    "row": 0
+   },
+   {
+    "breed": "siamese",
+    "row": 1
+   },
+   {
+    "breed": "scottishfold",
+    "row": 2,
+    "cols": [
+     0,
+     2,
+     4,
+     6
+    ]
+   },
+   {
+    "breed": "tuxedo",
+    "row": 3
+   }
+  ],
+  "entry": "loop",
+  "diveRate": 0.00355,
+  "fireRate": 0.00273,
+  "pickup": "chili"
+ },
+ {
+  "id": "alley-w1",
+  "formation": {
+   "cols": 8,
+   "rows": 3,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "calico",
+    "row": 0
+   },
+   {
+    "breed": "tabby",
+    "row": 1
+   },
+   {
+    "breed": "siamese",
+    "row": 2
+   }
+  ],
+  "entry": "loop",
+  "diveRate": 0.00295,
+  "fireRate": 0.00225,
+  "pickup": "bandana"
+ },
+ {
+  "id": "alley-w2",
+  "formation": {
+   "cols": 8,
+   "rows": 3,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "tuxedo",
+    "row": 0
+   },
+   {
+    "breed": "calico",
+    "row": 1
+   },
+   {
+    "breed": "tabby",
+    "row": 2
+   }
+  ],
+  "entry": "swirl-right",
+  "diveRate": 0.00305,
+  "fireRate": 0.00233,
+  "pickup": "sneaker"
+ },
+ {
+  "id": "alley-w3",
+  "formation": {
+   "cols": 8,
+   "rows": 4,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6
+    ]
+   },
+   {
+    "breed": "tuxedo",
+    "row": 1
+   },
+   {
+    "breed": "calico",
+    "row": 2
+   },
+   {
+    "breed": "tabby",
+    "row": 3
+   }
+  ],
+  "entry": "swirl-left",
+  "diveRate": 0.00315,
+  "fireRate": 0.00241,
+  "pickup": "treat"
+ },
+ {
+  "id": "alley-w4",
+  "formation": {
+   "cols": 8,
+   "rows": 4,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "siamese",
+    "row": 0
+   },
+   {
+    "breed": "scottishfold",
+    "row": 1,
+    "cols": [
+     1,
+     3,
+     5,
+     7
+    ]
+   },
+   {
+    "breed": "tuxedo",
+    "row": 2
+   },
+   {
+    "breed": "calico",
+    "row": 3
+   }
+  ],
+  "entry": "split",
+  "diveRate": 0.00325,
+  "fireRate": 0.00249,
+  "pickup": "heart"
+ },
+ {
+  "id": "alley-w5",
+  "formation": {
+   "cols": 8,
+   "rows": 4,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "tabby",
+    "row": 0
+   },
+   {
+    "breed": "siamese",
+    "row": 1
+   },
+   {
+    "breed": "scottishfold",
+    "row": 2,
+    "cols": [
+     0,
+     2,
+     4,
+     6
+    ]
+   },
+   {
+    "breed": "tuxedo",
+    "row": 3
+   }
+  ],
+  "entry": "rain",
+  "diveRate": 0.00335,
+  "fireRate": 0.00257,
+  "pickup": "bone"
+ },
+ {
+  "id": "alley-w6",
+  "formation": {
+   "cols": 8,
+   "rows": 4,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     1,
+     3,
+     5,
+     7
+    ]
+   },
+   {
+    "breed": "tabby",
+    "row": 1
+   },
+   {
+    "breed": "siamese",
+    "row": 2
+   },
+   {
+    "breed": "scottishfold",
+    "row": 3,
+    "cols": [
+     1,
+     3,
+     5,
+     7
+    ]
+   }
+  ],
+  "entry": "loop",
+  "diveRate": 0.00345,
+  "fireRate": 0.00265,
+  "pickup": "chili"
+ },
+ {
+  "id": "alley-w7",
+  "formation": {
+   "cols": 8,
+   "rows": 4,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "tuxedo",
+    "row": 0
+   },
+   {
+    "breed": "calico",
+    "row": 1
+   },
+   {
+    "breed": "tabby",
+    "row": 2
+   },
+   {
+    "breed": "siamese",
+    "row": 3
+   }
+  ],
+  "entry": "swirl-right",
+  "diveRate": 0.00355,
+  "fireRate": 0.00273,
+  "pickup": "bandana"
+ },
+ {
+  "id": "rooftops-w1",
+  "formation": {
+   "cols": 8,
+   "rows": 3,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6
+    ]
+   },
+   {
+    "breed": "tuxedo",
+    "row": 1
+   },
+   {
+    "breed": "calico",
+    "row": 2
+   }
+  ],
+  "entry": "swirl-right",
+  "diveRate": 0.0034,
+  "fireRate": 0.0026,
+  "pickup": "sneaker"
+ },
+ {
+  "id": "rooftops-w2",
+  "formation": {
+   "cols": 8,
+   "rows": 4,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "siamese",
+    "row": 0
+   },
+   {
+    "breed": "persian",
+    "row": 1
+   },
+   {
+    "breed": "bengal",
+    "row": 2
+   },
+   {
+    "breed": "siamese",
+    "row": 3
+   }
+  ],
+  "entry": "swirl-left",
+  "diveRate": 0.0035,
+  "fireRate": 0.00268,
+  "pickup": "treat"
+ },
+ {
+  "id": "rooftops-w3",
+  "formation": {
+   "cols": 8,
+   "rows": 4,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6
+    ]
+   },
+   {
+    "breed": "tuxedo",
+    "row": 1
+   },
+   {
+    "breed": "calico",
+    "row": 2
+   },
+   {
+    "breed": "scottishfold",
+    "row": 3,
+    "cols": [
+     0,
+     2,
+     4,
+     6
+    ]
+   }
+  ],
+  "entry": "split",
+  "diveRate": 0.0036,
+  "fireRate": 0.00276,
+  "pickup": "heart"
+ },
+ {
+  "id": "rooftops-w4",
+  "formation": {
+   "cols": 8,
+   "rows": 4,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "siamese",
+    "row": 0
+   },
+   {
+    "breed": "persian",
+    "row": 1
+   },
+   {
+    "breed": "bengal",
+    "row": 2
+   },
+   {
+    "breed": "siamese",
+    "row": 3
+   }
+  ],
+  "entry": "rain",
+  "diveRate": 0.0037,
+  "fireRate": 0.00284,
+  "pickup": "bone"
+ },
+ {
+  "id": "rooftops-w5",
+  "formation": {
+   "cols": 8,
+   "rows": 4,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6
+    ]
+   },
+   {
+    "breed": "tuxedo",
+    "row": 1
+   },
+   {
+    "breed": "calico",
+    "row": 2
+   },
+   {
+    "breed": "scottishfold",
+    "row": 3,
+    "cols": [
+     0,
+     2,
+     4,
+     6
+    ]
+   }
+  ],
+  "entry": "loop",
+  "diveRate": 0.0038,
+  "fireRate": 0.00292,
+  "pickup": "chili"
+ },
+ {
+  "id": "rooftops-w6",
+  "formation": {
+   "cols": 8,
+   "rows": 4,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     1,
+     3,
+     5,
+     7
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 1
+   },
+   {
+    "breed": "bengal",
+    "row": 2
+   },
+   {
+    "breed": "siamese",
+    "row": 3
+   }
+  ],
+  "entry": "swirl-right",
+  "diveRate": 0.0039,
+  "fireRate": 0.003,
+  "pickup": "bandana"
+ },
+ {
+  "id": "rooftops-w7",
+  "formation": {
+   "cols": 8,
+   "rows": 5,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6
+    ]
+   },
+   {
+    "breed": "tuxedo",
+    "row": 1
+   },
+   {
+    "breed": "calico",
+    "row": 2
+   },
+   {
+    "breed": "scottishfold",
+    "row": 3,
+    "cols": [
+     0,
+     2,
+     4,
+     6
+    ]
+   },
+   {
+    "breed": "tuxedo",
+    "row": 4
+   }
+  ],
+  "entry": "swirl-left",
+  "diveRate": 0.004,
+  "fireRate": 0.00308,
+  "pickup": "sneaker"
+ },
+ {
+  "id": "rooftops-w8",
+  "formation": {
+   "cols": 8,
+   "rows": 5,
+   "spacing": 36
+  },
+  "cats": [
+   {
+    "breed": "siamese",
+    "row": 0
+   },
+   {
+    "breed": "persian",
+    "row": 1
+   },
+   {
+    "breed": "bengal",
+    "row": 2
+   },
+   {
+    "breed": "siamese",
+    "row": 3
+   },
+   {
+    "breed": "persian",
+    "row": 4
+   }
+  ],
+  "entry": "split",
+  "diveRate": 0.0041,
+  "fireRate": 0.00316,
+  "pickup": "treat"
+ },
+ {
+  "id": "cafe-w1",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "sphynx",
+    "row": 0
+   },
+   {
+    "breed": "calico",
+    "row": 1
+   },
+   {
+    "breed": "scottishfold",
+    "row": 2,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 3
+   }
+  ],
+  "entry": "swirl-left",
+  "diveRate": 0.00385,
+  "fireRate": 0.00295,
+  "pickup": "treat"
+ },
+ {
+  "id": "cafe-w2",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "persian",
+    "row": 0
+   },
+   {
+    "breed": "bengal",
+    "row": 1
+   },
+   {
+    "breed": "siamese",
+    "row": 2
+   },
+   {
+    "breed": "persian",
+    "row": 3
+   }
+  ],
+  "entry": "split",
+  "diveRate": 0.00395,
+  "fireRate": 0.00303,
+  "pickup": "heart"
+ },
+ {
+  "id": "cafe-w3",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "calico",
+    "row": 1
+   },
+   {
+    "breed": "scottishfold",
+    "row": 2,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 3
+   }
+  ],
+  "entry": "rain",
+  "diveRate": 0.00405,
+  "fireRate": 0.00311,
+  "pickup": "bone"
+ },
+ {
+  "id": "cafe-w4",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "persian",
+    "row": 0
+   },
+   {
+    "breed": "bengal",
+    "row": 1
+   },
+   {
+    "breed": "siamese",
+    "row": 2
+   },
+   {
+    "breed": "persian",
+    "row": 3
+   }
+  ],
+  "entry": "loop",
+  "diveRate": 0.00415,
+  "fireRate": 0.00319,
+  "pickup": "chili"
+ },
+ {
+  "id": "cafe-w5",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "sphynx",
+    "row": 0
+   },
+   {
+    "breed": "calico",
+    "row": 1
+   },
+   {
+    "breed": "scottishfold",
+    "row": 2,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 3
+   }
+  ],
+  "entry": "swirl-right",
+  "diveRate": 0.00425,
+  "fireRate": 0.00327,
+  "pickup": "bandana"
+ },
+ {
+  "id": "cafe-w6",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "bengal",
+    "row": 1
+   },
+   {
+    "breed": "siamese",
+    "row": 2
+   },
+   {
+    "breed": "persian",
+    "row": 3
+   },
+   {
+    "breed": "bengal",
+    "row": 4
+   }
+  ],
+  "entry": "swirl-left",
+  "diveRate": 0.00435,
+  "fireRate": 0.00335,
+  "pickup": "sneaker"
+ },
+ {
+  "id": "cafe-w7",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "sphynx",
+    "row": 0
+   },
+   {
+    "breed": "calico",
+    "row": 1
+   },
+   {
+    "breed": "scottishfold",
+    "row": 2,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 3
+   },
+   {
+    "breed": "calico",
+    "row": 4
+   }
+  ],
+  "entry": "split",
+  "diveRate": 0.00445,
+  "fireRate": 0.00343,
+  "pickup": "treat"
+ },
+ {
+  "id": "cafe-w8",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "persian",
+    "row": 0
+   },
+   {
+    "breed": "bengal",
+    "row": 1
+   },
+   {
+    "breed": "siamese",
+    "row": 2
+   },
+   {
+    "breed": "persian",
+    "row": 3
+   },
+   {
+    "breed": "bengal",
+    "row": 4
+   }
+  ],
+  "entry": "rain",
+  "diveRate": 0.00455,
+  "fireRate": 0.00351,
+  "pickup": "heart"
+ },
+ {
+  "id": "docks-w1",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "siamese",
+    "row": 0
+   },
+   {
+    "breed": "persian",
+    "row": 1
+   },
+   {
+    "breed": "bengal",
+    "row": 2
+   },
+   {
+    "breed": "siamese",
+    "row": 3
+   }
+  ],
+  "entry": "split",
+  "diveRate": 0.00385,
+  "fireRate": 0.00295,
+  "pickup": "heart"
+ },
+ {
+  "id": "docks-w2",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 1
+   },
+   {
+    "breed": "calico",
+    "row": 2
+   },
+   {
+    "breed": "scottishfold",
+    "row": 3,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   }
+  ],
+  "entry": "rain",
+  "diveRate": 0.00395,
+  "fireRate": 0.00303,
+  "pickup": "bone"
+ },
+ {
+  "id": "docks-w3",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 1
+   },
+   {
+    "breed": "bengal",
+    "row": 2
+   },
+   {
+    "breed": "siamese",
+    "row": 3
+   }
+  ],
+  "entry": "loop",
+  "diveRate": 0.00405,
+  "fireRate": 0.00311,
+  "pickup": "chili"
+ },
+ {
+  "id": "docks-w4",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 1
+   },
+   {
+    "breed": "calico",
+    "row": 2
+   },
+   {
+    "breed": "scottishfold",
+    "row": 3,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   }
+  ],
+  "entry": "swirl-right",
+  "diveRate": 0.00415,
+  "fireRate": 0.00319,
+  "pickup": "bandana"
+ },
+ {
+  "id": "docks-w5",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "siamese",
+    "row": 0
+   },
+   {
+    "breed": "persian",
+    "row": 1
+   },
+   {
+    "breed": "bengal",
+    "row": 2
+   },
+   {
+    "breed": "siamese",
+    "row": 3
+   }
+  ],
+  "entry": "swirl-left",
+  "diveRate": 0.00425,
+  "fireRate": 0.00327,
+  "pickup": "sneaker"
+ },
+ {
+  "id": "docks-w6",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 1
+   },
+   {
+    "breed": "calico",
+    "row": 2
+   },
+   {
+    "breed": "scottishfold",
+    "row": 3,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 4
+   }
+  ],
+  "entry": "split",
+  "diveRate": 0.00435,
+  "fireRate": 0.00335,
+  "pickup": "treat"
+ },
+ {
+  "id": "docks-w7",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "siamese",
+    "row": 0
+   },
+   {
+    "breed": "persian",
+    "row": 1
+   },
+   {
+    "breed": "bengal",
+    "row": 2
+   },
+   {
+    "breed": "siamese",
+    "row": 3
+   },
+   {
+    "breed": "persian",
+    "row": 4
+   }
+  ],
+  "entry": "rain",
+  "diveRate": 0.00445,
+  "fireRate": 0.00343,
+  "pickup": "heart"
+ },
+ {
+  "id": "docks-w8",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 1
+   },
+   {
+    "breed": "calico",
+    "row": 2
+   },
+   {
+    "breed": "scottishfold",
+    "row": 3,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 4
+   }
+  ],
+  "entry": "loop",
+  "diveRate": 0.00455,
+  "fireRate": 0.00351,
+  "pickup": "bone"
+ },
+ {
+  "id": "factory-w1",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "persian",
+    "row": 0
+   },
+   {
+    "breed": "bengal",
+    "row": 1
+   },
+   {
+    "breed": "mainecoon",
+    "row": 2,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 3
+   }
+  ],
+  "entry": "rain",
+  "diveRate": 0.0043,
+  "fireRate": 0.0033,
+  "pickup": "bone"
+ },
+ {
+  "id": "factory-w2",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "sphynx",
+    "row": 0
+   },
+   {
+    "breed": "calico",
+    "row": 1
+   },
+   {
+    "breed": "scottishfold",
+    "row": 2,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 3
+   }
+  ],
+  "entry": "loop",
+  "diveRate": 0.0044,
+  "fireRate": 0.00338,
+  "pickup": "chili"
+ },
+ {
+  "id": "factory-w3",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "bengal",
+    "row": 1
+   },
+   {
+    "breed": "mainecoon",
+    "row": 2,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 3
+   }
+  ],
+  "entry": "swirl-right",
+  "diveRate": 0.0045,
+  "fireRate": 0.00346,
+  "pickup": "bandana"
+ },
+ {
+  "id": "factory-w4",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "sphynx",
+    "row": 0
+   },
+   {
+    "breed": "calico",
+    "row": 1
+   },
+   {
+    "breed": "scottishfold",
+    "row": 2,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 3
+   }
+  ],
+  "entry": "swirl-left",
+  "diveRate": 0.0046,
+  "fireRate": 0.00354,
+  "pickup": "sneaker"
+ },
+ {
+  "id": "factory-w5",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "persian",
+    "row": 0
+   },
+   {
+    "breed": "bengal",
+    "row": 1
+   },
+   {
+    "breed": "mainecoon",
+    "row": 2,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 3
+   },
+   {
+    "breed": "bengal",
+    "row": 4
+   }
+  ],
+  "entry": "split",
+  "diveRate": 0.0047,
+  "fireRate": 0.00362,
+  "pickup": "treat"
+ },
+ {
+  "id": "factory-w6",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "calico",
+    "row": 1
+   },
+   {
+    "breed": "scottishfold",
+    "row": 2,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 3
+   },
+   {
+    "breed": "calico",
+    "row": 4
+   }
+  ],
+  "entry": "rain",
+  "diveRate": 0.0048,
+  "fireRate": 0.0037,
+  "pickup": "heart"
+ },
+ {
+  "id": "factory-w7",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "persian",
+    "row": 0
+   },
+   {
+    "breed": "bengal",
+    "row": 1
+   },
+   {
+    "breed": "mainecoon",
+    "row": 2,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 3
+   },
+   {
+    "breed": "bengal",
+    "row": 4
+   }
+  ],
+  "entry": "loop",
+  "diveRate": 0.0049,
+  "fireRate": 0.00378,
+  "pickup": "bone"
+ },
+ {
+  "id": "factory-w8",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "sphynx",
+    "row": 0
+   },
+   {
+    "breed": "calico",
+    "row": 1
+   },
+   {
+    "breed": "scottishfold",
+    "row": 2,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 3
+   },
+   {
+    "breed": "calico",
+    "row": 4
+   }
+  ],
+  "entry": "swirl-right",
+  "diveRate": 0.005,
+  "fireRate": 0.00386,
+  "pickup": "chili"
+ },
+ {
+  "id": "sky-w1",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "bengal",
+    "row": 0
+   },
+   {
+    "breed": "mainecoon",
+    "row": 1,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 2
+   },
+   {
+    "breed": "bengal",
+    "row": 3
+   }
+  ],
+  "entry": "loop",
+  "diveRate": 0.00475,
+  "fireRate": 0.00365,
+  "pickup": "chili"
+ },
+ {
+  "id": "sky-w2",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "russianblue",
+    "row": 0
+   },
+   {
+    "breed": "scottishfold",
+    "row": 1,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 2
+   },
+   {
+    "breed": "russianblue",
+    "row": 3
+   }
+  ],
+  "entry": "swirl-right",
+  "diveRate": 0.00485,
+  "fireRate": 0.00373,
+  "pickup": "bandana"
+ },
+ {
+  "id": "sky-w3",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "mainecoon",
+    "row": 1,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 2
+   },
+   {
+    "breed": "bengal",
+    "row": 3
+   }
+  ],
+  "entry": "swirl-left",
+  "diveRate": 0.00495,
+  "fireRate": 0.00381,
+  "pickup": "sneaker"
+ },
+ {
+  "id": "sky-w4",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "russianblue",
+    "row": 0
+   },
+   {
+    "breed": "scottishfold",
+    "row": 1,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 2
+   },
+   {
+    "breed": "russianblue",
+    "row": 3
+   },
+   {
+    "breed": "scottishfold",
+    "row": 4,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   }
+  ],
+  "entry": "split",
+  "diveRate": 0.00505,
+  "fireRate": 0.00389,
+  "pickup": "treat"
+ },
+ {
+  "id": "sky-w5",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "bengal",
+    "row": 0
+   },
+   {
+    "breed": "mainecoon",
+    "row": 1,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 2
+   },
+   {
+    "breed": "bengal",
+    "row": 3
+   },
+   {
+    "breed": "mainecoon",
+    "row": 4,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   }
+  ],
+  "entry": "rain",
+  "diveRate": 0.00515,
+  "fireRate": 0.00397,
+  "pickup": "heart"
+ },
+ {
+  "id": "sky-w6",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "scottishfold",
+    "row": 1,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 2
+   },
+   {
+    "breed": "russianblue",
+    "row": 3
+   },
+   {
+    "breed": "scottishfold",
+    "row": 4,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   }
+  ],
+  "entry": "loop",
+  "diveRate": 0.00525,
+  "fireRate": 0.00405,
+  "pickup": "bone"
+ },
+ {
+  "id": "sky-w7",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "bengal",
+    "row": 0
+   },
+   {
+    "breed": "mainecoon",
+    "row": 1,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 2
+   },
+   {
+    "breed": "bengal",
+    "row": 3
+   },
+   {
+    "breed": "mainecoon",
+    "row": 4,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   }
+  ],
+  "entry": "swirl-right",
+  "diveRate": 0.00535,
+  "fireRate": 0.00413,
+  "pickup": "chili"
+ },
+ {
+  "id": "sky-w8",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "russianblue",
+    "row": 0
+   },
+   {
+    "breed": "scottishfold",
+    "row": 1,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 2
+   },
+   {
+    "breed": "russianblue",
+    "row": 3
+   },
+   {
+    "breed": "scottishfold",
+    "row": 4,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   }
+  ],
+  "entry": "swirl-left",
+  "diveRate": 0.00545,
+  "fireRate": 0.00421,
+  "pickup": "bandana"
+ },
+ {
+  "id": "moon-w1",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "mainecoon",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "siamese",
+    "row": 1
+   },
+   {
+    "breed": "bengal",
+    "row": 2
+   },
+   {
+    "breed": "mainecoon",
+    "row": 3,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   }
+  ],
+  "entry": "swirl-right",
+  "diveRate": 0.0052,
+  "fireRate": 0.004,
+  "pickup": "bandana"
+ },
+ {
+  "id": "moon-w2",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 1
+   },
+   {
+    "breed": "russianblue",
+    "row": 2
+   },
+   {
+    "breed": "scottishfold",
+    "row": 3,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   }
+  ],
+  "entry": "swirl-left",
+  "diveRate": 0.0053,
+  "fireRate": 0.00408,
+  "pickup": "sneaker"
+ },
+ {
+  "id": "moon-w3",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "siamese",
+    "row": 1
+   },
+   {
+    "breed": "bengal",
+    "row": 2
+   },
+   {
+    "breed": "mainecoon",
+    "row": 3,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "siamese",
+    "row": 4
+   }
+  ],
+  "entry": "split",
+  "diveRate": 0.0054,
+  "fireRate": 0.00416,
+  "pickup": "treat"
+ },
+ {
+  "id": "moon-w4",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 1
+   },
+   {
+    "breed": "russianblue",
+    "row": 2
+   },
+   {
+    "breed": "scottishfold",
+    "row": 3,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 4
+   }
+  ],
+  "entry": "rain",
+  "diveRate": 0.0055,
+  "fireRate": 0.00424,
+  "pickup": "heart"
+ },
+ {
+  "id": "moon-w5",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "mainecoon",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "siamese",
+    "row": 1
+   },
+   {
+    "breed": "bengal",
+    "row": 2
+   },
+   {
+    "breed": "mainecoon",
+    "row": 3,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "siamese",
+    "row": 4
+   }
+  ],
+  "entry": "loop",
+  "diveRate": 0.0056,
+  "fireRate": 0.00432,
+  "pickup": "bone"
+ },
+ {
+  "id": "moon-w6",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 1
+   },
+   {
+    "breed": "russianblue",
+    "row": 2
+   },
+   {
+    "breed": "scottishfold",
+    "row": 3,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 4
+   }
+  ],
+  "entry": "swirl-right",
+  "diveRate": 0.0057,
+  "fireRate": 0.0044,
+  "pickup": "chili"
+ },
+ {
+  "id": "moon-w7",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "mainecoon",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "siamese",
+    "row": 1
+   },
+   {
+    "breed": "bengal",
+    "row": 2
+   },
+   {
+    "breed": "mainecoon",
+    "row": 3,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "siamese",
+    "row": 4
+   }
+  ],
+  "entry": "swirl-left",
+  "diveRate": 0.0058,
+  "fireRate": 0.00448,
+  "pickup": "bandana"
+ },
+ {
+  "id": "moon-w8",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 1
+   },
+   {
+    "breed": "russianblue",
+    "row": 2
+   },
+   {
+    "breed": "scottishfold",
+    "row": 3,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 4
+   }
+  ],
+  "entry": "split",
+  "diveRate": 0.0059,
+  "fireRate": 0.00456,
+  "pickup": "sneaker"
+ },
+ {
+  "id": "nebula-w1",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "russianblue",
+    "row": 0
+   },
+   {
+    "breed": "scottishfold",
+    "row": 1,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 2
+   },
+   {
+    "breed": "russianblue",
+    "row": 3
+   }
+  ],
+  "entry": "swirl-left",
+  "diveRate": 0.0052,
+  "fireRate": 0.004,
+  "pickup": "sneaker"
+ },
+ {
+  "id": "nebula-w2",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "bengal",
+    "row": 0
+   },
+   {
+    "breed": "mainecoon",
+    "row": 1,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "siamese",
+    "row": 2
+   },
+   {
+    "breed": "bengal",
+    "row": 3
+   }
+  ],
+  "entry": "split",
+  "diveRate": 0.0053,
+  "fireRate": 0.00408,
+  "pickup": "treat"
+ },
+ {
+  "id": "nebula-w3",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "scottishfold",
+    "row": 1,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 2
+   },
+   {
+    "breed": "russianblue",
+    "row": 3
+   },
+   {
+    "breed": "scottishfold",
+    "row": 4,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   }
+  ],
+  "entry": "rain",
+  "diveRate": 0.0054,
+  "fireRate": 0.00416,
+  "pickup": "heart"
+ },
+ {
+  "id": "nebula-w4",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "bengal",
+    "row": 0
+   },
+   {
+    "breed": "mainecoon",
+    "row": 1,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "siamese",
+    "row": 2
+   },
+   {
+    "breed": "bengal",
+    "row": 3
+   },
+   {
+    "breed": "mainecoon",
+    "row": 4,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   }
+  ],
+  "entry": "loop",
+  "diveRate": 0.0055,
+  "fireRate": 0.00424,
+  "pickup": "bone"
+ },
+ {
+  "id": "nebula-w5",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "russianblue",
+    "row": 0
+   },
+   {
+    "breed": "scottishfold",
+    "row": 1,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 2
+   },
+   {
+    "breed": "russianblue",
+    "row": 3
+   },
+   {
+    "breed": "scottishfold",
+    "row": 4,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   }
+  ],
+  "entry": "swirl-right",
+  "diveRate": 0.0056,
+  "fireRate": 0.00432,
+  "pickup": "chili"
+ },
+ {
+  "id": "nebula-w6",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "mainecoon",
+    "row": 1,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "siamese",
+    "row": 2
+   },
+   {
+    "breed": "bengal",
+    "row": 3
+   },
+   {
+    "breed": "mainecoon",
+    "row": 4,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   }
+  ],
+  "entry": "swirl-left",
+  "diveRate": 0.0057,
+  "fireRate": 0.0044,
+  "pickup": "bandana"
+ },
+ {
+  "id": "nebula-w7",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "russianblue",
+    "row": 0
+   },
+   {
+    "breed": "scottishfold",
+    "row": 1,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 2
+   },
+   {
+    "breed": "russianblue",
+    "row": 3
+   },
+   {
+    "breed": "scottishfold",
+    "row": 4,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   }
+  ],
+  "entry": "split",
+  "diveRate": 0.0058,
+  "fireRate": 0.00448,
+  "pickup": "sneaker"
+ },
+ {
+  "id": "nebula-w8",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "bengal",
+    "row": 0
+   },
+   {
+    "breed": "mainecoon",
+    "row": 1,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "siamese",
+    "row": 2
+   },
+   {
+    "breed": "bengal",
+    "row": 3
+   },
+   {
+    "breed": "mainecoon",
+    "row": 4,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   }
+  ],
+  "entry": "rain",
+  "diveRate": 0.0059,
+  "fireRate": 0.00456,
+  "pickup": "treat"
+ },
+ {
+  "id": "station-w1",
+  "formation": {
+   "cols": 10,
+   "rows": 4,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 1
+   },
+   {
+    "breed": "russianblue",
+    "row": 2
+   },
+   {
+    "breed": "scottishfold",
+    "row": 3,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   }
+  ],
+  "entry": "split",
+  "diveRate": 0.00565,
+  "fireRate": 0.00435,
+  "pickup": "treat"
+ },
+ {
+  "id": "station-w2",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "mainecoon",
+    "row": 0,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 1
+   },
+   {
+    "breed": "bengal",
+    "row": 2
+   },
+   {
+    "breed": "mainecoon",
+    "row": 3,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 4
+   }
+  ],
+  "entry": "rain",
+  "diveRate": 0.00575,
+  "fireRate": 0.00443,
+  "pickup": "heart"
+ },
+ {
+  "id": "station-w3",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 1
+   },
+   {
+    "breed": "russianblue",
+    "row": 2
+   },
+   {
+    "breed": "scottishfold",
+    "row": 3,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 4
+   }
+  ],
+  "entry": "loop",
+  "diveRate": 0.00585,
+  "fireRate": 0.00451,
+  "pickup": "bone"
+ },
+ {
+  "id": "station-w4",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "mainecoon",
+    "row": 0,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 1
+   },
+   {
+    "breed": "bengal",
+    "row": 2
+   },
+   {
+    "breed": "mainecoon",
+    "row": 3,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 4
+   }
+  ],
+  "entry": "swirl-right",
+  "diveRate": 0.00595,
+  "fireRate": 0.00459,
+  "pickup": "chili"
+ },
+ {
+  "id": "station-w5",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 1
+   },
+   {
+    "breed": "russianblue",
+    "row": 2
+   },
+   {
+    "breed": "scottishfold",
+    "row": 3,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 4
+   }
+  ],
+  "entry": "swirl-left",
+  "diveRate": 0.00605,
+  "fireRate": 0.00467,
+  "pickup": "bandana"
+ },
+ {
+  "id": "station-w6",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 1
+   },
+   {
+    "breed": "bengal",
+    "row": 2
+   },
+   {
+    "breed": "mainecoon",
+    "row": 3,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 4
+   }
+  ],
+  "entry": "split",
+  "diveRate": 0.00615,
+  "fireRate": 0.00475,
+  "pickup": "sneaker"
+ },
+ {
+  "id": "station-w7",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 1
+   },
+   {
+    "breed": "russianblue",
+    "row": 2
+   },
+   {
+    "breed": "scottishfold",
+    "row": 3,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 4
+   }
+  ],
+  "entry": "rain",
+  "diveRate": 0.00625,
+  "fireRate": 0.00483,
+  "pickup": "treat"
+ },
+ {
+  "id": "station-w8",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "mainecoon",
+    "row": 0,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 1
+   },
+   {
+    "breed": "bengal",
+    "row": 2
+   },
+   {
+    "breed": "mainecoon",
+    "row": 3,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 4
+   }
+  ],
+  "entry": "loop",
+  "diveRate": 0.00635,
+  "fireRate": 0.00491,
+  "pickup": "heart"
+ },
+ {
+  "id": "mothership-w1",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "bengal",
+    "row": 1
+   },
+   {
+    "breed": "mainecoon",
+    "row": 2,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 3
+   },
+   {
+    "breed": "calico",
+    "row": 4
+   }
+  ],
+  "entry": "rain",
+  "diveRate": 0.0061,
+  "fireRate": 0.0047,
+  "pickup": "heart"
+ },
+ {
+  "id": "mothership-w2",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "sphynx",
+    "row": 0
+   },
+   {
+    "breed": "russianblue",
+    "row": 1
+   },
+   {
+    "breed": "scottishfold",
+    "row": 2,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "bengal",
+    "row": 3
+   },
+   {
+    "breed": "mainecoon",
+    "row": 4,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   }
+  ],
+  "entry": "loop",
+  "diveRate": 0.0062,
+  "fireRate": 0.00478,
+  "pickup": "bone"
+ },
+ {
+  "id": "mothership-w3",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "calico",
+    "row": 1
+   },
+   {
+    "breed": "sphynx",
+    "row": 2
+   },
+   {
+    "breed": "russianblue",
+    "row": 3
+   },
+   {
+    "breed": "scottishfold",
+    "row": 4,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   }
+  ],
+  "entry": "swirl-right",
+  "diveRate": 0.0063,
+  "fireRate": 0.00486,
+  "pickup": "chili"
+ },
+ {
+  "id": "mothership-w4",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "bengal",
+    "row": 0
+   },
+   {
+    "breed": "mainecoon",
+    "row": 1,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 2
+   },
+   {
+    "breed": "calico",
+    "row": 3
+   },
+   {
+    "breed": "sphynx",
+    "row": 4
+   }
+  ],
+  "entry": "swirl-left",
+  "diveRate": 0.0064,
+  "fireRate": 0.00494,
+  "pickup": "bandana"
+ },
+ {
+  "id": "mothership-w5",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "russianblue",
+    "row": 0
+   },
+   {
+    "breed": "scottishfold",
+    "row": 1,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "bengal",
+    "row": 2
+   },
+   {
+    "breed": "mainecoon",
+    "row": 3,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 4
+   }
+  ],
+  "entry": "split",
+  "diveRate": 0.0065,
+  "fireRate": 0.00502,
+  "pickup": "sneaker"
+ },
+ {
+  "id": "mothership-w6",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "sphynx",
+    "row": 1
+   },
+   {
+    "breed": "russianblue",
+    "row": 2
+   },
+   {
+    "breed": "scottishfold",
+    "row": 3,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "bengal",
+    "row": 4
+   }
+  ],
+  "entry": "rain",
+  "diveRate": 0.0066,
+  "fireRate": 0.0051,
+  "pickup": "treat"
+ },
+ {
+  "id": "mothership-w7",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "mainecoon",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 1
+   },
+   {
+    "breed": "calico",
+    "row": 2
+   },
+   {
+    "breed": "sphynx",
+    "row": 3
+   },
+   {
+    "breed": "russianblue",
+    "row": 4
+   }
+  ],
+  "entry": "loop",
+  "diveRate": 0.0067,
+  "fireRate": 0.00518,
+  "pickup": "heart"
+ },
+ {
+  "id": "mothership-w8",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "bengal",
+    "row": 1
+   },
+   {
+    "breed": "mainecoon",
+    "row": 2,
+    "cols": [
+     1,
+     3,
+     5,
+     7,
+     9
+    ]
+   },
+   {
+    "breed": "persian",
+    "row": 3
+   },
+   {
+    "breed": "calico",
+    "row": 4
+   }
+  ],
+  "entry": "swirl-right",
+  "diveRate": 0.0068,
+  "fireRate": 0.00526,
+  "pickup": "bone"
+ },
+ {
+  "id": "mothership-w9",
+  "formation": {
+   "cols": 10,
+   "rows": 5,
+   "spacing": 32
+  },
+  "cats": [
+   {
+    "breed": "scottishfold",
+    "row": 0,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "russianblue",
+    "row": 1
+   },
+   {
+    "breed": "scottishfold",
+    "row": 2,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   },
+   {
+    "breed": "bengal",
+    "row": 3
+   },
+   {
+    "breed": "mainecoon",
+    "row": 4,
+    "cols": [
+     0,
+     2,
+     4,
+     6,
+     8
+    ]
+   }
+  ],
+  "entry": "swirl-left",
+  "diveRate": 0.0069,
+  "fireRate": 0.00534,
+  "pickup": "chili"
+ }
+]

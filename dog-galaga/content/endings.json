@@ -1,0 +1,29 @@
+[
+ {
+  "id": "ending_true",
+  "title": "Every Pup Home",
+  "when": {
+   "all": [
+    {
+     "flag": "all_pups"
+    }
+   ]
+  },
+  "text": [
+   "Captain Pom flew home with six puppies riding on her back and a sack of squeaky toys in her paws.",
+   "Every pup was back in its own yard before dinner. The neighborhood threw a block party. The Empress came too, and brought the hedgehog.",
+   "That night, Maya found Pom asleep by the door, paws twitching, dreaming of flying.",
+   "Good girl, Pom. Good girl."
+  ]
+ },
+ {
+  "id": "ending_good",
+  "title": "The Neighborhood Sleeps Soundly",
+  "text": [
+   "The Feline Armada has been booped back to their beds, and the squeaky toys are home.",
+   "A few puppies are still finding their way back, but Commander Biscuit has search parties out, and the Empress has promised to help.",
+   "That night, Maya found Pom asleep by the door, paws twitching, dreaming of flying.",
+   "Good girl, Pom. Good girl."
+  ]
+ }
+]

@@ -1,0 +1,23 @@
+[
+ {
+  "id": "bonus_mailbox",
+  "name": "Mailbox Bonanza",
+  "groups": 5,
+  "pattern": "figure8",
+  "breed": "tabby"
+ },
+ {
+  "id": "bonus_skyline",
+  "name": "Skyline Bonanza",
+  "groups": 5,
+  "pattern": "spiral",
+  "breed": "siamese"
+ },
+ {
+  "id": "bonus_clouds",
+  "name": "Cloud Bonanza",
+  "groups": 5,
+  "pattern": "cross",
+  "breed": "sphynx"
+ }
+]

@@ -1,0 +1,28 @@
+{
+  "name": "poodle-patrol",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4173 --host 127.0.0.1",
+    "test": "vitest run",
+    "lint:content": "tsx tools/lint-content.ts",
+    "bot": "tsx tools/bot.ts",
+    "shot": "node tools/screenshot.mjs",
+    "typecheck": "tsc --noEmit -p .",
+    "verify": "npm run typecheck && npm run lint:content && npm run bot && npm test && npm run build"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^5.4.21",
+    "vitest": "^2.1.9"
+  },
+  "private": true,
+  "type": "module"
+}

@@ -1,0 +1,128 @@
+[
+ {
+  "id": "mem_01",
+  "area": "backyard",
+  "wave": 1,
+  "title": "Gotcha Day",
+  "text": "The day Maya picked me out of a crate of six puppies. I was the one chewing her shoelace. She said that is how she knew."
+ },
+ {
+  "id": "mem_02",
+  "area": "backyard",
+  "wave": 4,
+  "title": "First Bath",
+  "text": "Maya laughed so hard she cried. I was so mad. I shook all over her and she laughed even harder."
+ },
+ {
+  "id": "mem_03",
+  "area": "street",
+  "wave": 2,
+  "title": "The Mail Carrier",
+  "text": "Every day at 11:15 I warn Maya about the mail carrier. Every day she says he is our friend. I remain unconvinced."
+ },
+ {
+  "id": "mem_04",
+  "area": "street",
+  "wave": 5,
+  "title": "Sprinkler Season",
+  "text": "The summer Maya ran through the sprinklers with me in the front yard. The neighbors stared. We did not care."
+ },
+ {
+  "id": "mem_05",
+  "area": "park",
+  "wave": 3,
+  "title": "Tennis Ball Champion",
+  "text": "Maya threw the ball 47 times in a row. I brought it back 46 times. The 47th is still in the pond. I think about it often."
+ },
+ {
+  "id": "mem_06",
+  "area": "alley",
+  "wave": 3,
+  "title": "Bodega Bacon",
+  "text": "The bodega guy gives me a strip of bacon every Sunday. Maya pretends not to see. This is our secret."
+ },
+ {
+  "id": "mem_07",
+  "area": "rooftops",
+  "wave": 2,
+  "title": "Fireworks Night",
+  "text": "I was scared of the fireworks, so Maya sat with me on the roof and covered my ears with her hands until it was over."
+ },
+ {
+  "id": "mem_08",
+  "area": "rooftops",
+  "wave": 6,
+  "title": "The Big Move",
+  "text": "The day we moved to the city, Maya carried me up five flights of stairs because I was too nervous to climb them."
+ },
+ {
+  "id": "mem_09",
+  "area": "cafe",
+  "wave": 4,
+  "title": "Pup Cup",
+  "text": "Maya ordered me a pup cup on my birthday and the whole cafe sang. I wore a paper crown. I was magnificent."
+ },
+ {
+  "id": "mem_10",
+  "area": "docks",
+  "wave": 4,
+  "title": "Sunrise Walk",
+  "text": "The morning Maya could not sleep, so we walked to the water and watched the sun come up together."
+ },
+ {
+  "id": "mem_11",
+  "area": "factory",
+  "wave": 3,
+  "title": "Yarn Disaster",
+  "text": "I unraveled the scarf Maya was knitting for her mom. She was not mad. She just started over and let me hold the end."
+ },
+ {
+  "id": "mem_12",
+  "area": "sky",
+  "wave": 2,
+  "title": "Car Window",
+  "text": "Head out the car window on the highway, ears flying, Maya singing badly to the radio. Perfect."
+ },
+ {
+  "id": "mem_13",
+  "area": "sky",
+  "wave": 6,
+  "title": "Rainy Day",
+  "text": "Thunder all afternoon. Maya built a blanket fort and we watched cartoons until it passed."
+ },
+ {
+  "id": "mem_14",
+  "area": "moon",
+  "wave": 3,
+  "title": "Night Light",
+  "text": "Maya leaves the hallway light on for me. She thinks I am afraid of the dark. I am a little."
+ },
+ {
+  "id": "mem_15",
+  "area": "nebula",
+  "wave": 3,
+  "title": "Belly Rubs",
+  "text": "There is a spot on my belly that makes my leg kick. Only Maya knows exactly where it is."
+ },
+ {
+  "id": "mem_16",
+  "area": "station",
+  "wave": 4,
+  "title": "Sick Day",
+  "text": "When Maya had the flu, I did not leave her bed for three days. She said I was the best nurse in Brooklyn."
+ },
+ {
+  "id": "mem_17",
+  "area": "mothership",
+  "wave": 2,
+  "title": "Waiting by the Door",
+  "text": "Every evening at six I sit by the door. Every evening she comes home. Every evening it is the best moment of the day."
+ },
+ {
+  "id": "mem_18",
+  "area": "mothership",
+  "wave": 7,
+  "title": "Good Girl",
+  "text": "Maya says it every night before she turns out the light. Good girl, Pom. Good girl."
+ }
+]

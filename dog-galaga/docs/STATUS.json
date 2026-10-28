@@ -1,0 +1,25 @@
+{
+  "updated": "2026-10-28",
+  "phase": "foundations-complete",
+  "build": { "ok": true, "jsKB": 261, "gzipKB": 53, "budgetKB": 1024 },
+  "lint": { "errors": 0, "warnings": 0 },
+  "bot": { "paths": 4, "allReachEnding": true, "softlocks": 0, "endings": ["ending_true"], "botMinutes": [50, 55], "note": "bot has perfect aim; human playtime estimated 1-2h" },
+  "tests": { "passed": 7, "failed": 0 },
+  "modules": {
+    "core":        { "owner": "integrator", "score": null, "status": "built" },
+    "art":         { "score": null, "status": "v1 generated sprites; poodle weak", "placeholders": 0 },
+    "world":       { "score": null, "status": "v1 tiles; backgrounds busy" },
+    "player":      { "score": null, "status": "v1" },
+    "interaction": { "score": null, "status": "v1" },
+    "ui":          { "score": null, "status": "v1" },
+    "audio":       { "score": null, "status": "v1 synth" },
+    "effects":     { "score": null, "status": "v1" },
+    "quest":       { "score": null, "status": "v1" },
+    "save":        { "score": null, "status": "v1 + tests" },
+    "memories":    { "score": null, "status": "v1" },
+    "minigames":   { "score": null, "status": "v1" },
+    "journal":     { "score": null, "status": "v1" }
+  },
+  "openIssues": ["poodle sprite reads as ghost", "portraits reuse poodle/pup sprites", "background tiles too busy/bright", "no gauntlet rounds run yet"],
+  "nextStep": "Run wave-1 builder+critic gauntlet on art, world, ui, audio/effects. Weakest: art (poodle)."
+}

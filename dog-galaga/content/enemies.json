@@ -1,0 +1,249 @@
+[
+ {
+  "id": "tabby",
+  "name": "Tabby Grunt",
+  "sprite": "cat_tabby",
+  "hp": 1,
+  "points": 50,
+  "behavior": "basic",
+  "bestiary": "The rank and file of the Feline Armada. Orange, loud, and always hungry. Easily distracted by sunbeams."
+ },
+ {
+  "id": "tuxedo",
+  "name": "Tuxedo Diver",
+  "sprite": "cat_tuxedo",
+  "hp": 1,
+  "points": 80,
+  "divePoints": 200,
+  "behavior": "diver",
+  "bestiary": "Dressed for a gala, behaves like a cannonball. Loves swooping at poodles from great heights."
+ },
+ {
+  "id": "siamese",
+  "name": "Siamese Spitter",
+  "sprite": "cat_siamese",
+  "hp": 1,
+  "points": 100,
+  "behavior": "shooter",
+  "bestiary": "Talkative and opinionated. Hacks hairballs with alarming accuracy while yelling about dinner."
+ },
+ {
+  "id": "calico",
+  "name": "Calico Splitter",
+  "sprite": "cat_calico",
+  "hp": 1,
+  "points": 120,
+  "behavior": "splitter",
+  "bestiary": "Three colors, two kittens. Boop a calico and her kittens scatter in every direction."
+ },
+ {
+  "id": "persian",
+  "name": "Persian Puffball",
+  "sprite": "cat_persian",
+  "hp": 2,
+  "points": 150,
+  "behavior": "tank",
+  "bestiary": "So much fur that the first turd barely registers. Thinks it is royalty. Might be right."
+ },
+ {
+  "id": "scottishfold",
+  "name": "Scottish Fold Yarnwitch",
+  "sprite": "cat_scottishfold",
+  "hp": 2,
+  "points": 200,
+  "divePoints": 400,
+  "behavior": "capturer",
+  "bestiary": "Folded ears, unfolded ambitions. Kidnaps lost puppies and flings yarn. Boop one carrying a pup to set it free!"
+ },
+ {
+  "id": "bengal",
+  "name": "Bengal Bolt",
+  "sprite": "cat_bengal",
+  "hp": 1,
+  "points": 120,
+  "divePoints": 300,
+  "behavior": "diver",
+  "bestiary": "A tiny leopard with a big ego. The fastest diver in the Armada."
+ },
+ {
+  "id": "sphynx",
+  "name": "Sphynx Zigzagger",
+  "sprite": "cat_sphynx",
+  "hp": 1,
+  "points": 130,
+  "divePoints": 300,
+  "behavior": "zigzag",
+  "bestiary": "Hairless, fearless, and impossible to predict. Weaves side to side on every dive."
+ },
+ {
+  "id": "mainecoon",
+  "name": "Maine Coon Bruiser",
+  "sprite": "cat_mainecoon",
+  "hp": 3,
+  "points": 200,
+  "behavior": "tank",
+  "bestiary": "The size of a small dog and proud of it. Takes three good turds to send home."
+ },
+ {
+  "id": "russianblue",
+  "name": "Russian Blue Sniper",
+  "sprite": "cat_russianblue",
+  "hp": 2,
+  "points": 160,
+  "behavior": "shooter",
+  "bestiary": "Silver coat, green eyes, cold aim. Fires hairballs from deep in formation."
+ },
+ {
+  "id": "kitten",
+  "name": "Runaway Kitten",
+  "sprite": "cat_kitten",
+  "hp": 1,
+  "points": 30,
+  "behavior": "basic",
+  "size": 16,
+  "bestiary": "Small, zoomy, and fleeing its calico mother. Worth a quick boop."
+ },
+ {
+  "id": "boss_whiskers",
+  "name": "Sergeant Whiskers",
+  "sprite": "boss_tabby",
+  "hp": 50,
+  "points": 2000,
+  "behavior": "boss",
+  "size": 64,
+  "bossPattern": "sweep",
+  "bestiary": "The backyard bully. Has been sitting on the fence glaring at Pom since she was a puppy."
+ },
+ {
+  "id": "boss_tom",
+  "name": "Tuxedo Tom",
+  "sprite": "boss_tuxedo",
+  "hp": 70,
+  "points": 3000,
+  "behavior": "boss",
+  "size": 64,
+  "bossPattern": "charge",
+  "bestiary": "A dapper menace who rules Maple Street from the top of a mailbox."
+ },
+ {
+  "id": "boss_duchess",
+  "name": "Duchess Fluffbottom",
+  "sprite": "boss_persian",
+  "hp": 90,
+  "points": 4000,
+  "behavior": "boss",
+  "size": 64,
+  "bossPattern": "summon",
+  "bestiary": "She considers the dog park her personal lawn. She has never once been on a leash."
+ },
+ {
+  "id": "boss_sal",
+  "name": "Big Sal, the Bodega Boss",
+  "sprite": "boss_bengal",
+  "hp": 90,
+  "points": 4000,
+  "behavior": "boss",
+  "size": 64,
+  "bossPattern": "charge",
+  "bestiary": "Runs Bodega Alley from atop the chip rack. Respects anyone who can out-hustle him."
+ },
+ {
+  "id": "boss_mau",
+  "name": "Madame Mau",
+  "sprite": "boss_siamese",
+  "hp": 110,
+  "points": 5000,
+  "behavior": "boss",
+  "size": 64,
+  "bossPattern": "spiral",
+  "bestiary": "A Siamese diva who sings from water towers at 3 AM. Her hairballs come in spirals."
+ },
+ {
+  "id": "boss_patches",
+  "name": "Barista Patches",
+  "sprite": "boss_calico",
+  "hp": 120,
+  "points": 6000,
+  "behavior": "boss",
+  "size": 64,
+  "bossPattern": "summon",
+  "bestiary": "Pulls shots of espresso and kittens in equal measure."
+ },
+ {
+  "id": "boss_mainsail",
+  "name": "Captain Mainsail",
+  "sprite": "boss_mainecoon",
+  "hp": 130,
+  "points": 6000,
+  "behavior": "boss",
+  "size": 64,
+  "bossPattern": "sweep",
+  "bestiary": "A Maine Coon sea captain who smells permanently of tuna."
+ },
+ {
+  "id": "boss_fold",
+  "name": "Foreman Fold",
+  "sprite": "boss_scottishfold",
+  "hp": 150,
+  "points": 8000,
+  "behavior": "boss",
+  "size": 64,
+  "bossPattern": "spiral",
+  "bestiary": "Runs the Yarn Factory. Every ball of yarn the Armada flings came off his line."
+ },
+ {
+  "id": "boss_ace",
+  "name": "Ace Pilot Sphynx",
+  "sprite": "boss_sphynx",
+  "hp": 160,
+  "points": 9000,
+  "behavior": "boss",
+  "size": 64,
+  "bossPattern": "charge",
+  "bestiary": "Top gun of the Armada. Wears goggles for drama. Has no fur to ruffle."
+ },
+ {
+  "id": "boss_blue",
+  "name": "Commodore Blue",
+  "sprite": "boss_russianblue",
+  "hp": 180,
+  "points": 10000,
+  "behavior": "boss",
+  "size": 64,
+  "bossPattern": "spiral",
+  "bestiary": "Guards the Litter Moon with icy precision."
+ },
+ {
+  "id": "boss_kingpin",
+  "name": "The Catnip Kingpin",
+  "sprite": "boss_tabby",
+  "hp": 180,
+  "points": 12000,
+  "behavior": "boss",
+  "size": 64,
+  "bossPattern": "summon",
+  "bestiary": "A very relaxed tabby who has spent far too long in the nebula."
+ },
+ {
+  "id": "boss_admiral",
+  "name": "Admiral Floof",
+  "sprite": "boss_persian",
+  "hp": 200,
+  "points": 12000,
+  "behavior": "boss",
+  "size": 64,
+  "bossPattern": "sweep",
+  "bestiary": "Commander of the Scratching-Post Station and keeper of the Empress's schedule."
+ },
+ {
+  "id": "boss_empress",
+  "name": "Empress Fluffington",
+  "sprite": "boss_empress",
+  "hp": 300,
+  "points": 30000,
+  "behavior": "boss",
+  "size": 64,
+  "bossPattern": "spiral",
+  "bestiary": "Supreme ruler of the Feline Armada. Stole every squeaky toy in Brooklyn. Secretly just wants a friend."
+ }
+]

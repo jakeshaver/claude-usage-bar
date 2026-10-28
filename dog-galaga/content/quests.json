@@ -1,0 +1,215 @@
+[
+ {
+  "id": "first_flight",
+  "name": "First Flight",
+  "desc": "Clear your first wave of cats in the backyard.",
+  "start": {
+   "on": "area:enter",
+   "match": {
+    "areaId": "backyard"
+   }
+  },
+  "complete": {
+   "on": "wave:clear"
+  },
+  "reward": {
+   "score": 500
+  }
+ },
+ {
+  "id": "lost_pups",
+  "name": "Lost Pups",
+  "desc": "The Armada pup-napped the neighborhood puppies. Boop Scottish Folds carrying pups and catch them. Rescue 6 to bring every pup home.",
+  "start": {
+   "on": "area:enter",
+   "match": {
+    "areaId": "street"
+   }
+  },
+  "complete": {
+   "on": "pup:rescue",
+   "count": 6
+  },
+  "reward": {
+   "flags": [
+    "all_pups"
+   ],
+   "score": 10000
+  }
+ },
+ {
+  "id": "scrapbook",
+  "name": "Maya's Scrapbook",
+  "desc": "Glowing cats carry polaroids of your human. Collect 8 memories.",
+  "start": {
+   "on": "memory:get"
+  },
+  "complete": {
+   "on": "memory:get",
+   "count": 8
+  },
+  "reward": {
+   "flags": [
+    "scrapbook"
+   ],
+   "score": 5000
+  }
+ },
+ {
+  "id": "park_pals",
+  "name": "Park Pals",
+  "desc": "Clear every wave in Barkwood Dog Park.",
+  "start": {
+   "on": "area:enter",
+   "match": {
+    "areaId": "park"
+   }
+  },
+  "complete": {
+   "on": "wave:clear",
+   "match": {
+    "areaId": "park"
+   },
+   "count": 7
+  },
+  "reward": {
+   "score": 3000,
+   "flags": [
+    "park_hero"
+   ]
+  }
+ },
+ {
+  "id": "bodega_respect",
+  "name": "Big Sal's Respect",
+  "desc": "Earn the respect of the Bodega Boss.",
+  "start": {
+   "on": "area:enter",
+   "match": {
+    "areaId": "alley"
+   }
+  },
+  "complete": {
+   "on": "boss:defeat",
+   "match": {
+    "bossId": "boss_sal"
+   }
+  },
+  "reward": {
+   "score": 3000,
+   "flags": [
+    "bodega_friend"
+   ]
+  }
+ },
+ {
+  "id": "night_owl",
+  "name": "Night Owl",
+  "desc": "Clear the Manhattan Rooftops.",
+  "start": {
+   "on": "area:enter",
+   "match": {
+    "areaId": "rooftops"
+   }
+  },
+  "complete": {
+   "on": "area:clear",
+   "match": {
+    "areaId": "rooftops"
+   }
+  },
+  "reward": {
+   "score": 3000
+  }
+ },
+ {
+  "id": "bonanza_star",
+  "name": "Bonanza Star",
+  "desc": "Boop every cat in a Treat Bonanza for a perfect bonus.",
+  "start": {
+   "on": "bonus:start"
+  },
+  "complete": {
+   "on": "flag:set",
+   "match": {
+    "flag": "perfect_bonus"
+   }
+  },
+  "reward": {
+   "score": 5000
+  }
+ },
+ {
+  "id": "boop_brigade",
+  "name": "Boop Brigade",
+  "desc": "Boop 1,500 cats. They will be fine. They are just going home.",
+  "start": {
+   "on": "wave:clear"
+  },
+  "complete": {
+   "on": "cat:boop",
+   "count": 1500
+  },
+  "reward": {
+   "score": 8000
+  }
+ },
+ {
+  "id": "big_cats",
+  "name": "Big Cat Tamer",
+  "desc": "Defeat 10 Big Cats.",
+  "start": {
+   "on": "boss:start"
+  },
+  "complete": {
+   "on": "boss:defeat",
+   "count": 10
+  },
+  "reward": {
+   "score": 8000
+  }
+ },
+ {
+  "id": "secret_route",
+  "name": "Follow the Catnip",
+  "desc": "Find enough memories to unlock the secret route to the Catnip Nebula.",
+  "start": {
+   "on": "area:enter",
+   "match": {
+    "areaId": "sky"
+   }
+  },
+  "complete": {
+   "on": "area:enter",
+   "match": {
+    "areaId": "nebula"
+   }
+  },
+  "reward": {
+   "score": 5000,
+   "flags": [
+    "nebula_visited"
+   ]
+  }
+ },
+ {
+  "id": "home_again",
+  "name": "Home Again",
+  "desc": "Defeat Empress Fluffington and bring everyone home.",
+  "start": {
+   "on": "area:enter",
+   "match": {
+    "areaId": "mothership"
+   }
+  },
+  "complete": {
+   "on": "boss:defeat",
+   "match": {
+    "bossId": "boss_empress"
+   }
+  },
+  "reward": {
+   "score": 20000
+  }
+ }
+]

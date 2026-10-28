@@ -1,0 +1,382 @@
+[
+ {
+  "id": "intro-backyard-1",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "Captain Pom! Wake up! The Feline Armada has stolen every squeaky toy in the neighborhood, and they took the puppies too.",
+  "next": "intro-backyard-2"
+ },
+ {
+  "id": "intro-backyard-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "Not the puppies! And not my squeaky hedgehog! Biscuit, fire up the rocket boots.",
+  "next": "intro-backyard-3"
+ },
+ {
+  "id": "intro-backyard-3",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "Arrow keys to fly. Space bar to... well. You know what you do. Aim it at the cats, Captain.",
+  "next": "intro-backyard-4"
+ },
+ {
+  "id": "intro-backyard-4",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "Lunch was a big one. Let's go."
+ },
+ {
+  "id": "outro-backyard-1",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "Sergeant Whiskers is running for the fence! The yard is ours again.",
+  "next": "outro-backyard-2"
+ },
+ {
+  "id": "outro-backyard-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "That cat has stared at me through the window for six years. Feels good. Onward to Maple Street!"
+ },
+ {
+  "id": "intro-street-1",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "Maple Street is crawling with tuxedos. They dive fast, so keep moving.",
+  "next": "intro-street-2"
+ },
+ {
+  "id": "intro-street-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "I've walked this street a thousand times. Every hydrant is an old friend.",
+  "next": "intro-street-3"
+ },
+ {
+  "id": "intro-street-3",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "Watch for the Scottish Folds later on. They carry lost pups in their paws. Boop one and catch the pup!"
+ },
+ {
+  "id": "outro-street-1",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "Tuxedo Tom has lost his top hat. Two routes ahead, Captain: the Dog Park or Bodega Alley.",
+  "next": "outro-street-2"
+ },
+ {
+  "id": "outro-street-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "Decisions, decisions. Both smell amazing."
+ },
+ {
+  "id": "intro-park-1",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "Barkwood Dog Park. Duchess Fluffbottom has taken the whole lawn for her afternoon nap.",
+  "next": "intro-park-2"
+ },
+ {
+  "id": "intro-park-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "The dog park belongs to the dogs. That's literally the name."
+ },
+ {
+  "id": "outro-park-1",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "The Duchess is gone and the lawn is free! A golden retriever just gave me a tennis ball. I'll keep it forever.",
+  "next": "outro-park-2"
+ },
+ {
+  "id": "outro-park-2",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "Head for the rooftops. The Armada's signal is coming from up high."
+ },
+ {
+  "id": "intro-alley-1",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "Bodega Alley. Big Sal runs things here. He's not mean, just very, very territorial.",
+  "next": "intro-alley-2"
+ },
+ {
+  "id": "intro-alley-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "I just want a bacon egg and cheese and the puppies back. Is that so much?"
+ },
+ {
+  "id": "outro-alley-1",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "Big Sal tipped his ears at you. In cat, that's practically a hug. You've earned some respect around here.",
+  "next": "outro-alley-2"
+ },
+ {
+  "id": "outro-alley-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "Respect is nice. Bacon is nicer. Up to the rooftops!"
+ },
+ {
+  "id": "intro-rooftops-1",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "The Manhattan skyline at night. Madame Mau is singing from a water tower and the whole block is awake.",
+  "next": "intro-rooftops-2"
+ },
+ {
+  "id": "intro-rooftops-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "The city looks like a box of glowing kibble from up here."
+ },
+ {
+  "id": "outro-rooftops-1",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "Madame Mau finally stopped singing. Somewhere, a neighbor is finally sleeping.",
+  "next": "outro-rooftops-2"
+ },
+ {
+  "id": "outro-rooftops-2",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "Two leads, Captain. A cat cafe full of suspicious lattes, or the fish market docks."
+ },
+ {
+  "id": "intro-cafe-1",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "The Purrfect Cup Cafe. It's a front. The Armada runs its operations from behind the pastry case.",
+  "next": "intro-cafe-2"
+ },
+ {
+  "id": "intro-cafe-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "I'll have a pup cup. And a side of justice."
+ },
+ {
+  "id": "outro-cafe-1",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "Barista Patches is out of kittens and out of espresso. The trail leads to the Yarn Factory.",
+  "next": "outro-cafe-2"
+ },
+ {
+  "id": "outro-cafe-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "I left a generous tip. In turds, but still."
+ },
+ {
+  "id": "intro-docks-1",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "Fish Market Docks at dawn. Captain Mainsail's crew is loading stolen squeaky toys onto a boat.",
+  "next": "intro-docks-2"
+ },
+ {
+  "id": "intro-docks-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "Not my hedgehog! Full speed ahead!"
+ },
+ {
+  "id": "outro-docks-1",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "The boat is ours. The toys are safe. It smells like tuna and victory.",
+  "next": "outro-docks-2"
+ },
+ {
+  "id": "outro-docks-2",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "The crates are labeled YARN FACTORY. That's our next stop."
+ },
+ {
+  "id": "intro-factory-1",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "The Yarn Factory. Every ball of yarn the Armada throws was spun right here.",
+  "next": "intro-factory-2"
+ },
+ {
+  "id": "intro-factory-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "Shut it down. Then maybe roll around in it a little. For science."
+ },
+ {
+  "id": "outro-factory-1",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "Foreman Fold is tangled in his own yarn. Captain, the Armada is retreating to orbit!",
+  "next": "outro-factory-2"
+ },
+ {
+  "id": "outro-factory-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "Then we're going to space. I have always wanted to go to space."
+ },
+ {
+  "id": "intro-sky-1",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "The Stratosphere. Ace Pilot Sphynx is waiting for you in the clouds.",
+  "next": "intro-sky-2"
+ },
+ {
+  "id": "intro-sky-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "My ears are flapping so hard right now. This is the best day of my life."
+ },
+ {
+  "id": "outro-sky-1",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "Ace is out of the fight. Your memories are glowing, Captain. If you found enough, a secret route opens to the Catnip Nebula.",
+  "next": "outro-sky-2"
+ },
+ {
+  "id": "outro-sky-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "Every memory of my human makes me fly a little faster."
+ },
+ {
+  "id": "intro-moon-1",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "The Litter Moon. Yes, it's exactly what it sounds like. Hold your nose.",
+  "next": "intro-moon-2"
+ },
+ {
+  "id": "intro-moon-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "One small step for a dog. One giant leap over a clump."
+ },
+ {
+  "id": "outro-moon-1",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "Commodore Blue has surrendered the moon. The Scratching-Post Station is just ahead.",
+  "next": "outro-moon-2"
+ },
+ {
+  "id": "outro-moon-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "I'm going to need a very long bath after this."
+ },
+ {
+  "id": "intro-nebula-1",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "The Catnip Nebula! Very few dogs have ever seen it. The cats in here are... extremely relaxed.",
+  "next": "intro-nebula-2"
+ },
+ {
+  "id": "intro-nebula-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "Everything smells like mint and naps. Focus, Pom. Focus."
+ },
+ {
+  "id": "outro-nebula-1",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "The Kingpin just rolled over and purred. I think we're friends now?",
+  "next": "outro-nebula-2"
+ },
+ {
+  "id": "outro-nebula-2",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "Friends who still stole the puppies. The Station awaits."
+ },
+ {
+  "id": "intro-station-1",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "Scratching-Post Station. Admiral Floof keeps the Empress's schedule. Nap, snack, nap, conquer, nap.",
+  "next": "intro-station-2"
+ },
+ {
+  "id": "intro-station-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "I respect the nap schedule. I do not respect the conquering."
+ },
+ {
+  "id": "outro-station-1",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "The Station has fallen! The Meowthership is right in front of you, Captain.",
+  "next": "outro-station-2"
+ },
+ {
+  "id": "outro-station-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "Hold on, little pups. I'm coming."
+ },
+ {
+  "id": "intro-mothership-1",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "This is it. The Meowthership. Empress Fluffington is aboard, along with every stolen toy and pup.",
+  "next": "intro-mothership-2"
+ },
+ {
+  "id": "intro-mothership-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "Biscuit, if I don't make it back, tell my human I was a good girl.",
+  "next": "intro-mothership-3"
+ },
+ {
+  "id": "intro-mothership-3",
+  "speaker": "Commander Biscuit",
+  "portrait": "pup",
+  "text": "You ARE a good girl, Captain. The best. Now go get them."
+ },
+ {
+  "id": "outro-mothership-1",
+  "speaker": "Empress Fluffington",
+  "portrait": "boss_empress",
+  "text": "Stop! Stop booping me! Fine, FINE. Take your toys. I only wanted someone to play with.",
+  "next": "outro-mothership-2"
+ },
+ {
+  "id": "outro-mothership-2",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "You could have just asked. Dogs love to play. That's our whole thing.",
+  "next": "outro-mothership-3"
+ },
+ {
+  "id": "outro-mothership-3",
+  "speaker": "Empress Fluffington",
+  "portrait": "boss_empress",
+  "text": "...Really? Even with a cat?",
+  "next": "outro-mothership-4"
+ },
+ {
+  "id": "outro-mothership-4",
+  "speaker": "Captain Pom",
+  "portrait": "poodle",
+  "text": "Come by the backyard on Saturday. Bring the squeaky hedgehog. Biscuit, set a course for home."
+ }
+]
