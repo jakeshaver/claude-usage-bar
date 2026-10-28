@@ -325,7 +325,7 @@ const backyard: LayerDef = { speed: 1, opaque: true, paint(p, z) {
     const cx = (x0 + x1) >> 1, y0 = top + 14, y1 = SEG - 8;
     border(p, li === 2 ? x1 - 12 : li === 1 ? x0 + 4 : x0, top + 2, 10, SEG - top - 2, r);
     if (kind !== 'patio') for (let y = y0 + 8; y < y1 - 8; y += 20) { const sx = cx + Math.round(Math.sin((z.wy(y) + li * 50) / 40) * 14) + ((y / 20) % 2 ? 4 : -4); p.ell('0', sx, y + 3, 6, 4); p.ell('q', sx, y + 3, 5, 3); p.r('p', sx - 3, y + 1, 4, 1); }
-    if (kind === 'dog') { doghouse(p, x0 + 22, y0 + 26); p.ell('b', x0 + 96, y0 + 130, 9, 6); p.ell('a', x0 + 95, y0 + 129, 6, 3); p.obj(() => { const tx = x0 + 40, ty = y1 - 40; p.r('0', tx - 1, ty - 1, 16, 4); p.r('8', tx, ty, 14, 2); p.r('h', tx + 3, ty, 2, 2); p.r('h', tx + 9, ty, 2, 2); }); }
+    if (kind === 'dog') { doghouse(p, x0 + (li ? 30 : 44), y0 + 26); p.ell('b', x0 + 96, y0 + 130, 9, 6); p.ell('a', x0 + 95, y0 + 129, 6, 3); p.obj(() => { const tx = x0 + 40, ty = y1 - 40; p.r('0', tx - 1, ty - 1, 16, 4); p.r('8', tx, ty, 14, 2); p.r('h', tx + 3, ty, 2, 2); p.r('h', tx + 9, ty, 2, 2); }); }
     else if (kind === 'pool') { kiddiePool(p, cx + 10, y0 + 60); bin(p, x1 - 24, y1 - 24, 'k'); p.obj(() => { const tx = cx - 40, ty = y0 + 110; p.r('0', tx - 1, ty - 1, 18, 26); for (let j = 0; j < 24; j += 4) p.r(j % 8 ? '7' : 'n', tx, ty + j, 16, 4); }); }
     else if (kind === 'patio') { patio(p, x0 + 14, y0 + 4, x1 - x0 - 28, 96); umbrellaTable(p, cx, y0 + 50); grill(p, x1 - 30, y0 + 20); }
     else if (kind === 'garden') { garden(p, x0 + 18, y0 + 16, x1 - x0 - 36, 36, r); garden(p, x0 + 18, y0 + 66, (x1 - x0) / 2 - 12, 30, r); p.obj(() => { const wx = x1 - 40, wy = y0 + 76; p.r('0', wx, wy, 12, 10); p.r('k', wx + 1, wy + 1, 10, 8); p.r('j', wx + 1, wy + 1, 10, 1); p.r('0', wx + 12, wy + 2, 6, 2); }); }
@@ -343,12 +343,7 @@ const yardFg = (keys = ['1', 'k', 'j'], density = 0.6, wireChance = 0.3): LayerD
   if (r.chance(density)) canopy(p, r.chance(0.5) ? r.int(-16, 50) : r.int(398, 464), r.int(50, 200), r.int(30, 44), r, keys);
   if (r.chance(density * 0.35)) branch(p, r.chance(0.5), r.int(30, 220), r.int(70, 130), r);
   if (r.chance(wireChance)) wires(p, r.int(30, 220), r);
-  if (p.tod === 'dawn') mist(p, r);
 } });
-/** low morning mist (dawn only): long flat solid streaks, no halftone */
-function mist(p: Painter, r: Rng) {
-  for (let i = 0; i < 3; i++) { const x = r.int(-40, SW - 80), y = r.int(10, SEG - 10), w = r.int(90, 180); p.ell('3', x + w / 2, y, w / 2, 4.5); p.ell('4', x + w / 2 - 10, y - 1, w / 3, 2.5); }
-}
 
 // ---------------------------------------------------------------- STREET
 const street: LayerDef = { speed: 1, opaque: true, paint(p, z) {
