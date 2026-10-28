@@ -7,14 +7,15 @@ import { C, frame, bar, segBar, menu, scanlines, header, icon, rect, line, ring,
 import { logoWord, drawLogo, PINK, CYAN, GOLD } from './logo';
 import { glyph } from './glyphs';
 import { Touch } from './touch';
+import { num, numWidth } from './numerals';
 
 type Menu = 'none' | 'pause' | 'settings' | 'journal' | 'confirmQuit';
 const RX = PF_X + PF_W;               // right panel x
 const PW = W - RX;                    // panel width (128)
 const TITLE_CATS = ['cat_tabby', 'cat_siamese', 'cat_calico', 'cat_sphynx'];
-const DLG_H = 62;                     // dialogue box height (docked to the top of the playfield)
+const DLG_H = 62;                     // dialogue box height (docked to the bottom of the playfield)
 const SILHOUETTE: Record<string, string> = Object.fromEntries([...KEY].map(k => [k, '2']));
-const POWERS: [string, string, string, string][] = [['double', 'pk_bone', 'X2', C.gold], ['spread', 'pk_chili', 'HOT', C.orange], ['shield', 'pk_bandana', 'SHLD', C.line], ['speed', 'pk_sneaker', 'ZOOM', C.lime]];
+const POWERS: [string, string, string, string][] = [['double', 'pk_bone', 'X2', C.gold], ['spread', 'pk_chili', 'HOT', C.orange], ['shield', 'pk_bandana', 'SHD', C.line], ['speed', 'pk_sneaker', 'ZIP', C.lime]];
 
 /** Panel accents per time of day: [left panel, right panel, scanner glow]. */
 function todAccent(tod: string): [string, string, string] {
@@ -34,6 +35,44 @@ function breedColor(sprite: string): string {
   breedColors.set(sprite, c); return c;
 }
 
+/** 4x4 Bayer thresholds for ordered dither (0..15). */
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+let nebCache: HTMLCanvasElement | null | undefined;
+/** Star-chart nebulae: noisy ellipses split into 3 solid tone bands; only band borders use ordered dither. */
+function nebulaCanvas(): HTMLCanvasElement | null {
+  if (nebCache !== undefined) return nebCache;
+  if (typeof document === 'undefined') return (nebCache = null);
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const x2 = cv.getContext('2d'); if (!x2) return (nebCache = null);
+  // [cx, cy, rx, ry, outer, mid, core, seed]
+  const blobs: [number, number, number, number, string, string, string, number][] = [
+    [160, 120, 128, 58, C.night, C.plum, C.indigo, 1], [470, 210, 160, 62, C.night, C.plum, C.indigo, 2], [330, 96, 96, 38, C.night, C.indigo, C.deep, 3],
+    [86, 232, 96, 44, C.night, C.indigo, C.deep, 4], [566, 104, 84, 42, C.night, C.plum, C.peri, 5]];
+  const img = x2.createImageData(W, H); const d = img.data;
+  const rgb = (h: string) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const level = new Uint8Array(W * H); const colorOf: string[][] = [];
+  blobs.forEach(([cx, cy, rx, ry, c1, c2, c3, sd], bi) => {
+    colorOf[bi] = [c1, c2, c3];
+    for (let y = Math.max(0, cy - ry - 8); y < Math.min(H, cy + ry + 8); y++) for (let x = Math.max(0, cx - rx - 12); x < Math.min(W, cx + rx + 12); x++) {
+      const nx = (x - cx) / rx, ny = (y - cy) / ry; const a = Math.atan2(ny, nx);
+      const r = Math.hypot(nx, ny) / (1 + 0.13 * Math.sin(a * 3 + sd) + 0.07 * Math.sin(a * 5 + sd * 2.3) + 0.04 * Math.sin(a * 9 + sd));
+      // band value 0..3 (3 = core); the fractional part near each border feeds the Bayer threshold
+      const v = r < 0.24 ? 3 : r < 0.34 ? 2 + (0.34 - r) / 0.1 : r < 0.6 ? 2 : r < 0.7 ? 1 + (0.7 - r) / 0.1 : r < 0.86 ? 1 : r < 1 ? (1 - r) / 0.14 : 0;
+      const b = Math.floor(v), f = v - b; const th = (BAYER[(y & 3) * 4 + (x & 3)] + 0.5) / 16;
+      const lv = Math.min(3, b + (f > th ? 1 : 0));
+      const i = y * W + x; if (lv > (level[i] & 3)) level[i] = lv | (bi << 2);
+    }
+  });
+  for (let i = 0; i < level.length; i++) {
+    const lv = level[i] & 3; if (!lv) continue;
+    const [r, g, b] = rgb(colorOf[level[i] >> 2][lv - 1]); d[i * 4] = r; d[i * 4 + 1] = g; d[i * 4 + 2] = b; d[i * 4 + 3] = 255;
+  }
+  x2.putImageData(img, 0, 0); return (nebCache = cv);
+}
+/** 7x7 lime check mark (cleared sector badge). */
+function checkMark(ctx: CanvasRenderingContext2D, x: number, y: number) {
+  for (const [dx, dy] of [[0, 3], [1, 4], [2, 5], [3, 4], [4, 3], [5, 2], [6, 1], [1, 3], [2, 4], [3, 3], [4, 2], [5, 1]]) rect(ctx, x + dx, y + dy, 1, 1, C.lime);
+}
+
 /** UI shell: HUD panels, title, sector map, pause, settings, dialogue box, ending, recovery, toasts. */
 class UI implements Module {
   id = 'ui';
@@ -44,6 +83,10 @@ class UI implements Module {
   mapSel = 0; endingT = 0; shownScore = 0; lastHearts = -1; heartFlash = 0;
   chain = 0; bestChain = 0; lastBoop = -999; chainPop = 0;
   powMax: Record<string, number> = {}; waveCats = 0;
+  /** Conversation parked while the pause menu is open during dialogue (quest.update idles without it). */
+  heldDlg: any = null;
+  /** Ticks the game stays paused after a menu closes while fire/confirm is still held (no stray turd on resume). */
+  resumeHold = 0;
   /** Hit rects of the menu rows drawn this frame (touch tap-to-select). */
   rows: Row[] = [];
   touch = new Touch();
@@ -67,12 +110,23 @@ class UI implements Module {
     if (!g.headless) this.touch.attach(g);
   }
   toast(s: string) { this.toasts.push({ text: s, t: 170, age: 0, y: -1 }); if (this.toasts.length > 4) this.toasts.shift(); }
-  openPause() { if (this.menuOpen === 'none') { this.menuOpen = 'pause'; this.sel = 0; this.g.paused = true; this.g.mods.audio?.sfx('select'); } }
-  closeMenus() { this.menuOpen = 'none'; this.g.paused = false; }
+  openPause() {
+    if (this.menuOpen !== 'none') return;
+    const Q = this.g.mods.quest;
+    if (this.g.state.scene === 'dialogue' && Q?.dlg) { this.heldDlg = Q.dlg; Q.dlg = null; }
+    this.menuOpen = 'pause'; this.sel = 0; this.g.paused = true; this.resumeHold = 0; this.g.mods.audio?.sfx('select');
+  }
+  /** Close every menu. hold = keep the game paused until fire/confirm is released (resume via A / SPACE). */
+  closeMenus(hold = true) {
+    this.menuOpen = 'none';
+    const Q = this.g.mods.quest; if (this.heldDlg && Q) { Q.dlg = this.heldDlg; } this.heldDlg = null;
+    const I = this.g.input;
+    if (hold && (I.held('fire') || I.held('confirm'))) { this.resumeHold = 1; this.g.paused = true; } else { this.resumeHold = 0; this.g.paused = false; }
+  }
   openMap() { this.g.setScene('map'); }
   showDialogue(id: string) { this.g.mods.quest?.dialogue(id); }
   dev(): Device { return this.g.input.lastDevice; }
-  /** Fast-forward the whole open conversation (ESC / START / pause key during dialogue). */
+  /** Fast-forward the whole open conversation (dedicated skip key, or SKIP BRIEFING in the pause menu). */
   skipDialogue(g: Game) {
     const Q = g.mods.quest; if (!Q) return;
     for (let i = 0; i < 80 && Q.dlg && g.state.scene === 'dialogue'; i++) { Q.dlg.chars = 1e9; Q.advance(); }
@@ -89,7 +143,13 @@ class UI implements Module {
 
   update(g: Game) {
     this.t++;
-    for (const x of this.toasts) { x.t--; x.age++; } this.toasts = this.toasts.filter(x => x.t > 0);
+    // toasts hold while a menu is open (they sit under the dim layer and resume afterwards)
+    if (this.menuOpen === 'none') { for (const x of this.toasts) { x.t--; x.age++; } this.toasts = this.toasts.filter(x => x.t > 0); }
+    if (this.resumeHold > 0) {
+      const I0 = g.input;
+      if ((I0.held('fire') || I0.held('confirm')) && this.resumeHold < 30 && this.menuOpen === 'none') { this.resumeHold++; g.paused = true; }
+      else { this.resumeHold = 0; if (this.menuOpen === 'none') g.paused = false; }
+    }
     // rolling score counter + heart-loss flash
     const s = g.state; const diff = s.score - this.shownScore;
     this.shownScore = diff <= 0 ? s.score : this.shownScore + Math.max(1, Math.ceil(diff / 6));
@@ -113,14 +173,15 @@ class UI implements Module {
         g.mods.audio?.sfx('select');
         const it = items[this.sel];
         if (it === 'RESUME') this.closeMenus();
+        else if (it === 'SKIP BRIEFING') { this.closeMenus(); this.skipDialogue(g); }
         else if (it === 'JOURNAL') { this.menuOpen = 'journal'; this.settingsFrom = 'pause'; g.mods.journal?.open(); }
         else if (it === 'SETTINGS') { this.menuOpen = 'settings'; this.settingsFrom = 'pause'; this.sel = 0; }
-        else if (it === 'SAVE & QUIT') { g.mods.save?.save(); this.closeMenus(); g.mods.interaction?.clearAll(); g.setScene('title'); }
+        else if (it === 'SAVE & QUIT') { const inDlg = !!this.heldDlg; this.closeMenus(false); if (inDlg) this.skipDialogue(g); g.mods.save?.save(); g.mods.interaction?.clearAll(); g.setScene('title'); }
       }
       return;
     }
-    if (sc === 'dialogue' && I.pressed('pause')) { this.skipDialogue(g); return; }
-    if ((sc === 'play' || sc === 'bonus' || sc === 'map') && I.pressed('pause')) { this.openPause(); return; }
+    if (sc === 'dialogue' && I.pressed('back')) { this.skipDialogue(g); return; }
+    if ((sc === 'play' || sc === 'bonus' || sc === 'map' || sc === 'dialogue') && I.pressed('pause')) { this.openPause(); return; }
     if (sc === 'title') this.titleNav(g);
     else if (sc === 'map') this.mapNav(g);
     else if (sc === 'ending') { this.endingT++; if (this.endingT > 240 && I.pressed('confirm')) { g.setScene('title'); } }
@@ -134,7 +195,7 @@ class UI implements Module {
 
   titleItems() { return ['CONTINUE', 'NEW GAME', 'JOURNAL', 'SETTINGS']; }
   titleDisabled() { return [!this.g.mods.save?.hasSave(), false, false, false]; }
-  pauseItems() { return ['RESUME', 'JOURNAL', 'SETTINGS', 'SAVE & QUIT']; }
+  pauseItems() { return this.heldDlg ? ['RESUME', 'SKIP BRIEFING', 'JOURNAL', 'SETTINGS', 'SAVE & QUIT'] : ['RESUME', 'JOURNAL', 'SETTINGS', 'SAVE & QUIT']; }
 
   titleNav(g: Game) {
     const I = g.input; const items = this.titleItems(); const off = this.titleDisabled();
@@ -166,7 +227,7 @@ class UI implements Module {
       g.mods.audio?.setVolumes(); g.mods.audio?.sfx('blip');
     }
     if (I.pressed('back') || I.pressed('pause') || (I.pressed('confirm') && this.sel === 4)) {
-      g.mods.save?.save(); this.menuOpen = this.settingsFrom === 'title' ? 'none' : 'pause'; this.sel = this.settingsFrom === 'title' ? 3 : 2;
+      g.mods.save?.save(); this.menuOpen = this.settingsFrom === 'title' ? 'none' : 'pause'; this.sel = this.settingsFrom === 'title' ? 3 : this.pauseItems().indexOf('SETTINGS');
     }
   }
   mapNav(g: Game) {
@@ -194,17 +255,18 @@ class UI implements Module {
     else if (sc === 'ending') this.ending(g, ctx);
     else if (sc === 'recovery') this.recovery(ctx);
     else if (sc === 'boot') { rect(ctx, 0, 0, W, H, C.bg); text(ctx, 'LOADING...', W / 2, H / 2, C.line, { align: 'center' }); }
+    // toasts first: an open menu dims them along with the playfield
+    this.drawToasts(ctx);
     if (this.menuOpen === 'pause') this.pause(g, ctx);
     if (this.menuOpen === 'settings') this.settings(g, ctx);
     if (this.menuOpen === 'journal') g.mods.journal?.draw(g, ctx);
-    this.drawToasts(ctx);
     this.touch.draw(g, ctx, this.t);
   }
 
   /** Toasts unfold horizontally from their own center at a fixed y (>= 8): never clipped by the screen edge. */
   drawToasts(ctx: CanvasRenderingContext2D) {
     const cx = PF_X + PF_W / 2;
-    const top = this.g.state.scene === 'dialogue' ? DLG_H + 6 : 8;
+    const top = 8; // the dialogue box docks at the bottom, so toasts always stack from the top
     this.toasts.forEach((x, i) => {
       const target = top + i * 17;
       x.y = x.y < 0 ? target : x.y + Math.sign(target - x.y) * Math.min(2, Math.abs(target - x.y));
@@ -227,11 +289,20 @@ class UI implements Module {
     for (let k = 0; k < 4; k++) dither(ctx, x + 4, H - 8 - k * 2, PW - 8, 1, darkOf(accent), k < 2 ? 'check' : 'sparse');
     scanlines(ctx, x, 0, PW, H);
     frame(ctx, x + 2, 2, PW - 4, H - 4, accent, C.panel, 6);
-    // sweeping scan line (subtle animated detail)
-    const sy = 8 + ((this.t >> 1) % (H - 16));
-    dither(ctx, x + 4, sy, PW - 8, 1, darkOf(accent));
+    // animated detail lives on the frame itself (never across labels): a light pulse runs down the
+    // left rail and up the right rail
+    const span = H - 32; const p = (this.t >> 1) % span;
+    rect(ctx, x + 2, 16 + p, 1, 8, lighter(accent)); rect(ctx, x + 2, 16 + p - 4, 1, 4, accent);
+    rect(ctx, x + PW - 3, H - 24 - p, 1, 8, lighter(accent)); rect(ctx, x + PW - 3, H - 16 - p, 1, 4, accent);
     // rivets
     for (const yy of [12, H - 13]) { rect(ctx, x + 6, yy, 2, 2, C.indigo); rect(ctx, x + PW - 8, yy, 2, 2, C.indigo); }
+  }
+  /** Wrap a name into at most `max` lines of `chars` characters (the last line ends in '.' if cut). */
+  lines(s: string, chars: number, max = 2) {
+    const nl = wrap(s.toUpperCase(), chars);
+    if (nl.length <= max) return nl;
+    const head = nl.slice(0, max - 1); const rest = nl.slice(max - 1).join(' ');
+    return [...head, rest.slice(0, chars - 1).trimEnd() + '.'];
   }
   hud(g: Game, ctx: CanvasRenderingContext2D) {
     const s = g.state; const P = g.mods.player; const A = g.mods.world?.area(); const t = this.t;
@@ -244,135 +315,149 @@ class UI implements Module {
     drawLogo(ctx, L1, 64, 10, shine, 3); drawLogo(ctx, L2, 64, 27, shine - 20, 3);
     const x0 = 10, w0 = PW - 20;
     header(ctx, 'SCORE', x0, 50, w0, accL, t);
-    text(ctx, String(Math.min(this.shownScore, 99999999)).padStart(8, '0'), x0 + 2, 61, C.text, { scale: 2, shadow: C.ink });
-    icon(ctx, 'star', x0, 80, C.gold); text(ctx, 'HI', x0 + 10, 80, C.dim);
-    text(ctx, String(s.hiScore).padStart(8, '0'), x0 + 26, 80, C.gold);
-    header(ctx, 'HEARTS', x0, 94, w0, C.hot, t, s.hearts <= 1);
+    num(ctx, String(Math.min(this.shownScore, 99999999)).padStart(8, '0'), x0 + 1, 61, C.text, { hi: C.ice, shadow: C.ink });
+    icon(ctx, 'star', x0, 78, C.gold); text(ctx, 'HI', x0 + 10, 78, C.dim);
+    text(ctx, String(s.hiScore).padStart(8, '0'), x0 + w0, 78, C.gold, { align: 'right' });
+    header(ctx, 'HEARTS', x0, 92, w0, C.hot, t, s.hearts <= 1);
     const beat = s.hearts <= 1 && (t >> 4) % 2 === 0;
     for (let i = 0; i < s.maxHearts; i++) {
-      const full = i < s.hearts; const hx = x0 + 8 + i * 13, hy = 109 + (full && beat && i === s.hearts - 1 ? -1 : 0);
+      const full = i < s.hearts; const hx = x0 + 8 + i * 13, hy = 107 + (full && beat && i === s.hearts - 1 ? -1 : 0);
       if (!full && this.heartFlash > 0 && i === s.hearts && (this.heartFlash >> 2) % 2) drawSprite(ctx, 'hud_heart', hx, hy, { flash: true });
       else drawSprite(ctx, full ? 'hud_heart' : 'hud_heart_empty', hx, hy);
     }
-    // power-up bay: four fixed slots (lit when active, silhouettes when empty) + wingpup status
-    header(ctx, 'POWER-UPS', x0, 122, w0, C.line, t);
+    // power-up bay: four fixed slots (lit when active, silhouettes when empty); labels stay readable
+    header(ctx, 'POWER-UPS', x0, 120, w0, C.line, t);
     POWERS.forEach(([k, spr, nm, c], i) => {
-      const left = P?.powers?.[k] ?? 0; const on = left > 0; const sx = x0 + i * 28, sy = 133;
+      const left = P?.powers?.[k] ?? 0; const on = left > 0; const sx = x0 + i * 28, sy = 131;
       const low = on && left < 180 && (t >> 3) % 2;
       chamferFill(ctx, sx, sy, 24, 22, on ? C.night : C.ink, 3);
       chamferLine(ctx, sx, sy, 24, 22, on ? (low ? C.hot : c) : C.indigo, 3);
       if (on) { rect(ctx, sx + 3, sy + 1, 18, 1, darkOf(c)); drawSprite(ctx, spr, sx + 12, sy + 10); }
       else drawSprite(ctx, spr, sx + 12, sy + 10, { recolor: SILHOUETTE });
-      // drain bar inside the slot base
       const p = on ? left / Math.max(1, this.powMax[k] ?? left) : 0;
-      rect(ctx, sx + 3, sy + 18, 18, 2, C.plum); if (on) rect(ctx, sx + 3, sy + 18, Math.max(1, Math.round(18 * p)), 2, low ? C.hot : c);
-      text(ctx, on ? `${Math.ceil(left / 60)}S` : nm, sx + 12, sy + 25, on ? c : C.indigo, { align: 'center' });
+      rect(ctx, sx + 3, sy + 18, 18, 2, C.indigo); if (on) rect(ctx, sx + 3, sy + 18, Math.max(1, Math.round(18 * p)), 2, low ? C.hot : c);
+      text(ctx, on ? `${Math.ceil(left / 60)}S` : nm, sx + 12, sy + 25, on ? c : C.dim, { align: 'center' });
     });
     {
-      const on = !!P?.buddy; const by = 168;
-      chamferFill(ctx, x0, by, w0, 13, on ? C.night : C.ink, 3); chamferLine(ctx, x0, by, w0, 13, on ? C.burnt : C.indigo, 3);
-      if (on) drawSprite(ctx, 'pup', x0 + 9, by + 6); else drawSprite(ctx, 'pup', x0 + 9, by + 6, { recolor: SILHOUETTE });
-      text(ctx, 'WINGPUP', x0 + 19, by + 3, on ? C.gold : C.peri);
-      rect(ctx, x0 + w0 - 40, by + 5, 3, 3, on ? ((t >> 4) % 2 ? C.lime : C.deep) : C.indigo);
-      text(ctx, on ? 'ONLINE' : 'RESCUE', x0 + w0 - 4, by + 3, on ? C.lime : C.indigo, { align: 'right' });
+      // wingpup pill: 7px pup icon inside the pill, status LED parked left of the status word
+      const on = !!P?.buddy; const by = 166, bh = 14;
+      chamferFill(ctx, x0, by, w0, bh, on ? C.night : C.ink, 3); chamferLine(ctx, x0, by, w0, bh, on ? C.burnt : C.peri, 3);
+      icon(ctx, 'pup', x0 + 6, by + 4, on ? C.gold : C.dim);
+      text(ctx, 'WINGPUP', x0 + 17, by + 4, on ? C.gold : C.dim);
+      const st = on ? 'ONLINE' : 'RESCUE'; const sx = x0 + w0 - 6 - textWidth(st);
+      rect(ctx, sx - 6, by + 6, 3, 3, on ? ((t >> 4) % 2 ? C.lime : C.deep) : C.peri);
+      text(ctx, st, x0 + w0 - 6, by + 4, on ? C.lime : C.dim, { align: 'right' });
     }
     // boop chain: consecutive boops within ~1.6s, with a decay bar
     header(ctx, 'BOOP CHAIN', x0, 186, w0, C.gold, t, this.chain > 1);
     {
-      const by = 197; const live = this.chain > 0; const left = live ? Math.max(0, 100 - (g.tick - this.lastBoop)) / 100 : 0;
-      chamferFill(ctx, x0, by, w0, 32, C.ink, 4); chamferLine(ctx, x0, by, w0, 32, live ? C.burnt : C.indigo, 4);
+      const by = 197, bh = 34; const live = this.chain > 0; const left = live ? Math.max(0, 100 - (g.tick - this.lastBoop)) / 100 : 0;
+      chamferFill(ctx, x0, by, w0, bh, C.ink, 4); chamferLine(ctx, x0, by, w0, bh, live ? C.burnt : C.peri, 4);
       const pop = this.chainPop > 4 ? -1 : 0;
-      text(ctx, 'X', x0 + 7, by + 13 + pop, live ? C.gold : C.indigo);
-      text(ctx, String(Math.min(999, this.chain)), x0 + 14, by + 7 + pop, live ? C.gold : C.indigo, { scale: 2, shadow: live ? C.burnt : undefined });
+      num(ctx, 'X' + Math.min(999, this.chain), x0 + 7, by + 12 + pop, live ? C.gold : C.dim, { hi: live ? C.cream : C.pale, shadow: live ? C.burnt : C.night });
       const rx = x0 + 58;
       text(ctx, 'BEST', rx, by + 6, C.dim); text(ctx, String(this.bestChain), x0 + w0 - 6, by + 6, C.text, { align: 'right' });
-      segBar(ctx, rx, by + 18, 8, 4, 3, left, left < 0.35 ? C.hot : C.gold, C.plum);
-      text(ctx, live ? '' : 'BOOP!', rx, by + 24, C.indigo);
+      segBar(ctx, rx, by + 17, 8, 4, 3, left, left < 0.35 ? C.hot : C.gold);
+      if (!live) text(ctx, 'BOOP!', rx, by + 23, C.dim);
     }
     if (!touch) {
       // flight stats
-      header(ctx, 'STATS', x0, 238, w0, C.violet, t);
+      header(ctx, 'STATS', x0, 240, w0, C.violet, t);
       const acc = s.stats.shots ? Math.round(100 * s.stats.hits / s.stats.shots) : 0;
-      icon(ctx, 'cat', x0, 250, C.hot); text(ctx, 'BOOPS', x0 + 10, 250, C.dim); text(ctx, String(s.stats.catsBooped), x0 + w0, 250, C.text, { align: 'right' });
-      icon(ctx, 'star', x0, 262, C.gold); text(ctx, 'AIM', x0 + 10, 262, C.dim); text(ctx, `${acc}%`, x0 + w0, 262, C.text, { align: 'right' });
-      segBar(ctx, x0, 273, 18, 5, 2, acc / 100, C.violet);
+      icon(ctx, 'cat', x0, 252, C.hot); text(ctx, 'BOOPS', x0 + 10, 252, C.dim); text(ctx, String(s.stats.catsBooped), x0 + w0, 252, C.text, { align: 'right' });
+      icon(ctx, 'star', x0, 263, C.gold); text(ctx, 'AIM', x0 + 10, 263, C.dim); text(ctx, `${acc}%`, x0 + w0, 263, C.text, { align: 'right' });
+      segBar(ctx, x0, 274, 18, 5, 2, acc / 100, C.violet);
       // controls block (device-aware); hidden while the touch deck occupies this space
       const k = keys(this.dev());
       header(ctx, 'CONTROLS', x0, 288, w0, C.line, t);
       const rows: [string, string][] = [[k.move, 'FLY'], [k.fire, 'TOOT'], [k.pause, 'PAUSE']];
       rows.forEach(([key, cap], i) => { const kw = keycap(ctx, key, x0, 302 + i * 14, C.line); text(ctx, cap, x0 + kw + 5, 302 + i * 14, C.pale); });
     }
-    // ===== right panel =====
+    // ===== right panel: a flowing column; every block starts below the measured end of the last =====
     this.panel(ctx, RX, accR);
     const x1 = RX + 10;
     const B0 = g.mods.interaction?.boss;
+    let y = 10;
     if (A) {
       const idx = g.content.areas.indexOf(A);
-      header(ctx, `SECTOR ${String(idx + 1).padStart(2, '0')}`, x1, 12, w0, accR, t, true);
-      // two lines are always reserved for the sector name; both lines share one left edge
-      const nl = wrap(A.name.toUpperCase(), 18);
-      (nl.length > 2 ? [nl[0], nl.slice(1).join(' ').slice(0, 17) + '.'] : nl).forEach((l, i) => text(ctx, l, x1, 23 + i * 9, C.text, { shadow: C.ink }));
+      header(ctx, `SECTOR ${String(idx + 1).padStart(2, '0')}`, x1, y, w0, accR, t, true);
+      const nl = this.lines(A.name, 18);
+      nl.forEach((l, i) => text(ctx, l, x1, y + 11 + i * 9, C.text, { shadow: C.ink }));
+      y += 11 + nl.length * 9 + 5;
       const tot = A.waves.length + (A.boss ? 1 : 0); const cur = Math.min(tot, s.waveIndex + 1);
-      header(ctx, 'WAVE', x1, 46, w0, C.hot, t);
-      if (B0) text(ctx, 'BIG CAT', x1, 57, (t >> 4) % 2 ? C.hot : C.pink, { scale: 2, shadow: C.ink });
-      else {
-        // number and total share one baseline and one font tier
-        const a = String(cur), b = `/${tot}`;
-        text(ctx, a, x1, 57, C.line, { scale: 2, shadow: C.ink });
-        text(ctx, b, x1 + textWidth(a, 2) + 3, 57, C.peri, { scale: 2, shadow: C.ink });
-        // live hostiles count, right-aligned on the same row
-        const live = (g.mods.interaction?.cats ?? []).length;
-        icon(ctx, 'cat', x1 + w0 - 30, 61, live ? C.hot : C.indigo); text(ctx, String(live).padStart(2, '0'), x1 + w0 - 2, 61, live ? C.text : C.indigo, { align: 'right' });
+      header(ctx, 'WAVE', x1, y, w0, C.hot, t);
+      y += 11;
+      if (B0) {
+        chamferFill(ctx, x1, y, 62, 13, C.mag, 3); chamferFill(ctx, x1 + 1, y, 60, 12, (t >> 4) % 2 ? C.hot : C.mag, 3);
+        icon(ctx, 'cat', x1 + 5, y + 3, C.text); text(ctx, 'BIG CAT', x1 + 15, y + 3, C.text);
+      } else {
+        const a = String(cur);
+        const aw = num(ctx, a, x1, y, C.line, { hi: C.ice, shadow: C.ink });
+        num(ctx, `/${tot}`, x1 + aw + 2, y, C.dim, { hi: C.pale, shadow: C.ink });
       }
+      // live hostiles count, right-aligned on the same row
+      const live = (g.mods.interaction?.cats ?? []).length;
+      icon(ctx, 'cat', x1 + w0 - 30, y + 2, live ? C.hot : C.peri); text(ctx, String(live).padStart(2, '0'), x1 + w0 - 2, y + 2, live ? C.text : C.dim, { align: 'right' });
+      y += 15;
       const cw = Math.max(4, Math.min(12, Math.floor((w0 - (tot - 1)) / Math.max(1, tot))));
       for (let i = 0; i < tot; i++) {
         const done = i < s.waveIndex, curw = i === s.waveIndex; const bossCell = A.boss && i === tot - 1;
-        const c = done ? C.line : curw ? ((t >> 3) % 2 ? C.hot : C.pink) : C.plum;
-        chamferFill(ctx, x1 + i * (cw + 1), 75, cw, 5, c, 1);
-        if (bossCell && !done) rect(ctx, x1 + i * (cw + 1) + (cw >> 1) - 1, 76, 2, 3, curw ? C.text : C.hot);
+        const c = done ? C.line : curw ? ((t >> 3) % 2 ? C.hot : C.pink) : C.indigo;
+        chamferFill(ctx, x1 + i * (cw + 1), y, cw, 5, c, 1);
+        if (bossCell && !done) rect(ctx, x1 + i * (cw + 1) + (cw >> 1) - 1, y + 1, 2, 3, curw ? C.text : C.hot);
       }
+      y += 5 + 8;
     }
-    header(ctx, 'RESCUED', x1, 88, w0, C.gold, t);
-    chamferFill(ctx, x1, 98, 52, 18, C.night, 2); drawSprite(ctx, 'pup', x1 + 9, 107);
-    text(ctx, `X${s.inventory.pups ?? 0}`, x1 + 20, 103, C.gold);
-    chamferFill(ctx, x1 + 56, 98, w0 - 56, 18, C.night, 2); drawSprite(ctx, 'pk_memory', x1 + 65, 107);
-    text(ctx, `${s.memories.length}/${g.content.memories.length}`, x1 + 76, 103, C.text);
-    header(ctx, 'QUEST', x1, 122, w0, C.violet, t);
+    header(ctx, 'RESCUED', x1, y, w0, C.gold, t);
+    chamferFill(ctx, x1, y + 10, 52, 18, C.night, 2); drawSprite(ctx, 'pup', x1 + 9, y + 19);
+    text(ctx, `X${s.inventory.pups ?? 0}`, x1 + 20, y + 15, C.gold);
+    chamferFill(ctx, x1 + 56, y + 10, w0 - 56, 18, C.night, 2); drawSprite(ctx, 'pk_memory', x1 + 65, y + 19);
+    text(ctx, `${s.memories.length}/${g.content.memories.length}`, x1 + 76, y + 15, C.text);
+    y += 34;
+    header(ctx, 'QUEST', x1, y, w0, C.violet, t);
+    y += 11;
     const q = g.content.quests.find(q => s.quests[q.id] === 'active');
     if (q) {
-      icon(ctx, 'flag', x1, 133, C.violet);
-      wrap(q.name.toUpperCase(), 16).slice(0, 2).forEach((l, i) => text(ctx, l, x1 + 10, 133 + i * 9, C.violet));
+      icon(ctx, 'flag', x1, y, C.violet);
+      const ql = this.lines(q.name, 16);
+      ql.forEach((l, i) => text(ctx, l, x1 + 10, y + i * 9, C.violet));
+      y += ql.length * 9 + 1;
       const pr = g.mods.quest?.progress?.(q);
-      if (pr && pr.need > 1) { segBar(ctx, x1 + 10, 153, 10, 5, 3, pr.have / pr.need, C.violet); text(ctx, `${pr.have}/${pr.need}`, x1 + w0, 151, C.dim, { align: 'right' }); }
-      else { text(ctx, 'IN PROGRESS', x1 + 10, 151, C.peri); for (let i = 0; i < 3; i++) rect(ctx, x1 + 78 + i * 4, 156, 2, 2, ((t >> 4) % 4) > i ? C.violet : C.plum); }
-    } else { icon(ctx, 'star', x1, 133, C.peri); text(ctx, 'ALL CLEAR', x1 + 10, 133, C.peri); }
+      if (pr && pr.need > 1) { segBar(ctx, x1 + 10, y + 2, 10, 5, 3, pr.have / pr.need, C.violet); text(ctx, `${pr.have}/${pr.need}`, x1 + w0, y, C.text, { align: 'right' }); }
+      else { text(ctx, 'IN PROGRESS', x1 + 10, y, C.dim); for (let i = 0; i < 3; i++) rect(ctx, x1 + 78 + i * 4, y + 5, 2, 2, ((t >> 4) % 4) > i ? C.violet : C.peri); }
+      y += 9 + 5;
+    } else { text(ctx, 'NO ACTIVE QUEST', x1 + 10, y, C.dim); rect(ctx, x1 + 1, y + 3, 5, 1, C.peri); y += 9 + 5; }
     // threat block: boss bar, bonus tally, or live breed roster
     if (B0) {
-      header(ctx, 'BIG CAT', x1, 166, w0, C.hot, t, true);
-      icon(ctx, 'cat', x1, 177, C.hot);
-      const nm = wrap(B0.def.name.toUpperCase(), 16);
-      (nm.length > 2 ? [nm[0], nm.slice(1).join(' ').slice(0, 15) + '.'] : nm).forEach((l: string, i: number) => text(ctx, l, x1 + 10, 177 + i * 9, C.text));
+      header(ctx, 'BIG CAT', x1, y, w0, C.hot, t, true);
+      icon(ctx, 'cat', x1, y + 11, C.hot);
+      const nm = this.lines(B0.def.name, 16);
+      nm.forEach((l: string, i: number) => text(ctx, l, x1 + 10, y + 11 + i * 9, C.text));
+      y += 11 + nm.length * 9 + 2;
       const p = B0.hp / B0.maxHp;
-      chamferFill(ctx, x1 - 1, 198, w0 + 2, 9, C.ink, 2);
-      bar(ctx, x1 + 1, 200, w0 - 2, 5, p, p < 0.3 && (t >> 3) % 2 ? C.pink : C.hot);
-      for (let i = 1; i < 10; i++) rect(ctx, x1 + 1 + Math.round(i * (w0 - 2) / 10), 200, 1, 5, C.ink);
-      text(ctx, `${Math.ceil(p * 100)}%`, x1 + w0, 211, C.hot, { align: 'right' }); text(ctx, 'ARMOR', x1, 211, C.dim);
+      chamferFill(ctx, x1 - 1, y, w0 + 2, 9, C.ink, 2);
+      bar(ctx, x1 + 1, y + 2, w0 - 2, 5, p, p < 0.3 && (t >> 3) % 2 ? C.pink : C.hot);
+      for (let i = 1; i < 10; i++) rect(ctx, x1 + 1 + Math.round(i * (w0 - 2) / 10), y + 2, 1, 5, C.ink);
+      text(ctx, `${Math.ceil(p * 100)}%`, x1 + w0, y + 13, C.hot, { align: 'right' }); text(ctx, 'ARMOR', x1, y + 13, C.dim);
+      y += 13 + 9;
     } else if (g.state.scene === 'bonus') {
-      header(ctx, 'BONANZA', x1, 166, w0, C.gold, t, true);
+      header(ctx, 'BONANZA', x1, y, w0, C.gold, t, true);
       const b = g.mods.interaction?.bonus;
-      if (b) { icon(ctx, 'gift', x1, 178, C.gold); text(ctx, `${b.hits} / ${b.total}`, x1 + 10, 178, C.text); segBar(ctx, x1, 190, 20, 4, 3, b.hits / Math.max(1, b.total), C.gold); text(ctx, 'TREATS CAUGHT', x1, 200, C.dim); }
-    } else this.roster(g, ctx, x1, 166, w0);
-    if (!touch) this.radar(g, ctx, x1, 226, w0, 54, accS);
+      if (b) { icon(ctx, 'gift', x1, y + 12, C.gold); text(ctx, `${b.hits} / ${b.total}`, x1 + 10, y + 12, C.text); segBar(ctx, x1, y + 24, 20, 4, 3, b.hits / Math.max(1, b.total), C.gold); text(ctx, 'TREATS CAUGHT', x1, y + 34, C.dim); }
+      y += 44;
+    } else y = this.roster(g, ctx, x1, y, w0);
     if (!touch) {
-      const night = s.tod === 'night', tc = night ? C.violet : s.tod === 'dusk' ? C.pink : s.tod === 'dawn' ? C.orange : C.gold;
-      header(ctx, 'LOCAL TIME', x1, 288, w0, tc, t);
-      icon(ctx, night || s.tod === 'dusk' ? 'moon' : 'sun', x1, 300, tc); text(ctx, s.tod.toUpperCase(), x1 + 10, 300, tc);
+      // scanner fills the gap above the fixed clock blocks (bottom anchored, shrinks if the column is long)
+      const ry = Math.max(y + 2, 220); this.radar(g, ctx, x1, ry, w0, Math.min(70, 290 - ry), accS);
+      const tod = s.tod; const tc = tod === 'night' ? C.violet : tod === 'dusk' ? C.pink : tod === 'dawn' ? C.orange : C.gold;
+      header(ctx, 'LOCAL TIME', x1, 296, w0, tc, t);
+      icon(ctx, tod === 'night' ? 'moon' : tod === 'dusk' ? 'dusk' : tod === 'dawn' ? 'dawn' : 'sun', x1, 307, tc); text(ctx, tod.toUpperCase(), x1 + 10, 307, tc);
       // day-cycle strip: four phases, current one lit
-      (['dawn', 'day', 'dusk', 'night'] as const).forEach((p, i) => rect(ctx, x1 + 60 + i * 12, 302, 10, 3, p === s.tod ? tc : C.plum));
+      (['dawn', 'day', 'dusk', 'night'] as const).forEach((p, i) => rect(ctx, x1 + 60 + i * 12, 309, 10, 3, p === tod ? tc : C.indigo));
       const mm = Math.floor(s.stats.playTicks / 3600), ss = Math.floor(s.stats.playTicks / 60) % 60;
-      header(ctx, 'FLIGHT TIME', x1, 316, w0, C.line, t);
-      icon(ctx, 'clock', x1, 328, C.line);
-      text(ctx, `${String(mm).padStart(2, '0')}${(t >> 5) % 2 ? ':' : ' '}${String(ss).padStart(2, '0')}`, x1 + 10, 328, C.text);
+      header(ctx, 'FLIGHT TIME', x1, 321, w0, C.line, t);
+      icon(ctx, 'clock', x1, 332, C.line);
+      text(ctx, `${String(mm).padStart(2, '0')}${(t >> 5) % 2 ? ':' : ' '}${String(ss).padStart(2, '0')}`, x1 + 10, 332, C.text);
     }
     // playfield frame edges: bright inner line, dark outer glow, tick marks
     rect(ctx, PF_X - 1, 0, 1, H, C.deep); rect(ctx, PF_X, 0, 1, H, C.line);
@@ -380,26 +465,36 @@ class UI implements Module {
     const off = (t >> 2) % 16;
     for (let yy = -16 + off; yy < H; yy += 16) { rect(ctx, PF_X + 1, yy, 2, 1, C.deep); rect(ctx, RX - 3, yy, 2, 1, C.deep); }
   }
-  /** Live breed roster: up to four breeds with tinted icons and counts, plus a wave-remaining bar. */
+  /** Live breed roster: up to three breeds with tinted icons and counts, plus a cats-left row. Returns the next free y. */
   roster(g: Game, ctx: CanvasRenderingContext2D, x: number, y: number, w: number) {
     const cats = (g.mods.interaction?.cats ?? []) as { def?: { id: string; name: string; sprite: string } }[];
     header(ctx, 'HOSTILES', x, y, w, C.hot, this.t, cats.length > 0);
     const by: Record<string, { n: number; name: string; sprite: string }> = {};
     for (const c of cats) { const d = c.def; if (!d) continue; (by[d.id] ??= { n: 0, name: d.name, sprite: d.sprite }).n++; }
-    const list = Object.values(by).sort((a, b) => b.n - a.n).slice(0, 4);
+    const list = Object.values(by).sort((a, b) => b.n - a.n);
+    y += 11;
     if (!list.length) {
-      chamferFill(ctx, x, y + 11, w, 22, C.ink, 3); chamferLine(ctx, x, y + 11, w, 22, C.indigo, 3);
-      text(ctx, 'SKIES CLEAR', x + w / 2, y + 19, C.peri, { align: 'center' });
+      // before the first cats arrive the wave is INCOMING; once a wave is wiped out the skies are clear
+      const incoming = this.waveCats === 0;
+      chamferFill(ctx, x, y, w, 20, C.ink, 3); chamferLine(ctx, x, y, w, 20, incoming ? C.mag : C.peri, 3);
+      const lbl = incoming ? 'INCOMING' : 'SKIES CLEAR';
+      if (incoming) { const o = (this.t >> 3) % 2; arrow(ctx, x + 10 + o, y + 10, 'd', 3, C.hot); arrow(ctx, x + w - 11 - o, y + 10, 'd', 3, C.hot); }
+      text(ctx, lbl, x + w / 2, y + 7, incoming ? ((this.t >> 4) % 2 ? C.hot : C.pink) : C.dim, { align: 'center' });
+      return y + 20 + 6;
     }
-    list.slice(0, 3).forEach((e, i) => {
-      const cy = y + 12 + i * 9;
+    const rows = list.length > 3 ? 2 : list.length;
+    list.slice(0, rows).forEach((e, i) => {
+      const cy = y + i * 9;
       icon(ctx, 'cat', x, cy, breedColor(e.sprite), C.ink);
-      text(ctx, e.name.toUpperCase().slice(0, 13), x + 10, cy, C.dim);
+      const nm = e.name.toUpperCase(); text(ctx, nm.length <= 13 ? nm : nm.split(' ')[0].slice(0, 13), x + 10, cy, C.pale);
       text(ctx, String(e.n), x + w, cy, C.text, { align: 'right' });
     });
-    if (list.length > 3) text(ctx, `+${list.length - 3}`, x + w - 16, y + 30, C.peri, { align: 'right' });
-    const tot = Math.max(1, this.waveCats);
-    if (cats.length || this.waveCats) { segBar(ctx, x, y + 41, 14, 5, 3, cats.length / tot, C.hot); text(ctx, 'LEFT', x + w, y + 39, C.dim, { align: 'right' }); }
+    if (list.length > 3) { const rest = list.slice(2).reduce((a, e) => a + e.n, 0); text(ctx, `+${list.length - 2} MORE BREEDS`, x + 10, y + 18, C.dim); text(ctx, String(rest), x + w, y + 18, C.text, { align: 'right' }); }
+    y += Math.min(3, list.length) * 9 + 1;
+    const tot = Math.max(1, this.waveCats, cats.length);
+    text(ctx, 'CATS LEFT', x, y, C.dim); text(ctx, String(cats.length), x + w, y, C.hot, { align: 'right' });
+    segBar(ctx, x, y + 10, 18, 5, 3, cats.length / tot, C.hot);
+    return y + 10 + 3 + 6;
   }
 
   /** Mini scanner of the playfield: cats as blips, Pom as a cyan chevron, sweeping beam (tinted per time of day). */
@@ -430,18 +525,18 @@ class UI implements Module {
     if (p && SHEETS[p]) return p;
     return /pom|poodle/i.test(p + ' ' + (node.speaker ?? '')) ? 'poodle' : 'pup';
   }
-  /** Dialogue: a compact comm panel docked flush to the top of the playfield, so Pom stays visible. */
+  /** Dialogue: a compact comm panel docked flush to the bottom of the playfield, leaving the cat formation up top in view. */
   dialogueBox(g: Game, ctx: CanvasRenderingContext2D) {
-    const d = g.mods.quest?.dlg; if (!d) return;
+    const d = g.mods.quest?.dlg ?? this.heldDlg; if (!d) return;
     const t = this.t;
     const isPom = /pom/i.test(d.node.speaker); const isBoss = /empress|boss|sergeant|madame|duchess/i.test(d.node.speaker + (d.node.portrait ?? ''));
     const accent = isPom ? C.pink : isBoss ? C.hot : C.line;
-    const x = PF_X + 1, w = PF_W - 2, y = 0, h = DLG_H;
+    const x = PF_X + 1, w = PF_W - 2, h = DLG_H, y = H - h - 1;
     // solid backing flush with the playfield edges (no world pixels peek through the chamfers)
-    rect(ctx, x, y, w, h + 2, C.ink);
-    frame(ctx, x + 1, y + 1, w - 2, h, accent, C.night, 5);
-    scanlines(ctx, x + 3, y + 3, w - 6, h - 4);
-    rect(ctx, x, y + h + 1, w, 1, darkOf(accent));
+    rect(ctx, x, y - 2, w, h + 3, C.ink);
+    rect(ctx, x, y - 2, w, 1, darkOf(accent));
+    frame(ctx, x + 1, y, w - 2, h, accent, C.night, 5);
+    scanlines(ctx, x + 3, y + 2, w - 6, h - 4);
     // portrait bay: name-colored backlight, a slow fading scan behind the sprite, then the sprite
     const pxx = x + 6, pyy = y + 6, ps = 50;
     chamferFill(ctx, pxx, pyy, ps, ps, C.ink, 4);
@@ -465,8 +560,9 @@ class UI implements Module {
     const k = keys(this.dev());
     const done = d.chars >= d.node.text.length;
     const hx = x + w - 10;
-    const sw = keycap(ctx, k.skip, hx - textWidth('SKIP') - 4, y + 7, C.peri, 'right'); text(ctx, 'SKIP', hx, y + 7, C.peri, { align: 'right' });
-    const nx = hx - textWidth('SKIP') - 4 - sw - 10;
+    const skipLbl = this.dev() === 'touch' ? 'MENU' : 'SKIP';
+    const sw = keycap(ctx, k.skip, hx - textWidth(skipLbl) - 4, y + 7, C.dim, 'right'); text(ctx, skipLbl, hx, y + 7, C.dim, { align: 'right' });
+    const nx = hx - textWidth(skipLbl) - 4 - sw - 10;
     const nextLbl = done ? 'NEXT' : 'FAST';
     const bob = done && (t >> 3) % 2 ? 1 : 0;
     const nw = keycap(ctx, k.next, nx - textWidth(nextLbl) - 4, y + 7 + bob, done ? C.gold : C.line, 'right'); text(ctx, nextLbl, nx, y + 7, done ? C.gold : C.dim, { align: 'right' });
@@ -480,17 +576,14 @@ class UI implements Module {
   }
 
   // ---------------- title ----------------
-  title(g: Game, ctx: CanvasRenderingContext2D) {
-    const t = this.t; const HZ = 214;
+  /** Shared synthwave set piece (title, ending, recovery): starfield, banded sun on a horizon, scrolling perspective grid. */
+  synthSet(ctx: CanvasRenderingContext2D, t: number, HZ: number, sr: number, sx = W / 2, bands = [C.cream, C.gold, C.orange, C.hot, C.mag], stars = 110) {
     rect(ctx, 0, 0, W, H, C.bg);
-    for (let i = 0; i < 110; i++) {
+    for (let i = 0; i < stars; i++) {
       const x = (i * 97 + (i >> 3) * 13) % W, y = Math.floor((i * 53 + t * (0.15 + (i % 3) * 0.2)) % HZ);
       const tw = (i * 7 + (t >> 3)) % 23 === 0;
       rect(ctx, x, y, 1, 1, tw ? C.text : i % 5 ? C.indigo : C.peri);
     }
-    // synthwave sun: large banded disc with dithered band transitions, slatted near the horizon
-    const sx = W / 2, sr = 92;
-    const bands = [C.cream, C.gold, C.orange, C.hot, C.mag];
     // faint halo ring of dither around the sun
     for (let dy = -sr - 6; dy <= 0; dy++) {
       const yy = HZ + dy; const ro = sr + 6, dxo = Math.floor(Math.sqrt(Math.max(0, ro * ro - dy * dy)));
@@ -503,20 +596,23 @@ class UI implements Module {
       if (slat) { rect(ctx, sx - dx, yy, dx * 2 + 1, 1, C.bg); continue; }
       const bf = f * (bands.length - 1); const bi = Math.floor(bf); const frac = bf - bi;
       rect(ctx, sx - dx, yy, dx * 2 + 1, 1, bands[Math.min(bands.length - 1, bi)]);
-      // ordered dither into the next band over the last 40% of each band
       if (frac > 0.6 && bi + 1 < bands.length) dither(ctx, sx - dx, yy, dx * 2 + 1, 1, bands[bi + 1], frac > 0.8 ? 'check' : 'sparse');
     }
     // ground: perspective grid scrolling toward the viewer
     rect(ctx, 0, HZ, W, H - HZ, C.ink);
     rect(ctx, 0, HZ, W, 1, C.hot);
-    const ph = (t % 40) / 40;
+    const ph = (t % 40) / 40; const depth = H - HZ;
     for (let k = 0; k < 14; k++) {
-      const z = k + ph; const y = Math.round(HZ + 2 + z * z * 0.85);
+      const z = k + ph; const y = Math.round(HZ + 2 + z * z * 0.85 * depth / 146);
       if (y >= H) break;
       rect(ctx, 0, y, W, 1, z < 3 ? C.plum : C.purple);
       if (z < 3) dither(ctx, 0, y, W, 1, C.indigo);
     }
-    for (let i = -16; i <= 16; i++) line(ctx, W / 2 + i * 10, HZ + 1, W / 2 + i * 64, H, Math.abs(i) < 6 ? C.purple : C.plum);
+    for (let i = -16; i <= 16; i++) line(ctx, W / 2 + i * 10, HZ + 1, W / 2 + i * 64 * depth / 146, H, Math.abs(i) < 6 ? C.purple : C.plum);
+  }
+  title(g: Game, ctx: CanvasRenderingContext2D) {
+    const t = this.t; const HZ = 214;
+    this.synthSet(ctx, t, HZ, 92);
     // logo
     const L1 = logoWord('POODLE', 3, PINK, 4, 3, 4), L2 = logoWord('PATROL', 2, CYAN, 3, 3, 4);
     const bob = Math.round(Math.sin(t / 30) * 2);
@@ -535,21 +631,29 @@ class UI implements Module {
     const tag = 'OPERATION: GOOD GIRL'; const tw = textWidth(tag) + 20;
     chamferFill(ctx, W / 2 - tw / 2, 104 + bob, tw, 13, C.mag, 4); chamferFill(ctx, W / 2 - tw / 2 + 1, 104 + bob, tw - 2, 12, C.hot, 4);
     text(ctx, tag, W / 2, 107 + bob, C.text, { align: 'center', shadow: C.mag });
-    // hero + a symmetric V of cats swooping in (speed trails show the motion)
-    const pyy = 172 + Math.round(Math.sin(t / 12) * 3);
-    drawSprite(ctx, 'poodle', W / 2, pyy, { frame: (t >> 3) % 2 });
-    TITLE_CATS.forEach((b, i) => {
-      const side = i < 2 ? -1 : 1, k = i < 2 ? 1 - i : i - 2; // k=0 inner, 1 outer
-      const sway = Math.round(Math.sin(t / 20 + k) * 4);
-      const x = W / 2 + side * (120 + k * 82) + side * sway, y = 140 + k * 26 + Math.round(Math.sin(t / 15 + k * 1.3) * 3);
-      // trail: stepped dither streaks behind the cat, angled away from Pom
-      for (let j = 0; j < 4; j++) {
-        const tx = x + side * (10 + j * 9), ty = y - 8 - j * 5;
-        rect(ctx, tx - 3, ty, 7 - j, 1, j < 2 ? C.purple : C.plum);
-        if (j < 3) dither(ctx, tx - 3, ty + 2, 6 - j, 1, C.indigo);
+    // Galaga marquee: a breathing formation of cats; every few seconds one peels off on a looping dive
+    // toward Pom and slots back in from the top
+    const N = 7, slotY = 146; const breathe = Math.round(Math.sin(t / 24) * 3);
+    const cyc = 200, active = Math.floor(t / cyc) % N, u = (t % cyc) / 130; const diving = u < 1;
+    const order = [1, 5, 3, 0, 6, 2, 4]; const diver = order[active];
+    for (let i = 0; i < N; i++) {
+      const sx0 = W / 2 + (i - 3) * (44 + breathe), sy0 = slotY + ((t >> 4) + i) % 2;
+      let x = sx0, y = sy0;
+      if (i === diver && diving) {
+        const side = i < 3 ? -1 : i > 3 ? 1 : ((active & 1) ? 1 : -1);
+        const path = (v: number): [number, number] => [sx0 + side * 46 * Math.sin(v * Math.PI * 2), sy0 + 40 * Math.sin(v * Math.PI) - 10 * Math.sin(v * Math.PI * 2)];
+        [x, y] = path(u);
+        // trail: four fading dither dabs along the path behind the diver
+        for (let j = 1; j <= 4; j++) {
+          const v = u - j * 0.035; if (v <= 0) break; const [tx, ty] = path(v);
+          dither(ctx, Math.round(tx) - 3, Math.round(ty) - 2, 6, 4, j < 3 ? C.purple : C.plum, j < 3 ? 'check' : 'sparse');
+        }
       }
-      drawSprite(ctx, b, x, y, { frame: ((t >> 4) + i) % 2 });
-    });
+      drawSprite(ctx, TITLE_CATS[i % TITLE_CATS.length], Math.round(x), Math.round(y), { frame: ((t >> 4) + i) % 2 });
+    }
+    // hero below the formation
+    const pyy = 192 + Math.round(Math.sin(t / 12) * 2);
+    drawSprite(ctx, 'poodle', W / 2, pyy, { frame: (t >> 3) % 2 });
     // menu: chamfered neon frame with targeting ticks, like the HUD
     const items = this.titleItems(); const off = this.titleDisabled();
     const mh = items.length * 15 + 14; const my = 230; const mw = 176, mx = W / 2 - mw / 2;
@@ -559,7 +663,7 @@ class UI implements Module {
     this.rows = menu(ctx, items, this.sel, W / 2, my + 9, t, 15, ['play', 'new', 'book', 'gear'], 158, { disabled: off, tag: off.map(x => x ? 'NO SAVE' : '') });
     const hs = `HI-SCORE ${String(g.state.hiScore).padStart(8, '0')}`; const hx = Math.round(W / 2 - (textWidth(hs) + 10) / 2);
     chamferFill(ctx, hx - 6, my + mh + 6, textWidth(hs) + 22, 13, C.ink, 3); chamferLine(ctx, hx - 6, my + mh + 6, textWidth(hs) + 22, 13, C.burnt, 3);
-    icon(ctx, 'star', hx, my + mh + 9, C.gold); text(ctx, hs, hx + 10, my + mh + 9, C.dim);
+    icon(ctx, 'star', hx, my + mh + 9, C.gold); text(ctx, hs, hx + 10, my + mh + 9, C.gold);
     const k = keys(this.dev());
     hintRow(ctx, [[k.move, 'CHOOSE'], [k.ok, 'SELECT']], W / 2, 346, C.line);
   }
@@ -568,13 +672,8 @@ class UI implements Module {
   map(g: Game, ctx: CanvasRenderingContext2D) {
     const t = this.t; const T0 = 46, B0 = 276;
     rect(ctx, 0, 0, W, H, C.bg);
-    // dithered nebula clouds (deterministic blobs)
-    const blobs: [number, number, number, number, string][] = [[150, 110, 120, 50, C.purple], [470, 210, 150, 56, C.plum], [330, 90, 90, 34, C.deep], [80, 230, 90, 40, C.deep], [560, 100, 80, 40, C.plum]];
-    for (const [bx, by, rx, ry, c] of blobs) for (let dy = -ry; dy <= ry; dy++) {
-      const f = 1 - (dy * dy) / (ry * ry); const dx = Math.round(rx * Math.sqrt(f) * (0.85 + 0.15 * Math.sin(dy * 0.4 + bx)));
-      dither(ctx, bx - dx, by + dy, dx * 2, 1, c, 'sparse');
-      if (f > 0.55) { const ix = Math.round(dx * 0.55); dither(ctx, bx - ix, by + dy, ix * 2, 1, c, 'check'); }
-    }
+    // soft nebulae: solid tone bands with ordered dither only where bands meet (cached, static)
+    const neb = nebulaCanvas(); if (neb) ctx.drawImage(neb, 0, 0);
     // parallax stars: far layer slow, near layer faster, a few twinkles
     for (let i = 0; i < 70; i++) { const x = ((i * 131 - (t >> 3)) % W + W) % W, y = T0 + (i * 71) % (B0 - T0); rect(ctx, x, y, 1, 1, (i + (t >> 4)) % 11 ? C.indigo : C.pale); }
     for (let i = 0; i < 24; i++) { const x = ((i * 211 + 40 - (t >> 1)) % W + W) % W, y = T0 + (i * 113) % (B0 - T0); rect(ctx, x, y, 1, 1, i % 4 ? C.peri : C.ice); }
@@ -592,10 +691,10 @@ class UI implements Module {
     frame(ctx, 8, 6, W - 16, 34, C.line, C.night, 6);
     text(ctx, 'SECTOR MAP', W / 2, 12, C.line, { align: 'center', scale: 2, shadow: C.deep });
     text(ctx, 'CHOOSE YOUR NEXT FLIGHT PATH', W / 2, 29, C.dim, { align: 'center' });
-    rect(ctx, 20, 18, 4, 4, (t >> 4) % 2 ? C.hot : C.mag); text(ctx, 'LIVE', 28, 17, C.hot);
-    // legend
-    rect(ctx, 20, 30, 3, 3, C.hot); text(ctx, 'BIG CAT', 26, 29, C.peri);
-    rect(ctx, 76, 32, 1, 1, C.lime); rect(ctx, 77, 33, 1, 1, C.lime); rect(ctx, 78, 32, 1, 1, C.lime); rect(ctx, 79, 31, 1, 1, C.lime); text(ctx, 'CLEAR', 83, 29, C.peri);
+    // legend: each symbol is a distinct shape (dashed route, cat badge, check badge)
+    line(ctx, 18, 20, 30, 20, C.hot, [3, 1], -(t >> 2)); line(ctx, 18, 21, 30, 21, C.mag, [3, 1], -(t >> 2)); text(ctx, 'LIVE ROUTE', 35, 17, C.hot);
+    chamferFill(ctx, 17, 27, 11, 11, C.ink, 2); chamferLine(ctx, 17, 27, 11, 11, C.mag, 2); icon(ctx, 'cat', 19, 29, C.hot); text(ctx, 'BIG CAT', 33, 29, C.dim);
+    chamferFill(ctx, 81, 27, 11, 11, C.ink, 2); chamferLine(ctx, 81, 27, 11, 11, C.deep, 2); checkMark(ctx, 83, 29); text(ctx, 'CLEAR', 97, 29, C.dim);
     const cl = g.state.areasCleared.length;
     text(ctx, `${String(cl).padStart(2, '0')}/${String(g.content.areas.length).padStart(2, '0')} CLEAR`, W - 20, 17, C.dim, { align: 'right' });
     const pos = this.layout(g);
@@ -631,9 +730,12 @@ class UI implements Module {
       const gm = sel ? C.gold : isHere ? C.pink : cleared ? C.line : reachable ? C.pink : C.peri;
       const gs = sel ? C.burnt : isHere ? C.mag : cleared ? C.deep : reachable ? C.mag : C.indigo;
       glyph(ctx, a.id, p[0], p[1], gm, gs);
-      if (cleared && !isHere) { chamferFill(ctx, bx + 15, by + 15, 8, 8, C.ink, 2); rect(ctx, bx + 17, by + 19, 1, 1, C.lime); rect(ctx, bx + 18, by + 20, 1, 1, C.lime); rect(ctx, bx + 19, by + 19, 1, 1, C.lime); rect(ctx, bx + 20, by + 18, 1, 1, C.lime); }
-      if (a.boss && !cleared) { rect(ctx, bx - 1, by - 1, 5, 5, C.ink); rect(ctx, bx, by, 3, 3, sel ? C.gold : C.hot); }
-      text(ctx, String(idx + 1).padStart(2, '0'), p[0], p[1] + 15, sel ? C.gold : isHere ? C.hot : cleared ? C.line : C.peri, { align: 'center', shadow: C.ink });
+      if (cleared && !isHere) { chamferFill(ctx, bx + 14, by + 14, 11, 11, C.ink, 2); chamferLine(ctx, bx + 14, by + 14, 11, 11, C.deep, 2); checkMark(ctx, bx + 16, by + 16); }
+      if (a.boss && !cleared) { chamferFill(ctx, bx - 3, by - 3, 11, 11, C.ink, 2); chamferLine(ctx, bx - 3, by - 3, 11, 11, sel ? C.burnt : C.mag, 2); icon(ctx, 'cat', bx - 1, by - 1, sel ? C.gold : C.hot); }
+      // node number on an ink backplate so it reads over nebulae and grid
+      const lbl = String(idx + 1).padStart(2, '0');
+      chamferFill(ctx, p[0] - 8, p[1] + 13, 17, 11, C.ink, 2);
+      text(ctx, lbl, p[0], p[1] + 15, sel ? C.gold : isHere ? C.hot : cleared ? C.line : C.dim, { align: 'center' });
       if (sel) selLabel = () => { // brackets + name tag drawn last so nothing crosses them
         const o = 15 + ((t >> 3) % 2);
         for (const [sx2, sy2] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
@@ -664,7 +766,7 @@ class UI implements Module {
       const parts: [string, string, string][] = [['wave', `${a.waves.length} WAVES`, C.line]];
       if (a.boss) parts.push(['cat', 'BIG CAT', C.hot]);
       if (a.bonus) parts.push(['gift', 'BONANZA', C.gold]);
-      parts.push([a.tod === 'night' || a.tod === 'dusk' ? 'moon' : 'sun', a.tod.toUpperCase(), a.tod === 'night' ? C.violet : C.gold]);
+      parts.push([a.tod === 'night' ? 'moon' : a.tod === 'dusk' ? 'dusk' : a.tod === 'dawn' ? 'dawn' : 'sun', a.tod.toUpperCase(), a.tod === 'night' ? C.violet : a.tod === 'dusk' ? C.pink : a.tod === 'dawn' ? C.orange : C.gold]);
       const pw = parts.reduce((s, [, l]) => s + textWidth(l) + 10, 0) + (parts.length - 1) * 12;
       let x = Math.round(W / 2 - pw / 2);
       for (const [ic, l, c] of parts) { icon(ctx, ic, x, by + 35, c); text(ctx, l, x + 10, by + 35, C.pale); x += textWidth(l) + 22; }
@@ -697,7 +799,7 @@ class UI implements Module {
   }
   pause(g: Game, ctx: CanvasRenderingContext2D) {
     this.dim(ctx);
-    const items = this.pauseItems(); const w = 196, h = 182; const x = Math.round(W / 2 - w / 2), y = 82;
+    const items = this.pauseItems(); const n = items.length; const w = 196, h = 102 + n * 20; const x = Math.round(W / 2 - w / 2), y = Math.round(H / 2 - h / 2) + 4;
     frame(ctx, x, y, w, h, C.line, C.night, 8);
     scanlines(ctx, x + 2, y + 2, w - 4, h - 4);
     ticks(ctx, x, y, w, h, C.deep, 8, 3);
@@ -706,9 +808,11 @@ class UI implements Module {
     const A = g.mods.world?.area();
     if (A) text(ctx, A.name.toUpperCase(), W / 2, y + 26, C.dim, { align: 'center' });
     rect(ctx, x + 16, y + 38, w - 32, 1, C.indigo);
-    this.rows = menu(ctx, items, this.sel, W / 2, y + 52, this.t, 20, ['play', 'book', 'gear', 'disk'], w - 28);
-    rect(ctx, x + 16, y + 132, w - 32, 1, C.indigo);
-    text(ctx, 'PROGRESS SAVES EVERY WAVE', W / 2, y + 140, C.peri, { align: 'center' });
+    const icons = items.map(it => ({ RESUME: 'play', 'SKIP BRIEFING': 'skip', JOURNAL: 'book', SETTINGS: 'gear' } as Record<string, string>)[it] ?? 'disk');
+    this.rows = menu(ctx, items, this.sel, W / 2, y + 52, this.t, 20, icons, w - 28);
+    const dy = y + 52 + n * 20;
+    rect(ctx, x + 16, dy, w - 32, 1, C.indigo);
+    text(ctx, this.heldDlg ? 'BRIEFING ON HOLD' : 'PROGRESS SAVES EVERY WAVE', W / 2, dy + 8, C.dim, { align: 'center' });
     const k = keys(this.dev());
     hintRow(ctx, [[k.ok, 'SELECT'], [k.back, 'RESUME']], W / 2, y + h - 18, C.line);
   }
@@ -757,53 +861,80 @@ class UI implements Module {
   }
 
   // ---------------- ending ----------------
+  /** Home yard silhouette on the horizon: house with lit windows, a tree and a picket fence (pixel rects only). */
+  homeYard(ctx: CanvasRenderingContext2D, HZ: number, t: number) {
+    // picket fence across the horizon
+    for (let x = 4; x < W; x += 8) { rect(ctx, x, HZ - 9, 3, 9, C.plum); rect(ctx, x + 1, HZ - 10, 1, 1, C.plum); }
+    rect(ctx, 0, HZ - 7, W, 1, C.plum); rect(ctx, 0, HZ - 3, W, 1, C.plum);
+    // house (left of the sun)
+    const hx = 150, hw = 68, hh = 34, top = HZ - hh;
+    for (let i = 0; i < 22; i++) rect(ctx, hx - 6 + i * 2, top - i, hw + 12 - i * 4, 1, C.night);
+    rect(ctx, hx, top, hw, hh, C.night);
+    rect(ctx, hx + 46, top - 30, 8, 14, C.night);
+    rect(ctx, hx - 6, top, hw + 12, 1, C.indigo);
+    const lit = (t >> 5) % 6 ? C.gold : C.orange;
+    for (const wx of [hx + 8, hx + 44]) { rect(ctx, wx, top + 8, 14, 10, C.burnt); rect(ctx, wx + 1, top + 9, 12, 8, lit); rect(ctx, wx + 7, top + 9, 1, 8, C.burnt); rect(ctx, wx + 1, top + 13, 12, 1, C.burnt); }
+    rect(ctx, hx + 27, top + 14, 12, hh - 14, C.plum); rect(ctx, hx + 36, top + 24, 1, 1, C.gold);
+    // round tree (right of the sun)
+    const tx = 470;
+    rect(ctx, tx - 2, HZ - 22, 5, 22, C.night);
+    for (let dy = -18; dy <= 18; dy++) { const dx = Math.floor(Math.sqrt(324 - dy * dy) * 1.2); rect(ctx, tx - dx, HZ - 40 + dy, dx * 2 + 1, 1, C.night); }
+    for (let dy = -17; dy <= -10; dy++) { const dx = Math.floor(Math.sqrt(289 - dy * dy) * 1.1); rect(ctx, tx - dx + 2, HZ - 40 + dy, Math.max(0, dx - 2), 1, C.indigo); }
+  }
   ending(g: Game, ctx: CanvasRenderingContext2D) {
     const e = g.content.endings.find(x => x.id === g.state.ending) ?? g.content.endings[0];
-    const T = this.endingT;
-    rect(ctx, 0, 0, W, H, C.bg);
-    const lines = e.text.flatMap(t => [...wrap(t, 58), '']).slice(0, -1);
-    const ph = Math.min(176, lines.length * 11 + 14);
-    const statY = 112 + ph + 10;
-    // decor stays out of the story panel, the stat chips and the parade disc
-    const keep: [number, number, number, number][] = [[PF_X - 6, 104, PF_W + 12, ph + 16], [W / 2 - 192, statY - 12, 384, 46], [W / 2 - 26, 56, 52, 50], [W / 2 - 110, 8, 220, 40]];
-    const free = (x: number, y: number) => !keep.some(([kx, ky, kw, kh]) => x > kx - 8 && x < kx + kw && y > ky - 8 && y < ky + kh);
-    for (let i = 0; i < 90; i++) { const x = (i * 97) % W, y = Math.floor((i * 53 + T * 0.2 * (1 + i % 3)) % H); if (free(x, y)) rect(ctx, x, y, 1, 1, i % 4 ? C.indigo : (i + (T >> 3)) % 7 ? C.gold : C.text); }
-    for (let i = 0; i < 14; i++) { const x = (i * 47 + 20) % W, y = (i * 29 + (T >> 1) * (1 + i % 2)) % (H + 20) - 10; if (free(x, y)) icon(ctx, i % 3 ? 'heart' : 'star', x, y, i % 2 ? C.mag : C.purple); }
+    const T = this.endingT; const HZ = 262;
+    // staging: the title's sunset set piece, now framing the home yard where Pom and the pups land
+    this.synthSet(ctx, T, HZ, 62, W / 2, [C.cream, C.gold, C.orange, C.hot, C.mag], 70);
+    this.homeYard(ctx, HZ, T);
     const title = e.title.toUpperCase();
     const allLogo = [...title].every(ch => ch === ' ' || 'PODLEATR'.includes(ch));
-    if (allLogo && title.length <= 14) drawLogo(ctx, logoWord(title.replace(/ /g, ''), 2, GOLD, 3, 2, 3), W / 2, 16);
+    if (allLogo && title.length <= 14) drawLogo(ctx, logoWord(title.replace(/ /g, ''), 2, GOLD, 3, 2, 3), W / 2, 12);
     else {
       const tw = textWidth(title, 2) + 32;
-      chamferFill(ctx, W / 2 - tw / 2, 14, tw, 26, C.ink, 6); chamferLine(ctx, W / 2 - tw / 2, 14, tw, 26, C.burnt, 6);
-      text(ctx, title, W / 2, 20, C.gold, { align: 'center', scale: 2, shadow: C.burnt });
+      chamferFill(ctx, W / 2 - tw / 2, 10, tw, 26, C.ink, 6); chamferLine(ctx, W / 2 - tw / 2, 10, tw, 26, C.burnt, 6);
+      text(ctx, title, W / 2, 16, C.gold, { align: 'center', scale: 2, shadow: C.burnt });
     }
-    disc(ctx, W / 2, 80, 18, C.night); ring(ctx, W / 2, 80, 18, C.burnt); ring(ctx, W / 2, 80, 19, C.burnt, [2, 2], T >> 2);
-    drawSprite(ctx, 'poodle', W / 2, 78 + ((T >> 4) % 2), { frame: (T >> 3) % 2 });
+    // story panel in the sky
+    const lines = e.text.flatMap(t => [...wrap(t, 58), '']).slice(0, -1);
+    const py = 44, ph = Math.min(148, lines.length * 11 + 14);
+    const shown = Math.floor(T / 40);
+    frame(ctx, PF_X + 2, py, PF_W - 4, ph, C.gold, C.night, 6);
+    ticks(ctx, PF_X + 2, py, PF_W - 4, ph, C.burnt, 7, 3);
+    lines.slice(0, shown + 1).forEach((l, i) => { if (py + 8 + i * 11 < py + ph - 8) text(ctx, l, W / 2, py + 8 + i * 11, C.text, { align: 'center', shadow: C.ink }); });
+    // landing: Pom settles in front of the sun, pups glide down from the sky to either side of her
+    const land = Math.min(1, T / 150); const ease = 1 - (1 - land) * (1 - land);
+    const pomY = Math.round(HZ - 22 - (1 - ease) * 60 + (land >= 1 ? (T >> 4) % 2 : 0));
+    drawSprite(ctx, 'poodle', W / 2, pomY, { frame: (T >> 3) % 2 });
     const pups = g.state.inventory.pups ?? 0; const n = Math.min(8, pups);
     for (let i = 0; i < n; i++) {
       const side = i % 2 ? 1 : -1, k = (i >> 1) + 1;
-      drawSprite(ctx, 'pup', W / 2 + side * (18 + k * 20), 90 + Math.round(Math.sin(T / 10 + i) * 2));
+      const f = Math.max(0, Math.min(1, (T - 40 - i * 18) / 90)); const fe = 1 - (1 - f) * (1 - f);
+      const px = W / 2 + side * (12 + k * 22) + Math.round((1 - fe) * side * 60);
+      const pyy = Math.round(HZ - 8 - (1 - fe) * 150 - (f >= 1 && (T + i * 7) % 40 < 6 ? 2 : 0));
+      if (f > 0) drawSprite(ctx, 'pup', px, pyy);
     }
-    const shown = Math.floor(T / 40);
-    frame(ctx, PF_X + 2, 112, PF_W - 4, ph, C.gold, C.night, 6);
-    lines.slice(0, shown + 1).forEach((l, i) => { if (120 + i * 11 < 112 + ph - 8) text(ctx, l, W / 2, 120 + i * 11, C.text, { align: 'center', shadow: C.ink }); });
+    // stat chips on the grid: an accent tab with the icon, then the value and a quiet label
     const s = g.state;
     if (shown > lines.length) {
-      const stats: [string, string, string][] = [['star', `${s.score} PTS`, C.gold], ['cat', `${s.stats.catsBooped} BOOPED`, C.hot], ['paw', `${pups} PUPS`, C.line], ['photo', `${s.memories.length}/${g.content.memories.length}`, C.violet], ['clock', `${Math.floor(s.stats.playTicks / 3600)} MIN`, C.pale], ['moon', `${s.stats.naps} NAPS`, C.dim]];
-      const cw = 124, cols = 3;
-      stats.forEach(([ic, l, c], i) => {
-        const cx = W / 2 - (cols * cw) / 2 + (i % cols) * cw, cy = statY + Math.floor(i / cols) * 18;
-        chamferFill(ctx, cx + 4, cy - 4, cw - 8, 15, C.night, 3); chamferLine(ctx, cx + 4, cy - 4, cw - 8, 15, darkOf(c), 3);
-        icon(ctx, ic, cx + 12, cy, c); text(ctx, l, cx + 24, cy, C.text);
+      const stats: [string, string, string, string][] = [['star', String(s.score), 'PTS', C.gold], ['cat', String(s.stats.catsBooped), 'BOOPED', C.hot], ['paw', String(pups), 'PUPS', C.line],
+        ['photo', `${s.memories.length}/${g.content.memories.length}`, 'MEMORIES', C.violet], ['clock', String(Math.floor(s.stats.playTicks / 3600)), 'MIN', C.lime], ['moon', String(s.stats.naps), 'NAPS', C.pale]];
+      const cw = 128, cols = 3;
+      stats.forEach(([ic, v, l, c], i) => {
+        const cx = W / 2 - (cols * cw) / 2 + (i % cols) * cw + 4, cy = 276 + Math.floor(i / cols) * 22;
+        chamferFill(ctx, cx, cy, cw - 8, 18, C.ink, 4); chamferLine(ctx, cx, cy, cw - 8, 18, darkOf(c), 4);
+        chamferFill(ctx, cx + 2, cy + 2, 18, 14, darkOf(c), 3); icon(ctx, ic, cx + 7, cy + 5, c === C.pale ? C.text : lighter(c));
+        text(ctx, v, cx + 26, cy + 6, C.text, { shadow: C.night }); text(ctx, l, cx + cw - 14, cy + 6, c, { align: 'right' });
       });
     }
-    if (T > 240 && (this.t >> 4) % 2) hintRow(ctx, [[keys(this.dev()).ok, 'CONTINUE']], W / 2, 344, C.gold);
+    if (T > 240) { chamferFill(ctx, W / 2 - 56, 338, 112, 17, C.ink, 4); chamferLine(ctx, W / 2 - 56, 338, 112, 17, C.burnt, 4); if ((this.t >> 4) % 2) hintRow(ctx, [[keys(this.dev()).ok, 'CONTINUE']], W / 2, 343, C.gold); }
   }
   recovery(ctx: CanvasRenderingContext2D) {
-    const t = this.t;
-    rect(ctx, 0, 0, W, H, C.bg);
-    for (let y = 0; y < H; y += 16) for (let x = 0; x < W; x += 16) rect(ctx, x, y, 1, 1, C.night);
-    const w = 340, h = 160, x = Math.round(W / 2 - w / 2), y = 96;
+    const t = this.t; const HZ = 300;
+    // dusk version of the set piece: the sun sinks behind the panel, the yard waits on the horizon
+    this.synthSet(ctx, t, HZ, 70, W / 2, [C.pink, C.hot, C.mag, C.purple, C.plum], 80);
+    this.homeYard(ctx, HZ, t);
+    const w = 340, h = 160, x = Math.round(W / 2 - w / 2), y = 70;
     frame(ctx, x, y, w, h, C.hot, C.night, 8);
     scanlines(ctx, x + 2, y + 2, w - 4, h - 4);
     ticks(ctx, x, y, w, h, C.mag, 8, 3);
@@ -821,6 +952,8 @@ class UI implements Module {
     this.rows = menu(ctx, ['TRY BACKUP SAVE', 'START FRESH'], this.sel, W / 2, y + 102, t, 19, ['retry', 'new'], 200, { center: true });
     const k = keys(this.dev());
     hintRow(ctx, [[k.move, 'CHOOSE'], [k.ok, 'CONFIRM']], W / 2, y + h - 14, C.hot);
+    // Pom waits by the fence, ready to fly again
+    drawSprite(ctx, 'poodle', W / 2, HZ - 20 + ((t >> 4) % 2), { frame: (t >> 3) % 2 });
   }
 }
 export const makeUI = (): Module => new UI();

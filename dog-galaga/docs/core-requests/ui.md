@@ -41,3 +41,31 @@
 9. **Bundle budget heads-up.** After this round the single JS chunk is ~411 KB (was ~398 KB); ui added
    ~13 KB (sector glyphs, HUD blocks). `verify` does not enforce the 400 KB budget from ARCHITECTURE.md.
    If the integrator wants it enforced, ui can pack the 16x16 map glyphs into hex masks (~2.5 KB saving).
+
+# Core requests from ui (round 3)
+
+10. **World: stronger dawn/dusk tint (critic issue 9).** Park at dawn reads as plain day and cafe at dusk shows
+    no warm tint; only the HUD accent changes. ui now has distinct LOCAL TIME icons (sunrise with rays for
+    dawn, half sun on the horizon for dusk). Please push `TOD_RAMP.dawn` toward peach/amber (e.g. remap greens
+    and greys one step toward `g`/`8`, shadows toward `v`) and `TOD_RAMP.dusk` toward magenta/purple
+    (highlights toward `c`/`d`, mids toward `u`, shadows toward `v`/`1`), and apply a dusk ramp to indoor
+    tilesets too (cafe), so the time of day reads in the playfield at a glance.
+
+11. **Bundle budget (critic issue 13), for the integrator.** dist JS is ~414 KB (HEAD of this round started at
+    410.9 KB). This round ui added the 2x-native HUD numerals, the ending/recovery staging, the title formation
+    and the cached nebula renderer (+6.3 KB), and saved ~2.9 KB by packing the 16x16 map glyphs into base64
+    (2 bits per pixel). The 400 KB budget in ARCHITECTURE.md is exceeded by the project as a whole and the
+    vite chunk warning fires. Options: raise `build.chunkSizeWarningLimit` and the documented budget, or pack
+    the sprite sheets in `src/art/sprites/*.ts` the same way (they are the bulk of the bundle).
+
+12. **Quest: `dlg` parking during pause (FYI, no change required).** Esc during dialogue now opens the pause
+    menu (RESUME / SKIP BRIEFING / JOURNAL / SETTINGS / SAVE & QUIT); the dedicated skip key is X/Backspace
+    (gamepad B). While the menu is open ui parks `quest.dlg` in `ui.heldDlg` so `Quest.update` idles and menu
+    confirms do not advance the conversation; it is restored on close. A cleaner long-term fix is request 6
+    (`Quest.update` early-returns when `g.paused`), after which ui can drop the parking.
+
+13. **Input (FYI):** after a menu closes while A/SPACE is still held, ui keeps `g.paused` true until fire and
+    confirm are released (max 30 ticks), so resuming with A never emits a turd on the first frame. If core
+    ever adds an `Input.consume(action)` helper, ui would switch to it.
+
+14. **Showcase (repeat of 5):** `showcase=ending` still shows zero score/boops/minutes in the stat chips.

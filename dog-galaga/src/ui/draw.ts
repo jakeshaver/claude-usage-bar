@@ -116,13 +116,13 @@ export function header(ctx: CanvasRenderingContext2D, s: string, x: number, y: n
   const lx = x + 6 + textWidth(s) + 4;
   if (lx < x + w - 4) { rect(ctx, lx, y + 3, x + w - lx - 3, 1, C.indigo); rect(ctx, x + w - 2, y + 1, 2, 5, darkOf(accent)); }
 }
-export function bar(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, p: number, color = C.hot, back = C.plum) {
+export function bar(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, p: number, color = C.hot, back = C.indigo) {
   const f = Math.round(w * Math.max(0, Math.min(1, p)));
   rect(ctx, x, y, w, h, back); rect(ctx, x, y, f, h, color);
   if (h > 2 && f > 0) rect(ctx, x, y, f, 1, lighter(color));
 }
 /** Segmented bar: n cells of width cw with 1px gaps. */
-export function segBar(ctx: CanvasRenderingContext2D, x: number, y: number, n: number, cw: number, h: number, p: number, color = C.line, back = C.plum) {
+export function segBar(ctx: CanvasRenderingContext2D, x: number, y: number, n: number, cw: number, h: number, p: number, color = C.line, back = C.indigo) {
   const on = Math.round(n * Math.max(0, Math.min(1, p)));
   for (let i = 0; i < n; i++) {
     rect(ctx, x + i * (cw + 1), y, cw, h, i < on ? color : back);
@@ -170,6 +170,9 @@ const ICONS: Record<string, string[]> = {
   cat: ['#.....#', '##...##', '#######', '#.#.#.#', '#######', '.#####.', '..#.#..'],
   photo: ['#######', '#.....#', '#.#...#', '#...#.#', '#..####', '#######', '.......'],
   sun: ['#..#..#', '.#####.', '.#####.', '#######', '.#####.', '.#####.', '#..#..#'],
+  dusk: ['.......', '..###..', '.#####.', '#######', '.......', '#######', '.#.#.#.'],
+  dawn: ['#..#..#', '.#...#.', '..###..', '.#####.', '#######', '.......', '#######'],
+  skip: ['.......', '#..#..#', '##.##.#', '#######', '##.##.#', '#..#..#', '.......'],
   moon: ['..###..', '.##....', '##.....', '##.....', '##.....', '.##....', '..###..'],
   gear: ['.#.#.#.', '#######', '.##.##.', '###.###', '.##.##.', '#######', '.#.#.#.'],
   book: ['.##.##.', '#..#..#', '#..#..#', '#..#..#', '#..#..#', '.##.##.', '...#...'],
@@ -215,11 +218,11 @@ export function menu(ctx: CanvasRenderingContext2D, items: string[], sel: number
     }
     const rowW = textWidth(it) + (icons ? 12 : 0);
     const tx = opts.tag?.some(Boolean) ? bx + 30 : (opts.center ? Math.round(cx - rowW / 2) : Math.round(cx - maxW / 2)) + (icons ? 12 : 0);
-    const ic = off ? C.indigo : on ? C.gold : C.peri;
+    const ic = off ? C.peri : on ? C.gold : C.dim;
     if (icons?.[i]) icon(ctx, icons[i], tx - 12 - (on && (t >> 3) % 2 ? 1 : 0), yy, ic, on ? C.mag : undefined);
-    text(ctx, it, tx, yy, off ? C.peri : on ? C.gold : C.text, { shadow: on ? C.mag : C.ink });
+    text(ctx, it, tx, yy, off ? C.dim : on ? C.gold : C.text, { shadow: on ? C.mag : C.ink });
     const tag = opts.tag?.[i];
-    if (tag) { const tw = textWidth(tag) + 6; const tx2 = bx + w - tw - 6; chamferFill(ctx, tx2, yy - 1, tw, 9, C.ink, 2); text(ctx, tag, tx2 + 3, yy, C.indigo); }
+    if (tag) { const tw = textWidth(tag) + 6; const tx2 = bx + w - tw - 6; chamferFill(ctx, tx2, yy - 2, tw, 11, C.ink, 2); chamferLine(ctx, tx2, yy - 2, tw, 11, C.peri, 2); text(ctx, tag, tx2 + 3, yy, C.dim); }
   });
   return rows;
 }
@@ -258,7 +261,7 @@ export function dimRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: 
 export type Device = 'keyboard' | 'gamepad' | 'touch';
 /** Device-aware button names for hints. */
 export function keys(dev: Device) {
-  if (dev === 'gamepad') return { ok: 'A', back: 'B', pause: 'START', move: 'D-PAD', fire: 'A', next: 'A', skip: 'START', adj: 'D-PAD' };
+  if (dev === 'gamepad') return { ok: 'A', back: 'B', pause: 'START', move: 'D-PAD', fire: 'A', next: 'A', skip: 'B', adj: 'D-PAD' };
   if (dev === 'touch') return { ok: 'TOOT', back: 'II', pause: 'II', move: 'PAD', fire: 'TOOT', next: 'TAP', skip: 'II', adj: 'PAD' };
-  return { ok: 'SPACE', back: 'ESC', pause: 'ESC', move: 'ARROWS', fire: 'SPACE', next: 'SPACE', skip: 'ESC', adj: '< >' };
+  return { ok: 'SPACE', back: 'ESC', pause: 'ESC', move: 'ARROWS', fire: 'SPACE', next: 'SPACE', skip: 'X', adj: '< >' };
 }
