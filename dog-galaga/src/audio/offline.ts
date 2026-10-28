@@ -1,8 +1,8 @@
 // Offline rendering for inspection (critics can't listen, so they read numbers / waveforms instead).
 // Window-free: uses globalThis.OfflineAudioContext only. Never throws; returns ok:false on failure.
 import { makeKit } from './synth';
-import { buildMixer, Sequencer } from './engine';
-import { TRACKS } from './tracks';
+import { buildMixer, Sequencer, sideDip } from './engine';
+import { TRACKS, type Track } from './tracks';
 import { startAmbience } from './ambience';
 import { playSfx, SfxVoices, SFX_LEN } from './sfx';
 
@@ -29,6 +29,9 @@ const EMPTY = (error: string): RenderStats => ({ ok: false, error, peak: 0, rms:
 const SR = 22050;
 
 type Setup = (k: ReturnType<typeof makeKit>, mix: ReturnType<typeof buildMixer>, seconds: number) => void;
+
+/** Schedule a whole render's worth of a song (a one-shot song stops early: no infinite loop). */
+function runSong(s: Sequencer, tr: Track, sec: number) { s.set(tr, 0.02); for (let g = 0; g < 10000 && s.track && s.nextT < sec; g++) s.schedule(sec); }
 
 async function render(seconds: number, setup: Setup, bins = 200): Promise<RenderStats> {
   try {
@@ -58,7 +61,7 @@ async function render(seconds: number, setup: Setup, bins = 200): Promise<Render
 /** Render `seconds` of a music track through the real mixer (default volumes). */
 export function renderTrackOffline(trackId: string, seconds = 12): Promise<RenderStats> {
   const tr = TRACKS[trackId]; if (!tr) return Promise.resolve(EMPTY(`unknown track "${trackId}"`));
-  return render(seconds, (k, mix, sec) => { const s = new Sequencer(k, mix); s.set(tr, 0.02); while (s.nextT < sec) s.schedule(sec); });
+  return render(seconds, (k, mix, sec) => { runSong(new Sequencer(k, mix), tr, sec); });
 }
 
 /** Render an ambience bed. */
@@ -76,11 +79,11 @@ export function renderSfxOffline(id: string, seconds?: number): Promise<RenderSt
 export function renderMixOffline(trackId: string, ambienceId: string, seconds = 8): Promise<RenderStats> {
   const tr = TRACKS[trackId]; if (!tr) return Promise.resolve(EMPTY(`unknown track "${trackId}"`));
   return render(seconds, (k, mix, sec) => {
-    const s = new Sequencer(k, mix); s.set(tr, 0.02); while (s.nextT < sec) s.schedule(sec);
+    runSong(new Sequencer(k, mix), tr, sec);
     startAmbience(k, mix.amb, ambienceId, 0)?.tick(sec);
     const v = new SfxVoices();
     for (let t = 0.5; t < sec - 0.5; t += 0.19) { v.play(k, mix.sfx, 'plop', t); if (Math.floor(t * 10) % 3 === 0) v.play(k, mix.sfx, 'meow', t + 0.05); v.play(k, mix.sfx, 'thud', t + 0.03); }
-    v.play(k, mix.sfx, 'bossdown', sec / 2);
+    v.play(k, mix.sfx, 'bossdown', sec / 2); sideDip(mix, sec / 2);
   });
 }
 
@@ -92,8 +95,28 @@ export function renderMixOffline(trackId: string, ambienceId: string, seconds = 
 export function renderFireHoldOffline(trackId: string, ambienceId: string, seconds = 8, fire = true): Promise<RenderStats> {
   const tr = TRACKS[trackId]; if (!tr) return Promise.resolve(EMPTY(`unknown track "${trackId}"`));
   return render(seconds, (k, mix, sec) => {
-    const s = new Sequencer(k, mix); s.set(tr, 0.02); while (s.nextT < sec) s.schedule(sec);
+    runSong(new Sequencer(k, mix), tr, sec);
     startAmbience(k, mix.amb, ambienceId, 0)?.tick(sec);
     if (fire) { const v = new SfxVoices(); for (let t = 0.3; t < sec - 0.2; t += 11 / 60) v.play(k, mix.sfx, 'plop', t); }
+  });
+}
+
+/**
+ * A game-flow chain through the real sequencer handover, e.g. ['stage', 'yard'] (fanfare, then the loop) or
+ * ['boss', 'victory', 'map'] (the stinger takes over at a bar line `switchAt` seconds in, then the map loop).
+ * The first id starts at 0; every later one-shot is queued on the next bar line after `switchAt`.
+ */
+export function renderSequenceOffline(ids: string[], seconds = 20, switchAt = 4): Promise<RenderStats> {
+  const trs = ids.map(id => TRACKS[id]); const bad = ids.find(id => !TRACKS[id]);
+  if (bad || !trs.length) return Promise.resolve(EMPTY(`unknown track "${bad ?? ''}"`));
+  return render(seconds, (k, mix, sec) => {
+    const s = new Sequencer(k, mix); s.set(trs[0], 0.02);
+    let rest = trs.slice(1);
+    if (rest.length && !trs[0].once) {
+      for (let g = 0; g < 10000 && s.nextT < switchAt; g++) s.schedule(switchAt);
+      s.queue(rest[0], s.stepsTo(16)); rest = rest.slice(1);
+    }
+    s.after = rest;
+    for (let g = 0; g < 10000 && s.track && s.nextT < sec; g++) s.schedule(sec);
   });
 }

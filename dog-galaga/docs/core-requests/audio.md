@@ -1,6 +1,81 @@
 # Core requests from `audio`
 
-(Round 2 requests first; round 1 kept below for history.)
+(Round 3 requests first; rounds 2 and 1 kept below for history.)
+
+# Round 3
+
+## R3-1. One loop per area: set these `music` ids in `content/areas.json` (content owner)
+`TRACKS` now has 13 area loops. Neighbours share a song family but differ in key, tempo, lead voice, drum and bass
+patterns, and the B section (bars 9-16) has new chords and a new melody.
+| area | music | | area | music | | area | music |
+|---|---|---|---|---|---|---|---|
+| backyard | `yard` (G, 132) | | rooftops | `night` (Em, 120) | | sky | `space` (Dm, 144) |
+| street | `street` (A, 140) | | docks | `docks` (Dm, 112) | | moon | `moon` (Bm, 136) |
+| park | `park` (F, 124) | | station | `station` (Gm, 128) | | nebula | `nebula` (Fm, 152) |
+| alley | `city` (Am, 138) | | cafe | `cafe` (Gm, 128 shuffle) | | factory | `factory` (Bbm, 146) |
+| mothership | `mothership` (F#m, 126) (same as R2-1) | | | | | | |
+
+The content lint already accepts them, because they are keys of `TRACKS`. Until content changes, `audio.areaTrack()`
+picks the loop from `AREA_MUSIC[area.id]` (exported from `src/audio/index.ts`) whenever the content still names a
+shared id (`yard city night space boss`), so it works today, and once content is updated the shim does nothing.
+
+## R3-2. Boss wind-up is silent: call `sfx('tell')` in the boss `tell` state (interaction owner)
+`src/interaction/boss.ts:117-121` `beginTell()` plays `sfx('blip')` (the menu blip, 0.03 s). The boss wind-up
+warning sound `tell` (a rising two-note chirp, ~0.3 s) is in `SFX_IDS` and is never played. Change line 120 to
+`this.g.mods.audio?.sfx('tell');`. If `go('tell')` is ever entered somewhere other than `beginTell`, the call should
+go into `go()` (`if (s === 'tell') this.g.mods.audio?.sfx('tell')`) instead.
+
+## R3-3. Ambience volume slider (ui owner + core `types.ts` / `state.ts`)
+Ambience no longer follows the music slider. `setVolumes()` now uses `settings.amb` when it is a number, otherwise
+`max(settings.music, settings.sfx)`, so turning music off keeps the birds, water and city beds. Suggest:
+`settings: { music, sfx, amb: 0.8, ... }` in `core/state.ts` + `core/types.ts` (sanitize clamps 0..1), and an
+`AMBIENCE` row in the Settings menu (`ui/index.ts`) that calls `g.mods.audio?.setVolumes()` the way music/sfx do.
+
+## R3-4. Showcase `?showcase=audio` (integrator, `src/showcase/index.ts`)
+1. **Rows overflow.** There are now 23 music ids (13 area loops, 4 one-shot stingers `stage victory nap results`,
+   `bonus`, `map`, plus title/boss/finale/ending/mothership), so 47 rows in total. Only 42 fit at 21 rows x 2 columns.
+   Use 3 columns of 210 px (envelope 80 px) or rows of 12 px.
+2. **Song form (critic R2 #8).** Draw `r.envRms` as a second colour under the peak bars (e.g. peak `#7a4fd1`,
+   rms `#e8578f`) and render the loops for 48 s (`renderTrackOffline(id, 48)`, ~0.4 s each). The stingers are short;
+   render them for `6` s so their shape fills the strip.
+3. **New: game-flow rows** (shows the bar-line handovers): `renderSequenceOffline(['stage','yard'], 16)`,
+   `renderSequenceOffline(['boss','victory','map'], 16, 5)`, `renderSequenceOffline(['nap','stage','park'], 16)`.
+4. **Bundle (critic R2 #9).** Import the renderers from `'../audio/offline'` (plus `TRACKS` from `'../audio/tracks'`,
+   `SFX_IDS` from `'../audio/sfx'`, `AMBIENCE_IDS` from `'../audio/ambience'`) instead of `'../audio/index'`. That
+   removes the "dynamically imported but also statically imported" warning. `audio/index.ts` no longer re-exports
+   `./offline` statically: its `render*Offline` exports are lazy wrappers (`offline` is already its own 2.8 kB
+   chunk), so the existing showcase keeps working unchanged. The main chunk is 425 kB (+12 kB for the new songs).
+   To get under 400 kB, lazy-load `src/showcase` from `core/boot.ts` (`if (params.has('showcase')) await import(...)`)
+   or raise `chunkSizeWarningLimit` to 450.
+
+## R3-5. Still blocking review (tools owner), repeats R2-5
+Every `--area` deep link opens in a dialogue scene, so pause ducking during play cannot be screenshotted.
+`tools/screenshot.mjs --skipDialogue` (close dialogue until `scene === 'play'`) is still needed.
+
+## Round 3 behaviour notes (no action required)
+- **Galaga cues** (all internal to audio, driven by existing bus events):
+  `wave:start` (first wave of an area visit, or the first wave after a nap) -> 2-bar **stage** fanfare, then the area loop;
+  `boss:defeat` -> **victory** stinger (3 bars) on the first bar line at least 0.7 s after the bossdown sfx, then the area loop;
+  `player:nap` -> **nap** music-box lullaby (Brahms' Wiegenlied, ~3.8 s, the length of the nap), then the stage fanfare
+  when the wave restarts; scene `bonus` / `bonus:start` -> **bonus** loop (Treat Bonanza);
+  `bonus:result` -> **results** jingle; scene `map` -> **map** loop (no longer the title theme); `ending` -> ending.
+- **Bar-line switching:** every song change is quantized to the next bar line of the playing song (a half bar or a
+  beat if the bar line is more than 1.1 s away), and the old song fades to 50 % into the switch. A playing stinger
+  always finishes: a loop requested meanwhile (e.g. scene -> map right after the victory stinger) is queued after it.
+- **Levels:** music bus +4 dB (`LEVELS.music` 0.44 -> 0.7). `hurt`, `bossdown` and `memory` dip the music by 2 dB
+  for 150 ms (sidechain feel). Limiter threshold -4 -> -3 dB. `ending` is normalized (peak 0.25 -> 0.51).
+- **Hooks:** each song has a rhythmic hook at bars 1/5, answered at 9/13: yard and title use a dotted figure with
+  a pickup, space uses a repeated-note stutter, night uses a dotted sigh.
+  `night` is now 120 bpm with 16th-note hats and an 8th-note bass ostinato. Its whole-bar drop is gone.
+- **Title hint:** the boxed text is gone. A 20x14 px pixel speaker with a blinking red slash sits in the top-right corner
+  (612,6) until the AudioContext runs.
+
+## Round 3 reference numbers (Chromium, 22.05 kHz offline, default volumes, 30 s renders, real mixer + limiter)
+- Area loops peak 0.49-0.70, RMS 0.067-0.112 (round 2: 0.25-0.46 / 0.053-0.075). Title 0.65/0.087,
+  boss 0.69/0.111, finale 0.68/0.107, ending 0.51/0.102, map 0.47/0.058 (calm by design), bonus 0.60/0.097.
+- Worst-case mix (boss + space + plop/thud/meow spam + bossdown with dip): peak 0.89, RMS 0.176, 0 clipped.
+- Sfx peaks are unchanged relative to each other (plop 0.30, thud 0.32, meow 0.32, bossdown 0.49). 0 clipped samples everywhere.
+
 
 # Round 2
 

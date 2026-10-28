@@ -1,14 +1,43 @@
 import type { Game, Module } from '../core/game';
-import { TRACKS } from './tracks';
+import { TRACKS, AREA_MUSIC, type Track } from './tracks';
 import { makeKit, type Kit } from './synth';
-import { buildMixer, Sequencer, LEVELS, PAUSE, type Mixer } from './engine';
+import { buildMixer, Sequencer, LEVELS, PAUSE, SIDE, sideDip, type Mixer } from './engine';
 import { startAmbience, type AmbHandle } from './ambience';
 import { SfxVoices, SFX_LEN } from './sfx';
-import { text, textWidth } from '../art/font';
 import { col } from '../core/palette';
 
-export { renderTrackOffline, renderAmbienceOffline, renderSfxOffline, renderMixOffline, renderFireHoldOffline, type RenderStats } from './offline';
-export { TRACKS, validateTracks, findUnknownSfx } from './tracks';
+export type { RenderStats } from './offline';
+export { TRACKS, AREA_MUSIC, validateTracks, findUnknownSfx } from './tracks';
+
+// Offline renderers are lazy: `./offline` is only fetched when a showcase/tool calls one, so it stays out of
+// the boot chunk. (A showcase can also `await import('../audio/offline')` directly.)
+type Off = typeof import('./offline');
+const off = (): Promise<Off> => import('./offline');
+export const renderTrackOffline: Off['renderTrackOffline'] = (...a) => off().then(m => m.renderTrackOffline(...a));
+export const renderAmbienceOffline: Off['renderAmbienceOffline'] = (...a) => off().then(m => m.renderAmbienceOffline(...a));
+export const renderSfxOffline: Off['renderSfxOffline'] = (...a) => off().then(m => m.renderSfxOffline(...a));
+export const renderMixOffline: Off['renderMixOffline'] = (...a) => off().then(m => m.renderMixOffline(...a));
+export const renderFireHoldOffline: Off['renderFireHoldOffline'] = (...a) => off().then(m => m.renderFireHoldOffline(...a));
+export const renderSequenceOffline: Off['renderSequenceOffline'] = (...a) => off().then(m => m.renderSequenceOffline(...a));
+
+/** Track ids several areas used to share; an area whose content still names one gets its own loop instead. */
+const SHARED = new Set(['yard', 'city', 'night', 'space', 'boss']);
+/** Longest wait for a bar-line switch before falling back to a half bar / beat. */
+const MAX_QUANT = 1.1;
+
+/** Speaker icon (palette keys) for the "sound is off until you press something" hint. */
+const SPEAKER = [
+  '.....66',
+  '....656',
+  '...6556',
+  '6666556',
+  '6555556',
+  '6555556',
+  '6666556',
+  '...6556',
+  '....656',
+  '.....66',
+];
 export { SFX_IDS } from './sfx';
 export { AMBIENCE_IDS } from './ambience';
 
@@ -33,6 +62,9 @@ class Audio implements Module {
   pending: { id: string; at: number } | null = null;
   private padTry = -999;
 
+  /** play the stage-start fanfare at the next wave:start (first wave of an area visit, after a nap). */
+  stageDue = false;
+
   init(g: Game) {
     this.g = g;
     if (g.headless || typeof window === 'undefined' || typeof addEventListener !== 'function') return;
@@ -42,9 +74,15 @@ class Audio implements Module {
       try { if (!this.ctx) return; if (document.hidden) void this.ctx.suspend(); else void this.ctx.resume(); } catch { /* ignore */ }
     });
     g.bus.on('scene:change', (p: any) => this.sceneMusic(p.to));
-    g.bus.on('area:enter', () => this.sceneMusic('play'));
-    g.bus.on('boss:start', () => this.music(this.bossTrack()));
-    g.bus.on('boss:defeat', () => this.music(this.areaTrack()));
+    g.bus.on('area:enter', () => { this.stageDue = true; this.sceneMusic('play'); });
+    g.bus.on('wave:start', () => { if (this.stageDue) { this.stageDue = false; this.stinger('stage', this.areaTrack()); } });
+    g.bus.on('boss:start', () => { this.stageDue = false; this.music(this.bossTrack()); });
+    // victory stinger after the bossdown sfx has had its moment, then back to the area (or whatever comes next)
+    g.bus.on('boss:defeat', () => this.stinger('victory', this.areaTrack(), 0.7));
+    g.bus.on('player:nap', () => { this.stageDue = !this.g.mods.interaction?.boss; this.stinger('nap', this.g.mods.interaction?.boss ? this.bossLoop() : this.areaTrack()); });
+    g.bus.on('bonus:start', () => this.music('bonus'));
+    g.bus.on('bonus:result', () => this.stinger('results', this.wantLoop()));
+    g.bus.on('ending', () => this.music('ending'));
     // the hint must draw above the UI's title screen, so it is a tiny module appended after every other one
     g.register({ id: 'audio-hint', overlay: (gg, ctx) => this.hint(gg, ctx) });
   }
@@ -85,7 +123,9 @@ class Audio implements Module {
     try {
       const st = this.g.state?.settings ?? { music: 0.6, sfx: 0.8 }; const t = this.ctx.currentTime;
       this.mix.music.gain.setTargetAtTime(Math.max(0, st.music) * LEVELS.music, t, 0.03);
-      this.mix.amb.gain.setTargetAtTime(Math.max(0, st.music) * LEVELS.amb, t, 0.03);
+      // the cozy bed must not vanish with the music slider: own setting if there is one, else max(music, sfx)
+      const amb = typeof (st as any).amb === 'number' ? (st as any).amb : Math.max(st.music, st.sfx);
+      this.mix.amb.gain.setTargetAtTime(Math.max(0, amb) * LEVELS.amb, t, 0.03);
       this.mix.sfx.gain.setTargetAtTime(Math.max(0, st.sfx) * LEVELS.sfx, t, 0.03);
     } catch { /* ignore */ }
   }
@@ -94,24 +134,74 @@ class Audio implements Module {
    * The area's music. An area whose content music is 'boss' (the mothership's regular waves) plays the
    * dedicated 'mothership' march instead, so the real boss fight still escalates (see core-requests/audio.md).
    */
-  areaTrack(): string { const m = this.g.mods.world?.area()?.music ?? 'yard'; return m === 'boss' ? 'mothership' : m; }
+  areaTrack(): string {
+    const a = this.g.mods.world?.area(); const m: string = a?.music ?? 'yard';
+    if (TRACKS[m] && !SHARED.has(m)) return m;            // content already names an area-specific loop
+    return (a?.id && AREA_MUSIC[a.id]) || (m === 'boss' ? 'mothership' : m);
+  }
   /** Regular bosses get 'boss'; the final area (one that leads to an ending) gets 'finale'. */
   bossTrack(): string { const a = this.g.mods.world?.area(); return a?.ending || a?.id === 'mothership' ? 'finale' : 'boss'; }
 
+  /** the boss loop without re-triggering the intro sting is not separable, so a boss nap resumes the boss song. */
+  bossLoop(): string { return this.bossTrack(); }
+  /** the loop the current scene wants. */
+  wantLoop(): string {
+    const sc = this.g.state?.scene ?? 'title';
+    return sc === 'title' ? 'title' : sc === 'map' ? 'map' : sc === 'bonus' ? 'bonus' : sc === 'ending' ? 'ending'
+      : this.g.mods.interaction?.boss ? this.bossTrack() : this.areaTrack();
+  }
+
   sceneMusic(scene: string) {
-    if (scene === 'title' || scene === 'map') { this.music('title'); this.ambience('none'); }
+    if (scene === 'title') { this.music('title'); this.ambience('none'); }
+    else if (scene === 'map') { this.music('map'); this.ambience('none'); }
+    else if (scene === 'bonus') { this.music('bonus'); }
     else if (scene === 'play') { this.music(this.g.mods.interaction?.boss ? this.bossTrack() : this.areaTrack()); this.ambience(this.g.mods.world?.area()?.ambience ?? 'none'); }
     else if (scene === 'ending') { this.music('ending'); this.ambience('none'); }
   }
 
+  /** Steps until the switch point: the next bar line, or a half bar / beat when the bar line is too far off. */
+  private quant(minDelay: number): number {
+    const seq = this.seq!, c = seq.comp!; const lead = seq.nextT - this.ctx!.currentTime;
+    for (const grid of [16, 8, 4]) {
+      let n = seq.stepsTo(grid); while (lead + n * c.stepSec < minDelay) n += grid;
+      if (lead + n * c.stepSec <= MAX_QUANT + minDelay || grid === 4) return n;
+    }
+    return 0;
+  }
+
+  /** Start `tr` on the next musical boundary (immediately when nothing is playing), fading the old song a bit. */
+  private switchTo(tr: Track | null, minDelay = 0) {
+    const seq = this.seq!, ctx = this.ctx!, now = ctx.currentTime;
+    if (!seq.track || !seq.comp) { seq.set(tr, now + 0.05 + minDelay); return; }
+    seq.queue(tr, this.quant(minDelay));
+    const at = Math.max(now + 0.02, seq.switchTime()); const f = this.mix!.switchFade.gain;
+    f.cancelScheduledValues(now); f.setValueAtTime(f.value, now);
+    f.linearRampToValueAtTime(0.5, at); f.linearRampToValueAtTime(1, at + 0.06);
+  }
+
+  private busyWithStinger(): boolean { const s = this.seq!; return !!(s.track?.once || s.pending?.once); }
+
+  /** Change the looping song (on the bar line). A playing stinger is allowed to finish first. */
   music(id: string) {
     this.wantMusic = id;
     if (!this.ctx || !this.seq || !this.mix || this.trackId === id) return;
     try {
-      this.trackId = id; const t = this.ctx.currentTime; const f = this.mix.switchFade.gain;
-      // quick dip so the old song's already-scheduled notes don't clash with the new one
-      f.cancelScheduledValues(t); f.setValueAtTime(f.value, t); f.linearRampToValueAtTime(0, t + 0.12); f.linearRampToValueAtTime(1, t + 0.3);
-      this.seq.set(TRACKS[id] ?? null, t + 0.16);
+      const tr = TRACKS[id] ?? null; this.trackId = id;
+      if (this.busyWithStinger()) { this.seq.after = [...this.seq.after.filter(t => t.once), ...(tr ? [tr] : [])]; return; }
+      this.seq.after = [];
+      this.switchTo(tr);
+    } catch { /* ignore */ }
+  }
+
+  /** Play a one-shot song (`once` track) on the next bar line, then continue with the loop `then`. */
+  stinger(id: string, then: string, minDelay = 0) {
+    this.wantMusic = then;
+    if (!this.ctx || !this.seq || !this.mix) return;
+    try {
+      const st = TRACKS[id]; const nx = TRACKS[then]; if (!st) { this.music(then); return; }
+      this.trackId = then;
+      if (this.busyWithStinger()) { this.seq.after = [...this.seq.after.filter(t => t.once), st, ...(nx ? [nx] : [])]; return; }
+      this.switchTo(st, minDelay); this.seq.after = nx ? [nx] : [];
     } catch { /* ignore */ }
   }
 
@@ -129,7 +219,8 @@ class Audio implements Module {
     if (!this.ctx || !this.kit || !this.mix || SFX_LEN[id] === undefined) return;
     try {
       if (this.ctx.state !== 'running') { this.pending = { id, at: performance.now() }; return; }
-      this.voices.play(this.kit, this.mix.sfx, id, this.ctx.currentTime + 0.005);
+      const t = this.ctx.currentTime + 0.005;
+      if (this.voices.play(this.kit, this.mix.sfx, id, t) && SIDE.ids.includes(id)) sideDip(this.mix, t);
     } catch { /* ignore */ }
   }
 
@@ -165,14 +256,22 @@ class Audio implements Module {
     }
   }
 
-  /** Title-screen hint until sound is actually running (gamepad presses can't unlock audio on their own). */
+  /**
+   * Title-screen hint until sound is actually running (gamepad presses can't unlock audio on their own): a small
+   * pixel speaker in the top-right corner with a blinking red slash (the indie convention), out of the layout.
+   */
   hint(g: Game, ctx: CanvasRenderingContext2D) {
     if (g.headless || this.failed || g.state?.scene !== 'title' || this.running()) return;
-    if (Math.floor(g.tick / 40) % 4 === 3) return; // gentle blink: visible 3/4 of the time
     try {
-      const msg = 'PRESS ANY KEY / TAP FOR SOUND'; const w = textWidth(msg) + 10; const x = 320 - (w >> 1), y = 314;
-      ctx.fillStyle = col(2); ctx.fillRect(x - 1, y - 1, w + 2, 13); ctx.fillStyle = col(1); ctx.fillRect(x, y, w, 11);
-      text(ctx, msg, 320, y + 2, col(5), { align: 'center' });
+      const x0 = 612, y0 = 6;
+      ctx.fillStyle = col(2); ctx.fillRect(x0 - 1, y0 - 1, 22, 16); ctx.fillStyle = col(1); ctx.fillRect(x0, y0, 20, 14);
+      const keys = '0123456789abcdefghijklmnopqrstuv';
+      SPEAKER.forEach((row, y) => { for (let x = 0; x < row.length; x++) { const ch = row[x]; if (ch === '.') continue; ctx.fillStyle = col(keys.indexOf(ch)); ctx.fillRect(x0 + 6 + x, y0 + 2 + y, 1, 1); } });
+      // red slash with an ink shadow, blinking ~1 Hz (the speaker itself stays put)
+      if (Math.floor(g.tick / 30) % 2 === 0) {
+        for (let i = 0; i < 11; i++) { ctx.fillStyle = col(0); ctx.fillRect(x0 + 16 - i, y0 + 1 + i, 3, 2); }
+        for (let i = 0; i < 11; i++) { ctx.fillStyle = col(27); ctx.fillRect(x0 + 16 - i, y0 + 1 + i, 2, 1); }
+      }
     } catch { /* ignore */ }
   }
 }
