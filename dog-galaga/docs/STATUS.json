@@ -1,25 +1,94 @@
 {
-  "updated": "2026-10-28",
-  "phase": "foundations-complete",
-  "build": { "ok": true, "jsKB": 261, "gzipKB": 53, "budgetKB": 1024 },
-  "lint": { "errors": 0, "warnings": 0 },
-  "bot": { "paths": 4, "allReachEnding": true, "softlocks": 0, "endings": ["ending_true"], "botMinutes": [50, 55], "note": "bot has perfect aim; human playtime estimated 1-2h" },
-  "tests": { "passed": 7, "failed": 0 },
-  "modules": {
-    "core":        { "owner": "integrator", "score": null, "status": "built" },
-    "art":         { "score": null, "status": "v1 generated sprites; poodle weak", "placeholders": 0 },
-    "world":       { "score": null, "status": "v1 tiles; backgrounds busy" },
-    "player":      { "score": null, "status": "v1" },
-    "interaction": { "score": null, "status": "v1" },
-    "ui":          { "score": null, "status": "v1" },
-    "audio":       { "score": null, "status": "v1 synth" },
-    "effects":     { "score": null, "status": "v1" },
-    "quest":       { "score": null, "status": "v1" },
-    "save":        { "score": null, "status": "v1 + tests" },
-    "memories":    { "score": null, "status": "v1" },
-    "minigames":   { "score": null, "status": "v1" },
-    "journal":     { "score": null, "status": "v1" }
+ "updated": "2026-10-28",
+ "phase": "wave1-round1-integrated",
+ "build": {
+  "ok": true,
+  "jsKB": 261,
+  "gzipKB": 53,
+  "budgetKB": 1024
+ },
+ "lint": {
+  "errors": 0,
+  "warnings": 0
+ },
+ "bot": {
+  "paths": 8,
+  "allReachEnding": true,
+  "softlocks": 0,
+  "endings": [
+   "ending_true"
+  ],
+  "botMinutes": [
+   32,
+   37
+  ],
+  "note": "perfect-aim bot; watch human playtime target 60-120 min"
+ },
+ "tests": {
+  "passed": 7,
+  "failed": 0
+ },
+ "modules": {
+  "core": {
+   "owner": "integrator",
+   "score": null,
+   "status": "built"
   },
-  "openIssues": ["poodle sprite reads as ghost", "portraits reuse poodle/pup sprites", "background tiles too busy/bright", "no gauntlet rounds run yet"],
-  "nextStep": "Run wave-1 builder+critic gauntlet on art, world, ui, audio/effects. Weakest: art (poodle)."
+  "art": {
+   "score": 6.3,
+   "status": "round 1 done, failed gauntlet (<8.5)",
+   "placeholders": 0
+  },
+  "world": {
+   "score": 7.1,
+   "status": "round 1 done, failed gauntlet (<8.5)"
+  },
+  "player": {
+   "score": null,
+   "status": "v1"
+  },
+  "interaction": {
+   "score": null,
+   "status": "round 1 built; critic lost to container restart, re-running"
+  },
+  "ui": {
+   "score": 7.4,
+   "status": "round 1 done, failed gauntlet (<8.5)"
+  },
+  "audio": {
+   "score": null,
+   "status": "round 1 built; critic lost to container restart, re-running"
+  },
+  "effects": {
+   "score": null,
+   "status": "round 1 built; critic lost to container restart, re-running"
+  },
+  "quest": {
+   "score": null,
+   "status": "v1"
+  },
+  "save": {
+   "score": null,
+   "status": "v1 + tests"
+  },
+  "memories": {
+   "score": null,
+   "status": "v1"
+  },
+  "minigames": {
+   "score": null,
+   "status": "v1"
+  },
+  "journal": {
+   "score": null,
+   "status": "v1"
+  }
+ },
+ "openIssues": [
+  "art 6.3: poodle silhouette, breed template reuse, bengal=tabby, persian reads as skull",
+  "world 7.1: dark cats vanish on dark bgs, day sky clouds dark, tod hue swaps, noisy cafe/factory",
+  "ui 7.4: HUD dead zones, dialogue box covers player, sector map flat",
+  "perf: rooftops 36fps in headless chromium"
+ ],
+ "nextStep": "Resume wave1 gauntlet rounds 2-4 (workflow resume). Weakest: art (6.3)."
 }

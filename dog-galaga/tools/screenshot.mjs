@@ -13,7 +13,7 @@ const base = args.url ?? 'http://127.0.0.1:4173/';
 const out = args.out ?? `shots/${args.showcase ?? args.area ?? args.scene ?? 'title'}-${args.tod ?? 'default'}`;
 const zoom = +(args.zoom ?? 2);
 const q = new URLSearchParams();
-for (const k of ['area', 'wave', 'tod', 'showcase', 'scene', 'advance', 'seed', 'autopilot', 'node', 'menu', 'tab', 'filter', 'ending', 'ticks', 'freeze']) if (args[k]) q.set(k, args[k]);
+for (const k of ['area', 'wave', 'tod', 'showcase', 'scene', 'advance', 'seed', 'autopilot', 'node', 'menu', 'tab', 'filter', 'ending', 'ticks', 'freeze', 'fx', 'fxt', 'touch']) if (args[k]) q.set(k, args[k]);
 if (args.state) q.set('state', Buffer.from(args.state).toString('base64'));
 const url = base + (base.includes('?') ? '&' : '?') + q.toString();
 
@@ -32,8 +32,8 @@ if (args.keys) {
   for (const k of args.keys.split(',')) { await page.keyboard.down(k); await page.waitForTimeout(+(args.hold ?? 300)); await page.keyboard.up(k); }
 }
 await page.waitForTimeout(+(args.wait ?? 1200));
-const info = await page.evaluate(() => ({ fps: window.__game.fps(), errors: window.__game.errors(), issues: window.__game.contentIssues(), scene: window.__game.getState().scene }));
-log.fps = Math.round(info.fps); log.gameErrors = info.errors; log.contentIssues = info.issues; log.scene = info.scene;
+const info = await page.evaluate(() => ({ audio: window.__game.audioReport ?? null, fps: window.__game.fps(), errors: window.__game.errors(), issues: window.__game.contentIssues(), scene: window.__game.getState().scene }));
+log.fps = Math.round(info.fps); log.gameErrors = info.errors; log.contentIssues = info.issues; log.scene = info.scene; if (info.audio) log.audio = info.audio.map(r => ({ id: r.kind + ':' + r.id, ok: r.r?.ok, peak: r.r?.peak, rms: r.r?.rms, clipped: r.r?.clipped }));
 fs.mkdirSync(path.dirname(out), { recursive: true });
 await page.locator('canvas').screenshot({ path: out + '.png' });
 fs.writeFileSync(out + '.json', JSON.stringify(log, null, 1));

@@ -2,6 +2,7 @@ import type { Game, Module } from '../core/game';
 import { WORLD_W, PF_W, H } from '../core/game';
 import { drawSprite } from '../art/sprite';
 import { autopilotInput } from './autopilot';
+import { pxRing } from '../core/pixel';
 
 export const MIN_Y = 200, MAX_Y = 336;
 
@@ -31,7 +32,7 @@ class Player implements Module {
     g.mods.effects?.shake(4, 16); g.mods.effects?.flash('#ff5a4f', 6); g.mods.audio?.sfx('hurt');
     g.bus.emit('player:hit', { hearts: g.state.hearts });
     if (g.state.hearts <= 0) {
-      g.state.stats.naps++; g.mods.interaction?.napReset(); this.powers = {};
+      g.state.stats.naps++; g.mods.effects?.burst(this.x, this.y, 'fur'); g.mods.interaction?.napReset(); this.powers = {};
       g.bus.emit('player:nap', { hearts: 0 });
     }
     return true;
@@ -86,8 +87,8 @@ class Player implements Module {
     const bob = Math.round(Math.sin(this.anim / 10));
     r.push(1, this.y, (ctx: CanvasRenderingContext2D) => { ctx.fillStyle = 'rgba(11,10,20,0.35)'; ctx.fillRect(Math.round(this.x - 9), Math.round(this.y + 18), 18, 3); });
     r.push(2, this.y, (ctx: CanvasRenderingContext2D) => {
-      if (!blink) drawSprite(ctx, 'poodle', this.x, this.y + bob, { frame: Math.floor(this.anim / 6) % 2 });
-      if (this.powers.shield > 0) { ctx.strokeStyle = (this.anim >> 2) % 2 ? '#4ef2e6' : '#26a6c9'; ctx.beginPath(); ctx.arc(Math.round(this.x), Math.round(this.y), 19, 0, Math.PI * 2); ctx.stroke(); }
+      if (!blink) drawSprite(ctx, this.vx < -0.8 ? 'poodle_left' : this.vx > 0.8 ? 'poodle_right' : 'poodle', this.x, this.y + bob, { frame: Math.floor(this.anim / 6) % 2 });
+      if (this.powers.shield > 0) { pxRing(ctx, this.x, this.y + bob, 19, (this.anim >> 2) % 2 ? 'l' : 'm', 6, this.anim / 20); if (this.powers.shield < 180 && (this.anim >> 3) % 2) pxRing(ctx, this.x, this.y + bob, 18, 's', 6, -this.anim / 20); }
     });
     if (this.buddy) r.push(2, this.y + 1, (ctx: CanvasRenderingContext2D) => drawSprite(ctx, 'pup', this.x + 20, this.y + 4 - bob));
   }

@@ -9,7 +9,7 @@ const LIMIT = 60 * 60 * 180;   // 3 hours hard cap per path
 
 export function runPath(route: string[], seed = 1337, opts: { onTick?: (api: any) => void } = {}): PathResult {
   const g = createGame({ headless: true, seed });
-  const api = makeApi(g); api.autopilot(true);
+  const api = makeApi(g); api.autopilot(true); g.botDrivesMap = true;
   let lastProgress = 0; const branches: string[][] = []; const taken: string[] = [];
   const mark = () => { lastProgress = g.tick; };
   for (const e of ['wave:clear', 'boss:defeat', 'area:clear', 'bonus:end', 'area:enter', 'dialogue:open']) g.bus.on(e, mark);

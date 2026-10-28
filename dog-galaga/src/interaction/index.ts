@@ -5,7 +5,7 @@ import { drawSprite } from '../art/sprite';
 import { col } from '../core/palette';
 import { entryPath, divePath, bonusPath, Track, type Pt, type TrackPos } from './paths';
 import { tuning, type Tuning } from './tuning';
-import { pxRing, pxDither, pxShadow, pxSpark, pxDisc } from './pixel';
+import { pxRing, pxDither, pxShadow, pxSpark, pxDisc } from '../core/pixel';
 import { Boss } from './boss';
 
 export type CatState = 'wait' | 'enter' | 'home' | 'form' | 'dive' | 'return' | 'leave' | 'flyby' | 'kdive';
@@ -265,7 +265,7 @@ class Interaction implements Module {
           if (Math.abs(s.x - c.x) < r + 2 && Math.abs(s.y - c.y) < r + 3) {
             s.y = -999; c.hp--; g.mods.audio?.sfx('thud');
             if (c.hp <= 0) this.boop(c);
-            else { c.flash = 14; c.y -= 3; g.mods.effects?.burst(c.x, c.y - 6, 'poof'); }   // tanks shrug it off, flashing
+            else { c.flash = 14; g.mods.effects?.burst(s.x, c.y + 6, 'splat'); c.y -= 3; }   // tanks shrug it off, flashing
             break;
           }
         }
@@ -284,8 +284,8 @@ class Interaction implements Module {
       this.boss.update();
       const b = this.boss;
       for (const s of this.turds) if (Math.abs(s.x - b.x) < b.r && Math.abs(s.y - b.y) < b.r + 4) {
-        s.y = -999;
-        if (b.vulnerable()) { b.damage(1); g.state.stats.hits++; g.mods.audio?.sfx('thud'); }
+        const sx = s.x, sy = s.y; s.y = -999;
+        if (b.vulnerable()) { g.mods.effects?.burst(sx, sy, 'splat'); b.damage(1); g.state.stats.hits++; g.mods.audio?.sfx('thud'); }
         else g.mods.effects?.burst(s.x, b.y + 20, 'sparkle');
       }
       if (b.dead) {
@@ -381,7 +381,7 @@ class Interaction implements Module {
 
   private collect(k: Pickup) {
     const g = this.g; const P = g.mods.player;
-    g.mods.audio?.sfx('pickup'); g.mods.effects?.burst(k.x, k.y, 'sparkle');
+    g.mods.audio?.sfx('pickup'); g.mods.effects?.burst(k.x, k.y, k.kind === 'pup' || k.kind === 'heart' || k.kind === 'pk_heart' ? 'hearts' : 'sparkle');
     if (k.kind === 'pup') {
       P.buddy = true; g.ops.setFlag('pup_' + g.state.areaId); g.ops.addItem('pups', 1);
       g.bus.emit('pup:rescue', { areaId: g.state.areaId }); g.mods.ui?.toast('PUPPY RESCUED! WINGMAN ONLINE'); return;

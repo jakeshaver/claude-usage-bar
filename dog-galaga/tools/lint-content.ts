@@ -5,7 +5,7 @@ import { validateCollection, SCHEMAS } from '../src/core/schema';
 import { condRefs } from '../src/core/conditions';
 import { SHEETS } from '../src/art/sprite';
 import '../src/art/index';
-import { TRACKS } from '../src/audio/tracks';
+import { TRACKS, validateTracks } from '../src/audio/tracks';
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const errors: string[] = []; const warns: string[] = [];
@@ -56,6 +56,7 @@ for (const d of data.dialogue) { if (d.next && !D.has(d.next)) errors.push(`dial
 for (const m of data.memories) { const a = data.areas.find((x: any) => x.id === m.area); if (!a) errors.push(`memories#${m.id}: unknown area`); else if (m.wave >= a.waves.length) errors.push(`memories#${m.id}: wave ${m.wave} out of range`); }
 for (const q of data.quests) { checkCond(`quests#${q.id} start`, q.start.when); checkCond(`quests#${q.id} complete`, q.complete.when); if (q.start.match?.areaId && !A.has(q.start.match.areaId)) errors.push(`quests#${q.id}: unknown area in match`); }
 for (const e of data.endings) checkCond(`endings#${e.id}`, e.when);
+for (const e of validateTracks()) errors.push('audio: ' + e);
 // reachability over the area graph (ignoring conditions = optimistic)
 const start = 'backyard'; const seen = new Set<string>([start]); const stack = [start];
 while (stack.length) { const id = stack.pop()!; for (const e of data.areas.find((a: any) => a.id === id)?.exits ?? []) if (!seen.has(e.to)) { seen.add(e.to); stack.push(e.to); } }

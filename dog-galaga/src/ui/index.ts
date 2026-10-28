@@ -72,7 +72,7 @@ class UI implements Module {
 
   autopilotNav(g: Game) {
     const sc = g.state.scene;
-    if (sc === 'map' && this.t % 30 === 0) { const ex = g.mods.world.exitsFrom(g.state.areaId); if (ex.length) g.mods.world.chooseExit(ex[(g.state.seed + g.state.areasCleared.length) % ex.length].to); }
+    if (sc === 'map' && !g.botDrivesMap && this.t % 30 === 0) { const ex = g.mods.world.exitsFrom(g.state.areaId); if (ex.length) g.mods.world.chooseExit(ex[(g.state.seed + g.state.areasCleared.length) % ex.length].to); }
   }
 
   titleItems() { return [...(this.g.mods.save?.hasSave() ? ['CONTINUE'] : []), 'NEW GAME', 'JOURNAL', 'SETTINGS']; }

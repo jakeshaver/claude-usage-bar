@@ -3,7 +3,7 @@ import { WORLD_W } from '../core/game';
 import type { EnemyDef } from '../core/types';
 import { drawSprite } from '../art/sprite';
 import { col } from '../core/palette';
-import { pxShadow, pxDash, pxRing, pxSpark } from './pixel';
+import { pxShadow, pxDash, pxRing, pxSpark } from '../core/pixel';
 
 const BOSS_LIMIT = 150 * 60; // a boss that isn't beaten in 150s dozes off (counts as cleared): no softlocks
 const HOME_Y = 76;

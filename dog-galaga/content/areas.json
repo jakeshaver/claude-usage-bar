@@ -284,7 +284,7 @@
   "id": "nebula",
   "name": "Catnip Nebula",
   "subtitle": "A secret route, very groovy",
-  "tileset": "sky",
+  "tileset": "nebula",
   "music": "space",
   "ambience": "space",
   "tod": "night",

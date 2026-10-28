@@ -47,6 +47,8 @@ export class Game {
   failCount: Record<string, number> = {};
   disabled = new Set<string>();
   autopilot = false;
+  /** set by the playthrough bot so it, not the UI autopilot, picks map exits */
+  botDrivesMap = false;
   toastFn: (t: string) => void = () => {};
 
   constructor(opts: { headless?: boolean; seed?: number; content?: Record<string, unknown> } = {}) {
