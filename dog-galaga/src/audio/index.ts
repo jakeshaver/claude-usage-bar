@@ -1,19 +1,23 @@
 import type { Game, Module } from '../core/game';
 import { TRACKS } from './tracks';
 import { makeKit, type Kit } from './synth';
-import { buildMixer, Sequencer, LEVELS, type Mixer } from './engine';
+import { buildMixer, Sequencer, LEVELS, PAUSE, type Mixer } from './engine';
 import { startAmbience, type AmbHandle } from './ambience';
-import { playSfx, SFX_LEN, SFX_POLY } from './sfx';
+import { SfxVoices, SFX_LEN } from './sfx';
+import { text, textWidth } from '../art/font';
+import { col } from '../core/palette';
 
-export { renderTrackOffline, renderAmbienceOffline, renderSfxOffline, renderMixOffline, type RenderStats } from './offline';
-export { TRACKS, validateTracks } from './tracks';
+export { renderTrackOffline, renderAmbienceOffline, renderSfxOffline, renderMixOffline, renderFireHoldOffline, type RenderStats } from './offline';
+export { TRACKS, validateTracks, findUnknownSfx } from './tracks';
 export { SFX_IDS } from './sfx';
 export { AMBIENCE_IDS } from './ambience';
 
 /**
  * Audio: WebAudio-synthesized chiptune music, ambience beds and sfx. No audio files.
- * The AudioContext is only created inside a user gesture (autoplay policy); before that every call
- * just records what *should* play. Missing WebAudio support makes every call a silent no-op.
+ * The AudioContext is created on the first key/pointer/touch gesture or the first gamepad press (a pad press
+ * is not a user activation for autoplay, so the title shows a "press any key / tap for sound" hint until the
+ * context actually runs). Before that every call just records what *should* play. Missing WebAudio support
+ * makes every call a silent no-op.
  */
 class Audio implements Module {
   id = 'audio';
@@ -24,7 +28,10 @@ class Audio implements Module {
   trackId = ''; amb: AmbHandle | null = null; ambId = '';
   wantMusic = ''; wantAmb = '';
   ducked = false; failed = false;
-  voices: Record<string, number[]> = {};
+  voices = new SfxVoices();
+  /** one sfx requested while the context was still starting (e.g. the select/bark of the unlocking press). */
+  pending: { id: string; at: number } | null = null;
+  private padTry = -999;
 
   init(g: Game) {
     this.g = g;
@@ -38,12 +45,18 @@ class Audio implements Module {
     g.bus.on('area:enter', () => this.sceneMusic('play'));
     g.bus.on('boss:start', () => this.music(this.bossTrack()));
     g.bus.on('boss:defeat', () => this.music(this.areaTrack()));
+    // the hint must draw above the UI's title screen, so it is a tiny module appended after every other one
+    g.register({ id: 'audio-hint', overlay: (gg, ctx) => this.hint(gg, ctx) });
   }
 
-  /** Create/resume the AudioContext. Must run inside a user gesture the first time. */
+  /** True once sound can actually be heard. */
+  running(): boolean { try { return !!this.ctx && this.ctx.state === 'running'; } catch { return false; } }
+
+  /** Create/resume the AudioContext. The first call should run inside a user gesture. */
   ensure() {
     if (this.failed) return;
-    if (this.ctx) { try { if (this.ctx.state === 'suspended' && !document.hidden) void this.ctx.resume(); } catch { /* ignore */ } return; }
+    const hidden = typeof document !== 'undefined' && document.hidden;
+    if (this.ctx) { try { if (this.ctx.state === 'suspended' && !hidden) void this.ctx.resume().then(() => this.flushPending(), () => { /* not yet */ }); } catch { /* ignore */ } return; }
     try {
       const AC = (window as any).AudioContext || (window as any).webkitAudioContext; if (!AC) { this.failed = true; return; }
       const ctx = new AC() as AudioContext;
@@ -51,12 +64,20 @@ class Audio implements Module {
       this.mix = buildMixer(ctx, ctx.destination);
       this.seq = new Sequencer(this.kit, this.mix);
       this.ctx = ctx;
+      ctx.onstatechange = () => this.flushPending();
       this.setVolumes();
       this.trackId = ''; this.ambId = '';
       // the scene may have been set before our bus listeners existed (deep links, showcases)
       if (!this.wantMusic) this.sceneMusic(this.g.state?.scene ?? 'title');
       else { this.music(this.wantMusic); if (this.wantAmb) this.ambience(this.wantAmb); }
+      if (ctx.state === 'suspended' && !hidden) void ctx.resume().then(() => this.flushPending(), () => { /* not allowed yet */ });
     } catch { this.ctx = null; this.failed = true; }
+  }
+
+  private flushPending() {
+    const p = this.pending; if (!p || !this.running()) return;
+    this.pending = null;
+    if (performance.now() - p.at < 1500) this.sfx(p.id);
   }
 
   setVolumes() {
@@ -69,7 +90,11 @@ class Audio implements Module {
     } catch { /* ignore */ }
   }
 
-  areaTrack(): string { return this.g.mods.world?.area()?.music ?? 'yard'; }
+  /**
+   * The area's music. An area whose content music is 'boss' (the mothership's regular waves) plays the
+   * dedicated 'mothership' march instead, so the real boss fight still escalates (see core-requests/audio.md).
+   */
+  areaTrack(): string { const m = this.g.mods.world?.area()?.music ?? 'yard'; return m === 'boss' ? 'mothership' : m; }
   /** Regular bosses get 'boss'; the final area (one that leads to an ending) gets 'finale'. */
   bossTrack(): string { const a = this.g.mods.world?.area(); return a?.ending || a?.id === 'mothership' ? 'finale' : 'boss'; }
 
@@ -101,32 +126,54 @@ class Audio implements Module {
   }
 
   sfx(id: string) {
-    if (!this.ctx || !this.kit || !this.mix || this.ctx.state !== 'running') return;
+    if (!this.ctx || !this.kit || !this.mix || SFX_LEN[id] === undefined) return;
     try {
-      const t = this.ctx.currentTime; const len = SFX_LEN[id]; if (len === undefined) return;
-      const v = (this.voices[id] ??= []).filter(e => e > t);
-      if (v.length >= (SFX_POLY[id] ?? 4)) { this.voices[id] = v; return; }
-      if (v.length && v[v.length - 1] - len > t - 0.025) { this.voices[id] = v; return; } // same sfx < 25 ms ago: skip (avoids phasing)
-      v.push(t + len); this.voices[id] = v;
-      playSfx(this.kit, this.mix.sfx, id, t + 0.005);
+      if (this.ctx.state !== 'running') { this.pending = { id, at: performance.now() }; return; }
+      this.voices.play(this.kit, this.mix.sfx, id, this.ctx.currentTime + 0.005);
+    } catch { /* ignore */ }
+  }
+
+  /** Gamepads never fire DOM events: create/resume the context on pad input instead. */
+  private pollPad(g: Game) {
+    try {
+      let pressed = g.input?.lastDevice === 'gamepad';
+      if (!pressed && typeof navigator !== 'undefined' && navigator.getGamepads) {
+        for (const p of navigator.getGamepads()) if (p && p.buttons.some(b => b?.pressed)) { pressed = true; break; }
+      }
+      if (!pressed) return;
+      // retry at most every ~0.5 s while a pad is in use (cheap; succeeds as soon as the page has activation)
+      if (g.tick - this.padTry > 30) { this.padTry = g.tick; this.ensure(); }
     } catch { /* ignore */ }
   }
 
   update(g: Game) {
+    if (!g.headless && !this.failed && !this.running()) this.pollPad(g);
     const c = this.ctx; if (!c || !this.seq || !this.mix || c.state !== 'running') return;
     const now = c.currentTime;
     // resync after the tab was hidden / the loop stalled: never burst-schedule the past
     if (this.seq.nextT < now - 0.25) this.seq.nextT = now + 0.05;
     this.seq.schedule(now + 0.15);
     this.amb?.tick(now + 0.3, now);
-    // pause: duck + muffle the music
+    // pause: duck + muffle the music and let the ambience bed come up a little. The ambience lift lives on
+    // its own node, so Settings changing volumes from the pause menu can't undo it.
     const duck = !!g.paused;
     if (duck !== this.ducked) {
       this.ducked = duck;
-      this.mix.duck.gain.setTargetAtTime(duck ? 0.35 : 1, now, 0.08);
-      this.mix.duckLP.frequency.setTargetAtTime(duck ? 1100 : 20000, now, 0.08);
-      this.mix.amb.gain.setTargetAtTime((this.g.state?.settings?.music ?? 0.6) * LEVELS.amb * (duck ? 0.4 : 1), now, 0.1);
+      this.mix.duck.gain.setTargetAtTime(duck ? PAUSE.music : 1, now, 0.08);
+      this.mix.duckLP.frequency.setTargetAtTime(duck ? PAUSE.musicLP : 20000, now, 0.08);
+      this.mix.ambDuck.gain.setTargetAtTime(duck ? PAUSE.amb : 1, now, 0.15);
     }
+  }
+
+  /** Title-screen hint until sound is actually running (gamepad presses can't unlock audio on their own). */
+  hint(g: Game, ctx: CanvasRenderingContext2D) {
+    if (g.headless || this.failed || g.state?.scene !== 'title' || this.running()) return;
+    if (Math.floor(g.tick / 40) % 4 === 3) return; // gentle blink: visible 3/4 of the time
+    try {
+      const msg = 'PRESS ANY KEY / TAP FOR SOUND'; const w = textWidth(msg) + 10; const x = 320 - (w >> 1), y = 314;
+      ctx.fillStyle = col(2); ctx.fillRect(x - 1, y - 1, w + 2, 13); ctx.fillStyle = col(1); ctx.fillRect(x, y, w, 11);
+      text(ctx, msg, 320, y + 2, col(5), { align: 'center' });
+    } catch { /* ignore */ }
   }
 }
 export const makeAudio = (): Module => new Audio();

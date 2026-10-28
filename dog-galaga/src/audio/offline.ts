@@ -4,7 +4,7 @@ import { makeKit } from './synth';
 import { buildMixer, Sequencer } from './engine';
 import { TRACKS } from './tracks';
 import { startAmbience } from './ambience';
-import { playSfx, SFX_LEN } from './sfx';
+import { playSfx, SfxVoices, SFX_LEN } from './sfx';
 
 export interface RenderStats {
   ok: boolean;
@@ -21,9 +21,11 @@ export interface RenderStats {
   activity: number;
   /** per-window peak (bins), for drawing a waveform overview in a showcase. */
   envelope: number[];
+  /** per-window RMS (same bins): shows the dynamic arc (drops, B sections, builds) that peaks hide. */
+  envRms: number[];
 }
 
-const EMPTY = (error: string): RenderStats => ({ ok: false, error, peak: 0, rms: 0, durationSec: 0, sampleRate: 0, clipped: 0, activity: 0, envelope: [] });
+const EMPTY = (error: string): RenderStats => ({ ok: false, error, peak: 0, rms: 0, durationSec: 0, sampleRate: 0, clipped: 0, activity: 0, envelope: [], envRms: [] });
 const SR = 22050;
 
 type Setup = (k: ReturnType<typeof makeKit>, mix: ReturnType<typeof buildMixer>, seconds: number) => void;
@@ -40,22 +42,23 @@ async function render(seconds: number, setup: Setup, bins = 200): Promise<Render
     const buf = await ctx.startRendering();
     const chans: Float32Array[] = []; for (let c = 0; c < buf.numberOfChannels; c++) chans.push(buf.getChannelData(c));
     let peak = 0, sum = 0, clipped = 0; const n = buf.length;
-    const env = new Array(bins).fill(0); const win = Math.max(1, Math.floor(SR * 0.05)); let wsum = 0, wcount = 0, active = 0, windows = 0;
+    const env = new Array(bins).fill(0); const esq = new Array(bins).fill(0); const ecount = new Array(bins).fill(0); const win = Math.max(1, Math.floor(SR * 0.05)); let wsum = 0, wcount = 0, active = 0, windows = 0;
     for (let i = 0; i < n; i++) {
       let s2 = 0;
       for (const ch of chans) { const v = ch[i]; const a = Math.abs(v); if (a > peak) peak = a; if (a >= 0.999) clipped++; s2 += v * v; const b = Math.floor((i / n) * bins); if (a > env[b]) env[b] = a; }
       s2 /= chans.length; sum += s2; wsum += s2; wcount++;
+      const eb = Math.floor((i / n) * bins); esq[eb] += s2; ecount[eb]++;
       if (wcount === win) { windows++; if (Math.sqrt(wsum / win) > 0.00316) active++; wsum = 0; wcount = 0; }
     }
     const r3 = (x: number) => Math.round(x * 1000) / 1000;
-    return { ok: true, peak: r3(peak), rms: r3(Math.sqrt(sum / Math.max(1, n))), durationSec: r3(buf.duration), sampleRate: SR, clipped, activity: r3(windows ? active / windows : 0), envelope: env.map(r3) };
+    return { ok: true, peak: r3(peak), rms: r3(Math.sqrt(sum / Math.max(1, n))), durationSec: r3(buf.duration), sampleRate: SR, clipped, activity: r3(windows ? active / windows : 0), envelope: env.map(r3), envRms: esq.map((q, b) => r3(Math.sqrt(q / Math.max(1, ecount[b])))) };
   } catch (e) { return EMPTY(String(e)); }
 }
 
 /** Render `seconds` of a music track through the real mixer (default volumes). */
 export function renderTrackOffline(trackId: string, seconds = 12): Promise<RenderStats> {
   const tr = TRACKS[trackId]; if (!tr) return Promise.resolve(EMPTY(`unknown track "${trackId}"`));
-  return render(seconds, (k, mix, sec) => { const s = new Sequencer(k, mix); s.set(tr, 0.02); s.schedule(sec); });
+  return render(seconds, (k, mix, sec) => { const s = new Sequencer(k, mix); s.set(tr, 0.02); while (s.nextT < sec) s.schedule(sec); });
 }
 
 /** Render an ambience bed. */
@@ -73,9 +76,24 @@ export function renderSfxOffline(id: string, seconds?: number): Promise<RenderSt
 export function renderMixOffline(trackId: string, ambienceId: string, seconds = 8): Promise<RenderStats> {
   const tr = TRACKS[trackId]; if (!tr) return Promise.resolve(EMPTY(`unknown track "${trackId}"`));
   return render(seconds, (k, mix, sec) => {
-    const s = new Sequencer(k, mix); s.set(tr, 0.02); s.schedule(sec);
+    const s = new Sequencer(k, mix); s.set(tr, 0.02); while (s.nextT < sec) s.schedule(sec);
     startAmbience(k, mix.amb, ambienceId, 0)?.tick(sec);
-    for (let t = 0.5; t < sec - 0.5; t += 0.19) { playSfx(k, mix.sfx, 'plop', t); if (Math.floor(t * 10) % 3 === 0) playSfx(k, mix.sfx, 'meow', t + 0.05); playSfx(k, mix.sfx, 'thud', t + 0.03); }
-    playSfx(k, mix.sfx, 'bossdown', sec / 2);
+    const v = new SfxVoices();
+    for (let t = 0.5; t < sec - 0.5; t += 0.19) { v.play(k, mix.sfx, 'plop', t); if (Math.floor(t * 10) % 3 === 0) v.play(k, mix.sfx, 'meow', t + 0.05); v.play(k, mix.sfx, 'thud', t + 0.03); }
+    v.play(k, mix.sfx, 'bossdown', sec / 2);
+  });
+}
+
+/**
+ * Held-fire check: music + ambience with plop autofire at the player's real rate (11 ticks = 0.183 s) through
+ * the live voice manager. Compare its rms with renderMixOffline-free `renderTrackOffline` + ambience: the
+ * difference is what turd spam adds to the mix (target: under ~2 dB).
+ */
+export function renderFireHoldOffline(trackId: string, ambienceId: string, seconds = 8, fire = true): Promise<RenderStats> {
+  const tr = TRACKS[trackId]; if (!tr) return Promise.resolve(EMPTY(`unknown track "${trackId}"`));
+  return render(seconds, (k, mix, sec) => {
+    const s = new Sequencer(k, mix); s.set(tr, 0.02); while (s.nextT < sec) s.schedule(sec);
+    startAmbience(k, mix.amb, ambienceId, 0)?.tick(sec);
+    if (fire) { const v = new SfxVoices(); for (let t = 0.3; t < sec - 0.2; t += 11 / 60) v.play(k, mix.sfx, 'plop', t); }
   });
 }

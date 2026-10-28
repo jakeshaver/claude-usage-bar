@@ -1,15 +1,22 @@
 // Mixer graph + music sequencer, shared by the live module and the offline renderer.
-import { type Kit, tone, drum, mtof } from './synth';
+import { type Kit, tone, pwmTone, drum, mtof } from './synth';
 import { compileTrack, type Compiled, type Track } from './tracks';
 
-/** Default bus levels at volume setting 1.0 (tuned with renderTrackOffline so the mix peaks below 0 dBFS). */
-export const LEVELS = { music: 0.62, sfx: 0.7, amb: 0.85 };
+/**
+ * Default bus levels at volume setting 1.0, tuned with the offline renderer: music alone peaks ~0.45 so the
+ * limiter only catches transients; ambience beds sit ~-12 dB under the music; sfx families are trimmed in sfx.ts.
+ */
+export const LEVELS = { music: 0.44, sfx: 0.7, amb: 1.7 };
+/** Pause: the music ducks and muffles while the ambience comes *up* a little (the room you paused in). */
+export const PAUSE = { music: 0.35, musicLP: 1100, amb: 1.25 };
 
 export interface Mixer {
   music: GainNode;      // music bus (volume)
   switchFade: GainNode; // short dip when changing tracks
   duck: GainNode;       // pause ducking
   duckLP: BiquadFilterNode;
+  ambDuck: GainNode;    // pause lift for ambience (separate from the volume-controlled amb gain)
+  arpEcho: AudioNode;   // echo-arp doubling on repeat passes, panned right
   echoSend: GainNode;   // lead echo send (wet level per track)
   echoDelay: DelayNode;
   arpOut: AudioNode;    // panned slightly left
@@ -25,7 +32,8 @@ function pan(ctx: BaseAudioContext, v: number, out: AudioNode): AudioNode {
 
 export function buildMixer(ctx: BaseAudioContext, dest: AudioNode): Mixer {
   const limiter = ctx.createDynamicsCompressor();
-  limiter.threshold.value = -6; limiter.knee.value = 4; limiter.ratio.value = 20; limiter.attack.value = 0.002; limiter.release.value = 0.15;
+  // safety limiter: only transients should reach it (music alone peaks ~-7 dBFS)
+  limiter.threshold.value = -4; limiter.knee.value = 3; limiter.ratio.value = 12; limiter.attack.value = 0.003; limiter.release.value = 0.12;
   const post = ctx.createGain(); post.gain.value = 0.92;
   limiter.connect(post); post.connect(dest);
   const master = ctx.createGain(); master.gain.value = 0.75; master.connect(limiter);
@@ -44,9 +52,11 @@ export function buildMixer(ctx: BaseAudioContext, dest: AudioNode): Mixer {
   fbLP.connect(pan(ctx, 0.35, switchFade));
 
   const arpOut = pan(ctx, -0.28, switchFade);
+  const arpEcho = pan(ctx, 0.45, switchFade);
   const sfx = ctx.createGain(); sfx.gain.value = LEVELS.sfx; sfx.connect(master);
-  const amb = ctx.createGain(); amb.gain.value = LEVELS.amb; amb.connect(master);
-  return { music, switchFade, duck, duckLP, echoSend, echoDelay, arpOut, sfx, amb, master, limiter };
+  const ambDuck = ctx.createGain(); ambDuck.connect(master);
+  const amb = ctx.createGain(); amb.gain.value = LEVELS.amb; amb.connect(ambDuck);
+  return { music, switchFade, duck, duckLP, ambDuck, arpEcho, echoSend, echoDelay, arpOut, sfx, amb, master, limiter };
 }
 
 /** Step sequencer: schedules compiled song steps ahead of time on the audio clock. */
@@ -64,29 +74,52 @@ export class Sequencer {
     }
   }
 
+  /** Loop pass of a global step (-1 = intro) and the index into compiled steps. */
+  locate(step: number): { i: number; pass: number } {
+    const c = this.comp!; const loopLen = c.steps.length - c.intro;
+    if (step < c.intro) return { i: step, pass: -1 };
+    const s = step - c.intro; return { i: c.intro + (s % loopLen), pass: Math.floor(s / loopLen) };
+  }
+
   /** Schedule every step that starts before `until` (audio-clock seconds). */
   schedule(until: number) {
-    const tr = this.track, c = this.comp; if (!tr || !c || !c.steps.length) return;
+    const tr = this.track, c = this.comp; if (!tr || !c || c.steps.length <= c.intro) return;
     let guard = 0;
     while (this.nextT < until && guard++ < 512) {
-      const i = this.step % c.steps.length;
-      const swing = i % 2 === 1 ? (tr.swing ?? 0) * c.stepSec : 0;
-      this.play(tr, c, i, this.nextT + swing);
+      const { i, pass } = this.locate(this.step);
+      const swing = (i - c.intro) % 2 === 1 ? (tr.swing ?? 0) * c.stepSec : 0;
+      this.play(tr, c, i, pass, this.nextT + swing);
       this.step++; this.nextT += c.stepSec;
     }
   }
 
-  private play(tr: Track, c: Compiled, i: number, t: number) {
+  private play(tr: Track, c: Compiled, i: number, pass: number, t: number) {
     const ev = c.steps[i]; const k = this.k; const M = this.mix.switchFade; const sp = c.stepSec;
+    const rep = pass % 2 === 1 ? tr.repeat : undefined; // variations on every second pass
+    const tp = rep?.lift ?? 0;
     if (ev.lead) {
       const lv = tr.leadVoice; const dur = ev.lead.len * sp * 0.9;
-      const f = mtof(ev.lead.m);
-      tone(k, M, t, f, dur, lv.vol, { wave: lv.wave, duty: lv.duty, vib: lv.vib, sustain: lv.wave === 'tri' ? 0.85 : 0.62, decay: 0.12, release: 0.06 });
-      if (lv.echo) tone(k, this.mix.echoSend, t, f, Math.min(dur, sp * 2), lv.vol * 0.8, { wave: lv.wave, duty: lv.duty, sustain: 0.5, release: 0.05 });
+      const f = mtof(ev.lead.m + tp); const from = ev.lead.from !== undefined ? mtof(ev.lead.from + tp) : 0;
+      const duty = rep?.leadDuty ?? lv.duty; const held = ev.lead.len >= 4;
+      if (lv.wave === 'pulse' && lv.pwm && held) {
+        pwmTone(k, M, t, f, dur, lv.vol, { vib: lv.vib, slideFrom: from || undefined, slideTime: lv.glide ?? 0.06, sustain: 0.66, decay: 0.12, release: 0.08 });
+      } else {
+        const glide = from ? { slideTo: f, slideTime: lv.glide ?? 0.05 } : {};
+        const accent = lv.wave === 'pulse' && lv.accent && held ? { dutyTo: lv.accent, dutyAt: Math.min(0.09, dur * 0.3) } : {};
+        tone(k, M, t, from || f, dur, lv.vol, { wave: lv.wave, duty, vib: lv.vib, sustain: lv.wave === 'tri' ? 0.85 : 0.62, decay: 0.12, release: 0.06, ...glide, ...accent });
+      }
+      if (lv.echo) tone(k, this.mix.echoSend, t, f, Math.min(dur, sp * 2), lv.vol * 0.8, { wave: lv.wave, duty, sustain: 0.5, release: 0.05 });
     }
-    if (ev.bass) tone(k, M, t, mtof(ev.bass.m), ev.bass.len * sp * 0.88, tr.bassVol ?? 0.38, { wave: 'tri', sustain: 0.9, decay: 0.2, release: 0.03 });
-    if (ev.arp !== undefined && tr.arp) tone(k, this.mix.arpOut, t, mtof(ev.arp), (tr.arp.len ?? 1) * sp * 0.85, tr.arp.vol, { wave: 'pulse', duty: tr.arp.duty ?? 0.125, sustain: 0.5, decay: 0.05, release: 0.02 });
-    if (ev.pad && tr.pad) for (const m of ev.pad) tone(k, M, t, mtof(m), (ev.padLen ?? 16) * sp * 0.95, tr.pad, { wave: 'pulse', duty: 0.125, attack: 0.12, sustain: 0.8, decay: 0.3, release: 0.25, lp: 1600, vib: 6 });
+    if (ev.bass) tone(k, M, t, mtof(ev.bass.m + tp), ev.bass.len * sp * 0.88, tr.bassVol ?? 0.38, { wave: 'tri', sustain: 0.9, decay: 0.2, release: 0.03 });
+    if (ev.arp !== undefined && tr.arp) {
+      const ao = { wave: 'pulse' as const, duty: tr.arp.duty ?? 0.125, sustain: 0.5, decay: 0.05, release: 0.02 };
+      const al = (tr.arp.len ?? 1) * sp * 0.85;
+      tone(k, this.mix.arpOut, t, mtof(ev.arp + tp), al, tr.arp.vol, ao);
+      // echo-arp: an octave-up copy a dotted eighth later, quieter and on the other side
+      if (rep?.echoArp) tone(k, this.mix.arpEcho, t + sp * 3, mtof(ev.arp + tp + 12), al, tr.arp.vol * 0.5, ao);
+    }
+    if (ev.ctr && rep?.counter) tone(k, M, t, mtof(ev.ctr.m + tp), ev.ctr.len * sp * 0.92, rep.counter, { wave: 'tri', attack: 0.02, sustain: 0.7, decay: 0.25, release: 0.12, vib: 10 });
+    if (ev.pad && tr.pad) for (const m of ev.pad) tone(k, M, t, mtof(m + tp), (ev.padLen ?? 16) * sp * 0.95, tr.pad, { wave: 'pulse', duty: 0.125, attack: 0.12, sustain: 0.8, decay: 0.3, release: 0.25, lp: 1600, vib: 6 });
     if (ev.drum) drum(k, M, t, ev.drum, tr.drumVol ?? 0.8);
   }
 }
