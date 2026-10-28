@@ -1,27 +1,29 @@
 # Art module: requests for other owners
 
-## 1. content/dialogue.json: use the new portrait sprites (owner: content/integrator)
-New 40x40 portraits exist in `src/art/sprites/portraits.ts`:
-`portrait_pom`, `portrait_biscuit`, `portrait_empress`, and `portrait_<breed>` for all ten breeds.
-- Every node with `"speaker": "Commander Biscuit"`: `"portrait": "pup"` -> `"portrait_biscuit"` (28 nodes)
-- Every node with `"speaker": "Captain Pom"`: `"portrait": "poodle"` -> `"portrait_pom"` (28 nodes)
-- `"speaker": "Empress Fluffington"`: `"portrait": "boss_empress"` -> `"portrait_empress"` (2 nodes)
-- Any future boss-cat lines: `portrait_<breed>` (e.g. `portrait_tabby` for Sergeant Whiskers).
-The 64px sprites currently used are clipped by the 44px portrait box in ui (src/ui/index.ts:194).
+Done by the integrator in round 1 (thanks): dialogue portraits wired, poodle_left/right used
+when banking, @types/node for verify. Open requests:
 
-## 2. src/player/index.ts: bank frames (owner: player)
-`poodle_left` / `poodle_right` exist (2 flame frames each, same size/anchor as `poodle`).
-In the render at src/player/index.ts:89, choose the sprite by horizontal velocity, e.g.
-`const spr = vx < -0.5 ? 'poodle_left' : vx > 0.5 ? 'poodle_right' : 'poodle';`
-keeping `frame: Math.floor(this.anim / 6) % 2` (the flame flicker).
+## 1. src/interaction/index.ts: hairball wobble frames + threat ring (owner: interaction)
+`hairball` now has 2 frames (fuzzy tufts wobble). In the spit render (~line 432):
+`drawSprite(ctx, yarn ? 'yarn' : 'hairball', s.x, s.y, { frame: (s.t >> 3) & 1 });`
+The violet contrast ring (`pxRing(..., 't')`) makes hairballs read like a power-up gem again;
+please use a warm threat colour for hairballs, e.g. `((s.t >> 2) & 1) ? '6' : 'r'`, and keep 'c'
+for yarn.
 
-## 3. src/ui/index.ts title/ending (owner: ui), optional
-Title (line 214) and ending (line 294) could show `portrait_pom` scaled 2x instead of the
-top-down flight sprite, which is designed for gameplay readability rather than a hero shot.
+## 2. Boss shadow detached (owner: interaction, Boss.render)
+In play the boss shadow is a flat 1px line ~40px below the 64px sprite, so the boss looks
+detached. Draw the shadow as a dithered oval (about 40x8 px, palette 'v' or '1') whose top edge
+sits 4-6px below the sprite's bottom edge (sprite centre y + 28..30), like the 32px cats.
 
-## 4. Tooling: `npm run verify` typecheck is red independent of art (owner: integrator)
-`tsc --noEmit -p .` reports 7 errors in tools/bot.ts and tools/lint-content.ts
-("Cannot find name 'node:fs' / 'process'"): `@types/node` is not in package.json devDependencies
-and the worktree's node_modules is a symlink to a shared install without it. Same 7 errors on the
-base commit 482427a. Fix: `npm i -D @types/node` and add `"types": ["node"]` for tools (or a
-tools/tsconfig). All other verify steps (lint, bot, tests, build) are green with the new art.
+## 3. Anti-aliased rings next to crisp sprites (owners: effects, interaction, ui)
+`ctx.arc` / strokes blur next to the pixel art: shield bubble + hit rings (effects/index.ts ~51),
+interaction glow (~287), ui/touch.ts:40-41. Please switch to the shared pixel helpers
+(pxRing / pxDisc / pxDither) that already exist in core.
+
+## 4. Showcase variety (owner: showcase / interaction)
+The interaction showcase wave 3 is 24 identical tabbies, so the breed silhouettes never show.
+Please mix breeds there (tabby, tuxedo, siamese, persian, sphynx, mainecoon, calico,
+russianblue, bengal, scottishfold).
+
+## 5. src/ui/index.ts title/ending (owner: ui), optional
+Title and ending could show `portrait_pom` scaled 2x instead of the top-down flight sprite.

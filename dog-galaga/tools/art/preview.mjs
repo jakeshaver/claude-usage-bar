@@ -18,7 +18,7 @@ for (const f of readdirSync(root + 'src/art/sprites')) {
     sprites.push({ name, frames });
   }
 }
-const bgs = ['#1d1b33', '#3fa34d', '#e0c7a8'];
+const bgs = process.env.BG ? process.env.BG.split(',') : ['#1d1b33', '#3fa34d', '#e0c7a8'];
 const pad = 4;
 let W = 0, H = 0; const rowsLayout = [];
 for (const s of sprites) { const w = s.frames[0][0].length, h = s.frames[0].length; rowsLayout.push({ s, w, h }); W = Math.max(W, (w + pad) * s.frames.length * bgs.length); H += h + pad; }

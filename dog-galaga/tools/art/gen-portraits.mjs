@@ -13,13 +13,13 @@ function curls(G, base, lo, seed = 0) {
     if ((x * 3 + y * 5 + seed) % 9 === 0) { G.px(x, y, lo); if (G.get(x + 1, y + 1) === base) G.px(x + 1, y + 1, lo); }
   }
 }
-const fluffy = (fn, deep = true, seed = 0) => { const G = L(); fn(G); G.relight('6', deep ? { lo: '5', lo2: '4', d: 2 } : { lo: '5' }); curls(G, '6', '5', seed); return G; };
+const fluffy = (fn, deep = true, seed = 0, ramp = ['7', '8']) => { const G = L(); fn(G); G.relight('6', deep ? { lo: ramp[0], lo2: ramp[1], d: 2 } : { lo: ramp[0] }); curls(G, '6', ramp[0], seed); return G; };
 
 // ---- Captain Pom ----------------------------------------------------------------------
 function pom() {
   const mane = fluffy(G => G.fluff(20, 38, 16, 7, '6', 16, 2, 0.2));
   const scarf = L(); scarf.ellipse(20, 32.4, 8.6, 2.4, 'r'); scarf.poly([[22, 32], [28, 33], [27, 38], [24, 37]], 'r'); scarf.relight('r', { hi: 'c', lo: 'e' });
-  const earL = L(); earL.fluff(8, 25, 4.8, 10.5, '6', 10, 1.6, 0.4); earL.relight('6', { hi: '6', lo: '4' }); earL.replace('6', '5'); earL.relight('5', { lo: '4' }); curls(earL, '5', '4', 1);
+  const earL = L(); earL.fluff(8, 26, 4.8, 10.5, '8', 10, 1.6, 0.4); earL.relight('8', { hi: '7', lo: '9', lo2: 'a', d: 2 }); curls(earL, '8', '9', 1); curls(earL, '7', '8', 3);
   const earR = earL.clone().flipX();
   const face = L(); face.ellipse(20, 21.6, 8.6, 8, '8'); face.relight('8', { hi: '7', lo: '9' });
   const snout = L(); snout.ellipse(20, 27, 5.2, 3.8, '7'); snout.relight('7', { lo: '8' });
@@ -29,7 +29,16 @@ function pom() {
   const eyes = L();
   for (const x of [13, 23]) eyes.stamp(x, 18, ['.00.', '06a0', '0aa0', '0000', '.00.']);
   const top = fluffy(G => G.fluff(20, 10.4, 9.6, 7, '6', 12, 2, 0.1), true, 2);
-  const bow = L(); bow.stamp(25, 2, ['.ddd...ddd.', 'dccdd.ddded', 'dcdddeddddd', 'ddddde dded'.replace(' ', 'd'), '.dde...edd.']);
+  const bow = L(); bow.stamp(23, 1, [
+    'dd.......dd',
+    'dcdd...ddde',
+    'dccdd.dddde',
+    'dcdddcdddde',
+    'dddddcdddde',
+    'dddddddddee',
+    'dddde.edeee',
+    'dde.....eee',
+  ]);
   const g = stack([mane, scarf, earL, earR, face, snout, top, bow]);
   g.over(eyes);
   return g;
@@ -40,7 +49,6 @@ function biscuit() {
   coat.poly([[14, 33], [20, 40], [26, 33]], '6'); coat.poly([[17, 34], [20, 40], [23, 34]], 'r'); // shirt + tie
   coat.line(14, 33, 18, 40, '1').line(26, 33, 22, 40, '1'); // lapels
   // medals on the left chest (viewer's right reads as his left): ribbons + gold discs
-  for (const [x, c1, c2] of [[27, 'r', '6'], [30, 'm', 'f'], [33, 'j', 'f']]) { coat.rect(x, 34, 2, 2, c1).px(x + 1, 34, c2); coat.rect(x, 36, 2, 2, 'f').px(x + 1, 37, 'g'); coat.px(x, 36, '6'); }
   coat.rect(5, 35, 6, 1, 'f'); // shoulder braid
   const ears = L(); ears.poly([[6, 10], [12, 7], [11, 14]], 'a').poly([[34, 10], [28, 7], [29, 14]], 'a'); ears.relight('a', { lo: 'b' });
   const head = L(); head.ellipse(20, 19, 13, 11, '9'); head.relight('9', { hi: '8', lo: 'a' });
@@ -52,24 +60,38 @@ function biscuit() {
     head.stamp(x, 15, e);
     head.px(flip ? x + 3 : x + 1, 17, '6').px(flip ? x + 2 : x + 2, 17, '0');
   }
-  const jowl = L(); jowl.ellipse(13.5, 27.5, 6.6, 4.8, '9').ellipse(26.5, 27.5, 6.6, 4.8, '9'); jowl.relight('9', { hi: '8', lo: 'a' });
-  jowl.ellipse(20, 26, 5, 3.2, '7', ['9', '8', 'a']);
-  jowl.stamp(16, 21, ['.000000.', '00q00000', '00000000', '.000000.']); // big squashed nose
-  jowl.stamp(14, 29, ['0..........0'.slice(0, 12), '.0000000000.']); // mouth
-  jowl.stamp(16, 28, ['6....6', '6....6'].map(r => r.replace(/6/g, '6'))); // underbite teeth
+  // bulldog jowls: heavy flews painted INTO the head (one silhouette, soft inner folds, no black blob)
+  head.ellipse(13, 27, 7, 4.8, '9').ellipse(27, 27, 7, 4.8, '9');
+  head.relight('9', { hi: '8', lo: 'a', lo2: 'b', d: 2 });
+  head.ellipse(20, 24, 4.6, 3.4, '7', ['9', '8', 'a', 'b']); // muzzle
+  head.ellipse(16.5, 26.6, 3, 2, '7', ['9', '8', 'a']).ellipse(23.5, 26.6, 3, 2, '7', ['9', '8', 'a']);
+  head.relight('7', { lo: '8' });
+  head.stamp(17, 20, ['.0000.', '0q0000', '000000', '.0000.']); // squashed nose
+  head.line(19, 24, 19, 25, '0').line(20, 24, 20, 25, '0');
+  head.line(13, 27, 19, 26, 'b').line(20, 26, 26, 27, 'b'); // upper lip / flews line
+  head.line(11, 29, 14, 31, 'a').line(28, 29, 25, 31, 'a'); // jowl folds
+  // protruding lower jaw (underbite) with two little canines pointing up over the lip
+  const jaw = L(); jaw.ellipse(20, 29.6, 4.8, 2.2, '8'); jaw.relight('8', { hi: '7', lo: '9' });
+  jaw.px(17, 27, '6').px(17, 28, '6').px(22, 27, '6').px(22, 28, '6');
+  // medals: three coloured ribbon bars with hanging gold discs
+  const med = L();
+  for (const [x, rib] of [[25, ['r', '6', 'r']], [29, ['m', 'f', 'm']], [33, ['j', '6', 'j']]]) {
+    rib.forEach((c, i) => med.rect(x + i, 33, 1, 3, c));
+    med.rect(x, 36, 3, 3, 'f'); med.px(x, 36, '6').px(x + 2, 38, 'g').px(x + 1, 38, 'g').px(x + 2, 37, 'g');
+  }
   // headset: band over the head, ear cup, boom mic to the mouth
   const hs = L();
   for (let a = Math.PI * 1.05; a <= Math.PI * 1.95; a += 0.02) { hs.px(20 + Math.cos(a) * 14.2, 19 + Math.sin(a) * 12.4, 'q'); hs.px(20 + Math.cos(a) * 13.2, 19 + Math.sin(a) * 11.4, 'p'); }
   hs.rect(3, 15, 5, 8, 'q').rect(4, 16, 3, 6, 'p').px(4, 16, 'o');
   hs.line(6, 22, 10, 29, 'q').line(10, 29, 13, 30, 'q'); hs.rect(13, 29, 2, 2, 'r');
-  return stack([coat, ears, head, jowl, hs]);
+  return stack([coat, ears, head, jaw, hs, med]);
 }
 // ---- Empress Fluffington ------------------------------------------------------------
 function empress() {
   const cape = L(); cape.poly([[2, 40], [8, 29], [32, 29], [38, 40]], 'u'); cape.relight('u', { hi: 't', lo: 'v' });
   for (let x = 6; x < 35; x++) for (const y of [30, 31]) if (cape.get(x, y) !== '.') cape.px(x, y, '6');
   for (const x of [9, 15, 21, 27, 32]) cape.px(x, 31, '0');
-  const fur = fluffy(G => G.fluff(20, 23, 14, 11, '6', 18, 2, 0.15), true, 3);
+  const fur = fluffy(G => G.fluff(20, 23, 14, 11, '6', 18, 2, 0.15), true, 3, ['5', '4']);
   const ears = L(); ears.poly([[9, 15], [10, 9], [15, 13]], '6').poly([[31, 15], [30, 9], [25, 13]], '6'); ears.px(11, 12, 'c').px(29, 12, 'c'); ears.relight('6', { lo: '5' });
   const face = L(); face.ellipse(20, 24, 9, 7, '6'); face.relight('6', { lo: '5' });
   for (const x of [12, 23]) face.stamp(x, 21, ['00000', '06tt0', '0t0u0', '.000.']);
@@ -87,7 +109,12 @@ function empress() {
     '.0gggggggggggggg0.',
     '..00000000000000..',
   ]);
-  const g = stack([cape, ears, fur, face, pearls]); g.over(crown); return g;
+  // the face sits IN the fluff: no outline ring around it (it read as a helmet), just a soft
+  // shadow tone along its lower edge
+  const g = stack([cape, ears, fur]);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const c = face.get(x, y); if (c !== '.') g.px(x, y, c); }
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (face.get(x, y) === '.' && face.get(x, y - 1) !== '.' && g.get(x, y) !== '0' && y > 24) g.px(x, y, '5');
+  pearls.outline('0'); g.over(pearls); g.over(crown); return g;
 }
 function crop(src, x0, y0) { const g = L(); for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) g.px(x, y, src.get(x0 + x, y0 + y)); return g; }
 
