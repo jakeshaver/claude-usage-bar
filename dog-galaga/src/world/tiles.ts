@@ -193,6 +193,11 @@ function boat(p: Painter, x: number, y: number, w: number, len: number, hull: st
     p.r('0', x + 5, cab, w - 10, Math.round(len * 0.28)); p.r('p', x + 6, cab + 1, w - 12, Math.round(len * 0.28) - 2); p.r('o', x + 6, cab + 1, w - 12, 1);
     p.glow('2', 'f', x + 7, cab + 3, 2, 2, 0.8, rng.next()); p.glow('2', 'f', x + w - 9, cab + 3, 2, 2, 0.8, rng.next());
     p.r('o', x + Math.round(w / 2), bowUp ? y + 2 : y + len - 3, 1, 1);
+    // gunwale rim: a lit 1px edge down the hull's west side, so the silhouette holds against dark water at night
+    for (let j = 2; j < len - 2; j++) { const t = bowUp ? j / len : 1 - j / len; const taper = t < 0.32 ? Math.sqrt(t / 0.32) : 1; const hw = Math.max(1, Math.round((w / 2 - 1) * taper)); p.r('o', x + Math.round(w / 2) - hw, y + j, 1, 1); }
+    // riding lanterns at bow and stern (lit after dusk) with a dark mount
+    const by = bowUp ? y + 6 : y + len - 8, sy2 = bowUp ? y + len - 5 : y + 3, mx = x + Math.round(w / 2) - 1;
+    p.r('0', mx - 1, by - 1, 4, 4); p.glow('q', 'f', mx, by, 2, 2, 1, 0); p.r('0', mx - 1, sy2 - 1, 4, 3); p.glow('q', '7', mx, sy2, 2, 1, 1, 0);
   });
 }
 /**
@@ -443,7 +448,9 @@ const street: LayerDef = { speed: 1, opaque: true, paint(p, z) {
         const stx = side ? 384 - 14 : 64;
         if (hh >= 40) { p.shRect(stx, y + 22, 14, 18, 4); p.obj(() => { p.r('0', stx, y + 22, 14, 18); for (let i = 0; i < 5; i++) p.r(i % 2 ? 'a' : '9', side ? stx + 3 + i * 2 : stx + 1 + (4 - i) * 2, y + 23, 2, 16); p.r('0', stx, y + 22, 14, 1); }); }
       }
-      for (let y = a + 20; y < b - 20; y += 64) { const tx = side ? sx + 34 : sx + 10; p.r('0', tx - 1, y - 1, 14, 14); p.r('b', tx, y, 12, 12); p.r('a', tx + 3, y + 3, 6, 6); }
+      for (let y = a + 20; y < b - 20; y += 64) { const tx = side ? sx + 34 : sx + 10; p.r('0', tx - 1, y - 1, 14, 14); p.r('b', tx, y, 12, 12); p.r('a', tx + 3, y + 3, 6, 6);
+        // a street tree over every other pit, in the main layer (always under the actors), canopy kept over the sidewalk
+        if ((Math.round((y - a - 20) / 64) + side + z.s) % 2 === 0) { const cx = tx + 6, cy = y + 6, rr = r.int(14, 17); p.shEll(cx, cy, rr * 0.8, rr * 0.7, 18); const seed = r.int(0, 1e6); p.obj(() => canopy(p, cx, cy, rr, new Rng(seed))); } }
       if (b - a > 100) lamp(p, side ? sx + 6 : sx + 48, a + 54, 44);
       if (r.chance(0.5) && b - a > 120) { const hx = side ? sx + 8 : sx + 44, hy = a + r.int(90, b - a - 10); p.shEll(hx, hy, 3, 3, 6); p.obj(() => { p.disc('0', hx, hy, 4); p.disc('h', hx, hy, 3); p.r('8', hx - 1, hy - 2, 1, 1); }); }
       if (r.chance(0.4) && b - a > 120) { const mx = side ? sx + 12 : sx + 36, my = a + r.int(110, b - a - 20); p.shRect(mx, my, 10, 12, 10); p.obj(() => { p.r('0', mx, my, 10, 12); p.r('n', mx + 1, my + 1, 8, 10); p.r('m', mx + 1, my + 1, 8, 2); }); }
@@ -538,11 +545,10 @@ function pen(p: Painter, x: number, y: number, w: number, h: number, rng: Rng) {
   fountain(p, x + w - 26, y + 20);
   p.obj(() => { const bx = x + 30 + rng.int(0, 20), by = y + h - 24; p.disc('0', bx, by, 4); p.disc('i', bx, by, 3); p.r('7', bx - 1, by - 2, 1, 2); });
 }
-/** mown lawn: 40px stripes in world space marked by sparse regular blade tips (by day only: in low light the lawn reads flat and calm) */
+/** lawn: flat dark green with scattered tufts (no mowing stripes: the band behind the formation stays calm) */
 function lawn(p: Painter, z: Seg) {
   p.r('k', 0, 0, SW, SEG);
   // mown stripes: every other 40px band (world-spaced) carries a sparse regular grid of lighter blade tips
-  if (p.tod === 'day') for (let y = 0; y < SEG; y++) if (Math.floor(z.wy(y) / 40) % 2 === 0 && (z.wy(y) & 3) === 0) for (let x = (z.wy(y) & 4) ? 2 : 0; x < SW; x += 4) p.r('j', x, y, 1, 1);
   for (let i = 0; i < 40; i++) tuft(p, z.r.chance(0.6) ? 'j' : '1', z.r.int(4, SW - 8), z.r.int(2, SEG - 2));
 }
 const DARK_CANOPY = ['0', '1', 'k'];
@@ -631,6 +637,12 @@ function dogFountain(p: Painter, cx: number, cy: number) {
     p.r('s', cx, cy - 10, 1, 2); p.r('m', cx - 1, cy - 12, 3, 1); p.r('s', cx, cy - 13, 1, 1); // the spout arcing out into the basin
   });
 }
+/** a stone dog water bowl on a little paved square (a tiny landmark on the open lawn) */
+function hydrantBowl(p: Painter, cx: number, cy: number) {
+  p.shEll(cx, cy, 6, 5, 4);
+  p.obj(() => { p.r('0', cx - 9, cy - 8, 18, 16); p.r('p', cx - 8, cy - 7, 16, 14); p.r('o', cx - 8, cy - 7, 16, 1); p.r('q', cx, cy - 7, 1, 14); p.r('q', cx - 8, cy, 16, 1);
+    p.ell('0', cx, cy, 6, 5); p.ell('o', cx, cy, 5, 4); p.ell('n', cx, cy, 3.5, 2.5); p.r('m', cx - 2, cy - 1, 2, 1); p.r('s', cx + 1, cy, 1, 1); });
+}
 /** a muted picnic blanket (plaid in two calm tones) with a water bowl and a chew toy, for the open lawn */
 function lawnBlanket(p: Painter, x: number, y: number, r: Rng) {
   const w = 30, h = 22; const [a, b] = r.pick([['n', '2'], ['e', 'v'], ['a', 'b']]);
@@ -664,7 +676,7 @@ function parkEdge(p: Painter, kind: number, x0: number, right: boolean, r: Rng) 
   }
 }
 const park: LayerDef = { speed: 1, opaque: true, paint(p, z) {
-  const r = z.r;
+  const r = z.r; p.poolScale = 0.8;
   lawn(p, z);
   // gravel path: runs along one edge strip, crossing the lawn once in a while (keeps the centre open)
   const px = (y: number) => 224 + Math.round(Math.sin(z.wy(y) / 230) * 56 + Math.sin(z.wy(y) / 71) * 6);
@@ -693,9 +705,15 @@ const park: LayerDef = { speed: 1, opaque: true, paint(p, z) {
     else if (kind === 5) dogWalk(p, right ? 394 : 42, 150);
   }
   // the open lawn on the far side of the path gets one quiet feature per segment (the dog fountain, a bed or a blanket)
-  { const y = r.int(60, 196), side = px(y) < 224 ? 1 : -1, x = Math.max(160, Math.min(288, px(y) + side * r.int(58, 72)));
-    const k = (z.s + (z.seed % 3)) % 3;
-    if (k === 0) dogFountain(p, x, y); else if (k === 1) flowerBed(p, x, y, 20, 12, r); else lawnBlanket(p, x - 15, y - 11, r); }
+  // two features per segment (one in each half), cycling so the dog fountain and the flower beds come round often
+  for (let h = 0; h < 2; h++) {
+    const y = h ? r.int(150, 214) : r.int(36, 100), side = px(y) < 224 ? 1 : -1, x = Math.max(156, Math.min(292, px(y) + side * r.int(58, 74)));
+    const k = (z.s * 2 + h + (z.seed % 4)) % 4;
+    if (k === 0) dogFountain(p, x, y);
+    else if (k === 1) { flowerBed(p, x - 14, y - 4, 18, 11, r); flowerBed(p, x + 22, y + 10, 14, 9, r); }
+    else if (k === 2) { lawnBlanket(p, x - 15, y - 11, r); flowerBed(p, x + 34 * side, y + 14, 12, 8, r); }
+    else { flowerBed(p, x, y, 22, 13, r); hydrantBowl(p, x + 30 * side, y - 8); }
+  }
   // flower bed tucked against the fence
   if (r.chance(0.6)) { const fx = r.chance(0.5) ? 50 : 398, fy = r.int(30, 220); p.ell('0', fx, fy, 12, 8); p.ell('b', fx, fy, 11, 7); for (let k2 = 0; k2 < 10; k2++) { const a = r.range(0, 6.28), d = r.range(0, 1); p.r(r.pick(['d', '7', 't']), fx + Math.cos(a) * d * 8, fy + Math.sin(a) * d * 4, 1, 1); } }
   // lamps along the path (world-spaced), a bench, and paw prints in the gravel
@@ -840,7 +858,8 @@ const alley: LayerDef = { speed: 1, opaque: true, paint(p, z) {
     p.obj(() => { p.r('0', 80, ay, 26, 54); for (let j = 0; j < 54; j += 6) p.r(j % 12 ? '7' : 'k', 80, ay + j + 1, 25, 5); p.r('j', 80, ay + 1, 2, 52); p.r('1', 105, ay, 1, 54); });
     p.obj(() => { p.r('0', 56, ay + 6, 22, 42); p.r('1', 57, ay + 7, 20, 40); });
     p.obj(() => { const nx = 62, ny = ay + 10; for (const [dx, dy, w, h] of [[0, 0, 10, 1], [0, 0, 1, 34], [9, 0, 1, 34], [0, 33, 10, 1], [3, 6, 4, 4], [3, 16, 4, 1], [3, 22, 4, 6]]) p.glow('e', dx < 1 || dx > 8 || dy === 0 || dy === 33 ? 'd' : 'l', nx + dx, ny + dy, w, h); });
-    p.pool(118, ay + 27, 34);
+    // a gooseneck sign lamp on the awning edge: the pool is centred under it and stays on the alley floor
+    alleyLamp(p, 110, ay + 27, true); p.pool(116, ay + 27, 34, [104, 0, 240, SEG]);
   } else {
     // a laundromat on the right wall: a teal-and-cream awning, a lit window and a neon washing-machine sign
     const ay = r.int(60, 160);
@@ -848,7 +867,7 @@ const alley: LayerDef = { speed: 1, opaque: true, paint(p, z) {
     p.obj(() => { p.r('0', 342, ay, 26, 54); for (let j = 0; j < 54; j += 6) p.r(j % 12 ? '7' : 'm', 343, ay + j + 1, 25, 5); p.r('n', 366, ay + 1, 2, 52); p.r('1', 342, ay, 1, 54); });
     p.obj(() => { p.r('0', 370, ay + 6, 22, 42); p.r('1', 371, ay + 7, 20, 40); });
     p.obj(() => { const nx = 376, ny = ay + 14; for (const [dx, dy, w, h] of [[0, 0, 10, 1], [0, 0, 1, 12], [9, 0, 1, 12], [0, 11, 10, 1], [3, 4, 4, 4]]) p.glow('n', dx === 3 ? 'c' : 'l', nx + dx, ny + dy, w, h); });
-    p.pool(330, ay + 27, 34);
+    alleyLamp(p, 338, ay + 27, false); p.pool(332, ay + 27, 34, [104, 0, 240, SEG]);
   }
   // a back door with a caged wall lamp (the light pool has a source), a step and a doormat
   const free = (left: boolean, y: number, h: number) => !used.some(([l, a, b]) => l === left && y + h > a && y < b);
@@ -865,6 +884,14 @@ const alley: LayerDef = { speed: 1, opaque: true, paint(p, z) {
   // chalk doodles on the concrete: a sun, a fish, a heart (pale, 1px, low contrast)
   if (r.chance(0.6)) chalkDoodle(p, r.int(150, 300), r.int(20, SEG - 30), r.int(0, 2));
 } };
+/** a gooseneck lamp bracket reaching out from a wall/awning edge: arm, a dark shade and a warm bulb (lit after dusk) */
+function alleyLamp(p: Painter, x: number, y: number, fromLeft: boolean) {
+  p.obj(() => {
+    const ax = fromLeft ? x - 6 : x + 2; p.r('0', ax, y - 1, 5, 2); p.r('p', ax, y - 1, 5, 1);
+    p.r('0', x - 3, y - 3, 7, 7); p.r('q', x - 2, y - 2, 5, 5); p.r('p', x - 2, y - 2, 5, 1);
+    p.glow('p', 'f', x - 1, y - 1, 3, 3); p.glow('o', '7', x, y, 1, 1);
+  });
+}
 /** back door in the wall: steel door edge, concrete step, doormat, caged lamp (lit after dusk) and a pot of herbs */
 function backDoor(p: Painter, x: number, y: number, left: boolean) {
   const sx = left ? x : x - 14;
@@ -1110,7 +1137,7 @@ const CAFE_SKY: Record<Tod, [string, string, string]> = { day: ['s', '6', '5'], 
 /** light pooling through the cafe windows per time of day (applied to the day colours of the floor) */
 const CAFE_SUN: Partial<Record<Tod, Ramp>> = {
   // first sun: pale peach light across the honey planks
-  dawn: ramp('b:a a:9 9:8 8:7 v:b 1:v 2:3 3:4 q:p p:o o:7 k:j e:d 7:7'),
+  dawn: ramp('b:a a:9 9:8 8:c 7:c v:b 1:v 2:3 3:4 q:p p:o o:c k:j e:d'),
   dusk: ramp('0:1 1:b v:b b:a a:h 9:g q:a p:9 o:8 2:3 3:4 n:3 k:j e:d'),
 };
 /** soft wool toys on the floor: a yarn ball with a trailing thread, or a grey toy mouse with a pink tail */
@@ -1541,7 +1568,9 @@ const CLOUD: Record<Tod, string[]> = {
 /** far: big soft cloud masses drifting slowly at a lower altitude */
 const skyFar: LayerDef = { speed: 0.3, paint(p, z) {
   const r = z.r; const c = CLOUD[p.tod];
-  for (let i = 0; i < 3; i++) cloudBank(p, r.int(-40, SW + 40), r.int(20, SEG - 20), r.int(22, 34), r, [c[0], c[0], c[1], c[1]]);
+  // by night a flat one-tone mass would match a horizon band and cut a hard edge through its dither: give it a moonlit body and top
+  const keys = p.tod === 'night' ? ['1', 'v', '2', '3'] : [c[0], c[0], c[1], c[1]];
+  for (let i = 0; i < 3; i++) cloudBank(p, r.int(-40, SW + 40), r.int(20, SEG - 20), r.int(22, 34), r, keys);
 } };
 /** main: large cumulus banks along the edges, rarely one drifting through the middle */
 const skyMain: LayerDef = { speed: 1, paint(p, z) {
@@ -1635,8 +1664,21 @@ function regolith(p: Painter, z: Seg) {
 }
 /** a moon boulder: lumpy rock lit top-left, with a cast shadow */
 function boulder(p: Painter, x: number, y: number, rr: number) {
-  p.shEll(x, y, rr, rr * 0.8, Math.round(rr * 1.2));
+  p.shEll(x, y, rr, rr * 0.8, Math.round(rr * 2));
   p.obj(() => { p.ell('0', x, y, rr + 1, rr * 0.8 + 1); p.ell('q', x, y, rr, rr * 0.8); p.ell('p', x - 1, y - 1, rr - 1, rr * 0.8 - 1); p.ell('o', x - rr * 0.35, y - rr * 0.35, rr * 0.4, rr * 0.3); p.r('q', x + 1, y + 1, 2, 1); });
+}
+/** the dog-bowl crater: a perfectly round steel-rimmed bowl pressed into the litter, a few kibble left inside */
+function bowlCrater(p: Painter, cx: number, cy: number, rr: number, rng: Rng) {
+  p.shEll(cx, cy, rr + 2, (rr + 2) * 0.75, 6);
+  p.obj(() => {
+    const ry = rr * 0.75;
+    p.ell('0', cx, cy, rr + 3, ry + 3); p.ell('o', cx, cy, rr + 2, ry + 2); p.ell('7', cx - 1, cy - 1, rr + 1, ry + 1); p.ell('p', cx, cy, rr, ry);
+    p.ell('q', cx + 1, cy + 1, rr - 2, ry - 2); p.ell('v', cx + 2, cy + 2, rr - 5, ry - 5);
+    p.r('6', cx - rr + 2, cy - Math.round(ry * 0.5), 3, 1);
+    for (let i = 0; i < 7; i++) { const a = rng.range(0, 6.28), d = rng.range(0, rr - 6); const x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d * 0.7; p.r('0', x, y, 3, 2); p.r('a', x, y, 2, 1); }
+    // embossed paw on the rim
+    const px = cx + Math.round(rr * 0.55), py = cy + Math.round(ry) + 1; p.r('8', px - 1, py, 3, 1); p.r('8', px - 2, py - 1, 1, 1); p.r('8', px + 2, py - 1, 1, 1);
+  });
 }
 /** small crater with bright ejecta rays (a fresh one: the rays are thin 1px dashes) */
 function rayCrater(p: Painter, cx: number, cy: number, rr: number, rng: Rng) {
@@ -1755,6 +1797,11 @@ const moon: LayerDef = { speed: 1, opaque: true, paint(p, z) {
   else if (kind === 2) rover(p, ex, r.int(30, 170));
   else if (kind === 3) { pomFlag(p, ex, ey); boulder(p, ex + 24, ey + 20, 5); boulder(p, ex - 14, ey + 36, 3); }
   for (let i = 0; i < 2; i++) boulder(p, r.chance(0.5) ? r.int(50, 100) : r.int(340, 395), r.int(12, SEG - 12), r.int(2, 4));
+  // a scatter of rocks across the field (they cast the long low-sun shadows at dawn and dusk)
+  for (let i = 0; i < 5; i++) { const bx = r.int(60, 390), by = r.int(10, SEG - 10); boulder(p, bx, by, r.int(3, 6)); if (r.chance(0.6)) boulder(p, bx + r.int(6, 12), by + r.int(-6, 6), 2); }
+  if (kind === 0 || kind === 2) bowlCrater(p, left ? r.int(300, 360) : r.int(90, 150), r.int(40, SEG - 40), r.int(16, 20), r);
+  // a second, fainter boot-and-paw trail from the lander out across the field
+  if (kind === 1 || kind === 3) pawTrail(p, left ? r.int(110, 150) : r.int(300, 340), r.int(0, 60), SEG, left ? 0.2 : -0.2);
   // edges: the Great Litter-Box Crater's rim on the left, the moon's limb (space, and the Earth now and then) on the right
   craterRidge(p, z); moonLimb(p, z);
 } };
@@ -1999,36 +2046,40 @@ const navLights = (xs: number[], period: number, keys: string[]) => (px: Px, scr
 };
 const both = (...fs: ((px: Px, scroll: number, t: number, seed: number, tod: Tod) => void)[]) => (px: Px, scroll: number, t: number, seed: number, tod: Tod) => { for (const f of fs) f(px, scroll, t, seed, tod); };
 
-/** rooftops: at dawn the roof decks go rose-plum (never the periwinkle of night); at dusk the tar stays grey under amber rims */
-const ROOF_RAMPS: Partial<Record<Tod, Ramp>> = { dawn: ramp('q:v p:q o:p', TOD_RAMP.dawn), dusk: ramp('q:q p:q o:p', TOD_RAMP.dusk) };
-/** docks: dawn water takes the sunrise (periwinkle with pink foam and peach-lit planks); the dusk harbour mirrors the
- * sunset (plum water, magenta ripple crests) so it never reads as night */
+/** rooftops: at dawn the roof decks go rose-plum (never the periwinkle of night); at dusk the tar takes the warm taupe */
+const ROOF_RAMPS: Partial<Record<Tod, Ramp>> = { dawn: ramp('q:v p:q o:p', TOD_RAMP.dawn) };
+/** docks: dawn water takes the sunrise (deep blue with a rose cast, pink crests); the dusk harbour mirrors the
+ * sunset (plum-magenta water, amber crests); by night the water is dark blue and the planks stay a moonlit step above it */
 const DOCK_RAMPS: Partial<Record<Tod, Ramp>> = {
-  dawn: ramp('n:3 2:4 1:2 5:c s:c 4:c o:c p:a q:b', TOD_RAMP.dawn),
-  dusk: ramp('n:v 2:e m:d s:c 5:d 4:e', TOD_RAMP.dusk),
+  dawn: ramp('n:3n/8 2:e m:c s:c 5:c', TOD_RAMP.dawn),
+  dusk: ramp('n:nv/8 2:h m:g s:f 5:d 4:e', TOD_RAMP.dusk),
+  night: ramp('n:2 2:1 m:n p:qp/8 o:p', TOD_RAMP.night),
 };
-/** the litter moon: regolith stays grey at every hour, only light value and temperature change */
-/** alley: a pale concrete day; a cool periwinkle dawn; a warm grey dusk (amber rims, plum shadows); a navy night */
+/** alley: a pale concrete day; a cool lavender-grey dawn (peach on the top edges); a warm taupe dusk (amber rims, plum
+ * shadows); a slate night under the lamps */
 const ALLEY_RAMPS: Partial<Record<Tod, Ramp>> = {
   day: ramp('q:p p:o v:q'),
-  dawn: ramp('q:3 1:2 v:2 p:4', TOD_RAMP.dawn),
-  dusk: ramp('q:q p:q 1:v o:p', TOD_RAMP.dusk),
+  dawn: ramp('p:4p/8 q:3q/8 v:q 1:v o:8 7:c 5:c', TOD_RAMP.dawn),
+  dusk: ramp('p:pa/8 q:qb/8 v:vb/8 1:v', TOD_RAMP.dusk),
 };
 /** park: by night the path stays a step above the dark lawn */
-const PARK_RAMPS: Partial<Record<Tod, Ramp>> = { night: ramp('q:2 p:3', TOD_RAMP.night) };
+const PARK_RAMPS: Partial<Record<Tod, Ramp>> = { night: ramp('q:3q/8 p:3', TOD_RAMP.night) };
+/** the litter moon: each hour its own dust colour (grey day, cool indigo dawn, warm umber dusk, navy night) */
 const MOON_RAMPS: Partial<Record<Tod, Ramp>> = {
   // harsh sunlight: the litter sits a step below mid-grey so grey cats keep their contrast
   day: ramp('p:q o:p q:v v:1 8:9 7:8'),
-  // sunrise over the tray: cool indigo-grey dust a step below day, pink-lit crests and clumps
-  dawn: ramp('p:2 o:3 q:1 v:1 1:1 8:c 7:c 9:a 6:7 5:c'),
-  // low amber sun: dark plum-umber dust with amber crests, long east shadows and an earthrise glow on the limb
-  dusk: ramp('p:v o:q q:1 v:0 1:0 8:g 9:h 7:g 6:f 5:t 4:u 3:2 2:v'),
-  // earthshine: navy dust, lights on
-  night: ramp('o:2 p:1 q:0 v:0 9:a 8:9 7:8 6:5 5:4 4:3 3:2 2:1'),
+  // sunrise over the tray: cool indigo-grey dust, pink-lit crests and clumps
+  dawn: ramp('p:2 o:3 q:v v:1 1:1 8:c 7:c 9:a 6:7 5:c'),
+  // low amber sun: warm umber dust, orange crests, long plum shadows cast east and an earthrise glow on the limb
+  dusk: ramp('p:b o:h q:v v:1 1:0 8:g 9:h 7:g 6:f 5:t 4:u 3:2 2:v'),
+  // earthshine: navy dust with periwinkle crests, lights on
+  night: ramp('o:2 p:2v/8 q:1 v:0 9:a 8:9 7:8 6:5 5:4 4:3 3:2 2:1'),
 };
+/** street: a sunlit day (pale sidewalks and roofs a step up from the asphalt) */
+const STREET_RAMPS: Partial<Record<Tod, Ramp>> = { day: ramp('q:p p:o') };
 export const TILESETS: Record<string, Tileset> = {
   backyard: { id: 'backyard', speed: 0.4, base: 'k', main: backyard, fg: yardFg(['1', 'k', 'j'], 0.6, 0), anim: both(flyers('birds', 460), flyers('leaves', 610)) },
-  street: { id: 'street', speed: 0.6, base: 'v', main: street, fg: yardFg(['1', 'k', 'j'], 0.7, 0.12), anim: both(steamAnim(188, 300, 120), flyers('birds', 540)) },
+  street: { id: 'street', speed: 0.6, base: 'v', ramps: STREET_RAMPS, main: street, fg: yardFg(['1', 'k', 'j'], 0.7, 0), anim: both(steamAnim(188, 300, 120), flyers('birds', 540)) },
   park: { id: 'park', speed: 0.45, base: 'k', ramps: PARK_RAMPS, main: park, fg: yardFg(['1', 'k', 'j'], 0.5, 0), anim: both(flyers('leaves', 430), flyers('birds', 700)) },
   alley: { id: 'alley', speed: 0.5, base: 'v', ramps: ALLEY_RAMPS, main: alley, fg: laundryFg, anim: both(steamAnim(262, 280, 60), flyers('steam', 380)) },
   rooftops: { id: 'rooftops', speed: 0.55, base: '1', ramps: ROOF_RAMPS, far: cityBelow, main: rooftops, fg: pigeonsFg, anim: flyers('birds', 420) },

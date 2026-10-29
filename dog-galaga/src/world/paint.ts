@@ -47,31 +47,35 @@ export const SHADE_TOD: Record<Tod, Ramp> = {
 /** a full remap from "from:to" pairs (missing keys map to themselves) */
 const remap = (map: string, base?: Ramp) => ramp(map, base);
 const ID = ramp('');
-/** outdoor time-of-day remaps */
+/** outdoor time-of-day remaps. A big material may map to a 50% mix of two palette entries of nearly equal
+ * lightness (k/n, k/b, p/a ... dL <= 10), which reads as one flat in-between colour, never as a checker. */
 export const TOD_RAMP: Record<Tod, Ramp> = {
   day: ID,
-  dawn: remap('6:5 7:8 f:c g:c h:a i:j j:m l:m o:4 p:3 q:2 r:d s:5'),
-  dusk: remap('1:0 2:v 3:2 4:3 5:4 6:8 7:8 8:9 9:a a:b b:v c:d d:e e:v f:g g:h h:a i:9 j:h l:m m:n n:2 o:p p:q q:v r:h s:o t:u u:2'),
-  night: remap('1:0 2:1 3:2 4:3 5:3 6:4 7:3 8:2 9:v a:v b:1 c:u d:e e:v f:9 g:a h:b i:k j:k k:1 l:m m:n n:1 o:3 p:2 q:1 r:e s:4 t:u u:2 v:1'),
+  // cool and a step lower: greens toward teal, greys toward slate, creams and yellows toward peach-pink
+  dawn: remap('6:7 7:8 8:8c/8 f:fc/8 g:gc/8 h:9 r:d i:jm/8 j:jq/8 k:kq/8 l:m o:4o/8 p:3p/8 q:2q/8 s:5 v:v'),
+  // warm and 15-20% lower: greens to olive with ochre/orange highlights, woods a step deeper, greys to warm taupe, shadows plum
+  dusk: remap('1:v 2:v 3:2 4:3 5:4 6:7 7:8 8:9g/8 9:ah/8 a:ab/8 c:d d:e f:g g:h r:h i:9g/8 j:ja/8 k:kb/8 l:m m:n n:nv/8 o:pa/8 p:qb/8 q:vb/8 s:o t:u u:e'),
+  // dark, but every material keeps its hue and two value steps: teal-green grass, brown wood, slate stone, blue water
+  night: remap('2:1 3:2 4:3 5:3 6:4 7:p 8:a 9:a a:b b:v c:e d:e e:v f:9 g:a h:b i:k j:k k:vk/8 l:m m:n n:2n/8 o:p p:q q:2 r:e s:4 t:u u:2 v:1'),
 };
 /** Low sun on the sunward faces: warm amber at dusk (west faces), peach-pink at dawn (top / east edges). */
 export const RIM_RAMP: Partial<Record<Tod, Ramp>> = {
   dusk: ramp('q:h p:g o:f v:a 1:b 2:e 3:d 4:c 5:7 a:g b:h 9:g 8:f 7:f k:a j:9 i:f n:e m:d 6:7 u:d t:c e:d'),
   dawn: ramp('q:p p:8 o:c v:q 1:v 2:3 3:4 4:c 5:c a:9 b:a 9:8 8:c 7:c k:j j:8 n:m m:4 h:g e:d u:t'),
 };
-/** Inside a lamp pool at night: the lit pixels are simply BRIGHTER (day colours, whites warmed to cream), not tinted. */
-export const LAMP_RAMP = remap('6:7 s:7 5:7 q:p v:q 1:2');
+/** Inside a lamp pool at night: the lit pixels are simply BRIGHTER (day colours; greys and whites warmed toward sodium cream). */
+export const LAMP_RAMP = remap('6:7 s:7 5:7 o:8 p:9 q:a v:b 1:v 2:3');
 /** Falloff ring of a lamp pool: halfway between lamplight and moonlight, same hue families. */
-export const LAMP_EDGE = remap('6:5 7:8 8:9 9:a a:b b:v c:d d:e e:v f:g g:h h:a i:j j:k l:m m:n n:2 o:p p:q q:q v:v r:e s:5 t:u u:2 1:1 2:2');
+export const LAMP_EDGE = remap('6:5 7:8 8:9 9:a a:b b:v c:d d:e e:v f:g g:h h:a i:j j:k k:kv/4 l:m m:n n:2 o:9 p:a q:b v:v r:e s:5 t:u u:2 1:1 2:2');
 /** Interiors: the lights are on, so the room dims and warms instead of going black (pendant pools stay at day colours). */
 export const INDOOR_RAMP: Record<Tod, Ramp> = {
   day: ID,
-  // early: the room is a touch dimmer and cool; the peach comes from the low sunbeams through the windows
-  dawn: remap('6:7 7:8 8:9 9:a a:b o:4 p:3 q:2 5:4 s:5 f:c g:c'),
-  // golden hour: woods one step deeper and warm, greys into plum; amber beams and the first pools read on top
-  dusk: remap('6:8 7:8 8:9 9:a a:b b:v o:p p:q q:v 5:4 4:3 3:2 2:v 1:0 s:o f:g g:h c:d d:e'),
-  // closing time: dim plum-navy room, only the pendant pools stay warm
-  night: remap('6:4 7:3 8:a 9:b a:v b:1 o:3 p:2 q:1 5:3 4:2 3:2 2:1 1:0 v:1 s:4 f:9 g:a h:b c:u d:e e:v k:1 j:k i:k n:2 m:n'),
+  // early: the room is cooler and a step dimmer (woods toward grey-brown); the peach comes from the low sunbeams only
+  dawn: remap('6:5 7:8 8:9 9:ap/8 a:qa/8 b:bv/8 o:4o/8 p:3p/8 q:2q/8 s:5 f:9 g:9 c:t'),
+  // golden hour: woods warm and a step deeper, greys to warm taupe, shadows plum; amber beams and the first pools on top
+  dusk: remap('6:7 7:8 8:9g/8 9:ah/8 a:ab/8 b:bv/8 o:pa/8 p:qb/8 q:vb/8 5:4 4:3 3:2 2:v 1:v s:o f:g g:h c:d d:e'),
+  // closing time: a dim room that keeps its dark wood planks and slate tiles; only the pendant pools stay warm
+  night: remap('6:4 7:3 8:9 9:a a:b b:v o:3 p:2 q:1 5:3 4:2 3:2 2:1 1:0 v:1 s:4 f:9 g:a h:b c:u d:e e:v k:1 j:k i:k n:2 m:n'),
 };
 /** Falloff ring of an indoor pendant pool (between the lit room and the dim one). */
 export const INDOOR_EDGE: Partial<Record<Tod, Ramp>> = {

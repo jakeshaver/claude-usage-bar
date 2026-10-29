@@ -125,3 +125,19 @@ night with day-coloured pendant pools); sky and space tilesets keep their own ba
   lamps. Dither is only used for small local light: lamp pools are centred on their source with a solid core that
   BRIGHTENS the pixels (day colours, not a tint) and an ordered falloff (50% core/edge, solid edge, 50% and 25%
   edge/dark rings); sunbeam and rim edges. Foreground canopies (`fg`) stay within ~36px of the world edges."
+
+### Polish 2, round 2 (supersedes the round 1 text above)
+
+- ARCHITECTURE.md section 2, time-of-day paragraph: please use this text instead of the round 1 request.
+  "**Time of day is a palette remap**: segments are painted into a palette-index buffer in day colours, then each
+  time of day applies a hand-authored palette index -> palette index table (`world/paint.ts` `TOD_RAMP`,
+  `INDOOR_RAMP`, `SPACE_RAMP`, plus per-tileset `ramps` in `world/tiles.ts`) when the segment is cached. A large
+  material can map to a fixed 50% mix of two entries of nearly equal lightness (for example dark green + dark brown
+  for the olive dusk lawn, or dark green + plum for the night lawn), which reads as one in-between colour, so every
+  material keeps its hue and at least two value steps at every hour. Day is brightest and most neutral; dawn is
+  cooler and a little lower (grey-green lawns, slate stone, peach-pink highlights and top edges); dusk is warm and
+  15-20% lower (olive lawns with ochre/orange tips, warm taupe stone, deeper woods, plum shadows cast long to the
+  east); night is dark but keeps material hues (teal-green grass, brown wood, slate stone, blue water) with lit
+  windows, lanterns and lamps. Lamp pools are centred under a visible lamp head, clipped to the floor they light,
+  and brighten the pixels toward sodium cream (solid core, ordered falloff rings). All background layers, fg
+  included, are drawn in the world's z -10 pass, so scenery never covers Pom."
