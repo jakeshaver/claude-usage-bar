@@ -4,8 +4,11 @@ import { sanitizeState, STATE_VERSION } from '../core/state';
 import { decodeEnvelope, encodeEnvelope, fromExportString, toExportString, type Decoded } from './codec';
 import { SafeStore, browserStorage, memStorage, type FallbackReason, type Storage } from './storage';
 import { drawIndicator, IND_FRAMES, IND_W, IND_H } from './indicator';
+import { drawRecoveryCard } from './recovery';
 
-export { drawFloppy, FLOPPY, FLOPPY_W, FLOPPY_H } from './indicator';
+export { drawFloppy, FLOPPY, FLOPPY7, FLOPPY_W, FLOPPY_H } from './indicator';
+export type { FloppyOpts } from './indicator';
+export { drawRecoveryCard, drawChewMedallion } from './recovery';
 
 export { checksum, migrate, MIGRATIONS } from './codec';
 export { memStorage, SafeStore } from './storage';
@@ -30,11 +33,17 @@ const CARRY = [MAIN, BACKUP, SETTINGS, KEEP], SPARE = [QUARANTINE, FUTURE, BACKU
 export const BURST = 4, REFILL = 60;
 
 export type LoadStatus = 'ok' | 'recovered' | 'corrupt' | 'none';
+/** load() on the recovery screen when nothing is left: first press asks, second press really starts fresh */
+export type RecoveryLoadStatus = LoadStatus | 'confirm';
 const NO_WRITE_SCENES = new Set(['boot', 'recovery']);
+/** short enough for one toast line (<= 26 chars, ~155px) */
 export const FALLBACK_TOAST: Record<FallbackReason, string> = {
-  blocked: "CAN'T SAVE ON THIS BROWSER. PROGRESS KEPT THIS SESSION",
-  full: 'NO ROOM IN THE TOY BOX. PROGRESS KEPT THIS SESSION',
+  blocked: 'SAVING FOR THIS VISIT ONLY',
+  full: 'NO ROOM: SAVING THIS VISIT',
 };
+export const CODE_TOAST = {
+  copied: 'SAVE CODE COPIED', none: 'NO SAVE TO COPY YET', loaded: 'SAVE CODE LOADED', bad: 'THAT CODE LOOKS CHEWED',
+} as const;
 /** frames between two save notices, so they never stack with each other */
 const NOTICE_GAP = 120;
 /** scenes where a save notice may appear (never over dialogue, the recovery screen or boot) */
@@ -59,14 +68,20 @@ export const FUTURE_TOAST = 'SAVE FROM A NEWER BUILD: LOADED IT';
 
 /**
  * Versioned saves with checksum, rolling backup, migrations, write throttling and a storage fallback.
- * Public API (g.mods.save): save(), load(), hasSave(), wipe(), exportString(), importString(s), flush(), info().
- * Nothing here throws to the caller.
+ * Public API (g.mods.save): save(), load(), hasSave(), wipe(), flush(), info(), recoveryOptions(),
+ * exportString(), importString(s), stage(name). Nothing here throws to the caller.
  */
 class Save implements Module {
   id = 'save';
   api = this;
-  /** draw above every other overlay (ui's HUD and menus). Requested as a core sort key in render.ts. */
+  /** draw above every other overlay (ui's HUD and menus). Requested as a core sort key in render.ts (R3-2). */
   overlayZ = 100;
+  /** recovery screen: true after a first "TRY AGAIN" found nothing; the next press starts fresh */
+  confirmFresh = false;
+  /** overlay frames drawn, and the last frame anyone but save asked for recoveryOptions() (ui adoption probe) */
+  private frameNo = 0;
+  private optsFrame = -10;
+  private staged = false;
   g!: Game;
   store: Storage & { persistent?: boolean; trySet?(k: string, v: string): boolean } = memStorage();
   lastStatus: LoadStatus = 'none';
@@ -103,18 +118,55 @@ class Save implements Module {
       if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') hide(); });
     }
     this.restoreSettings();
-    // Overlays draw in module order, and ui's full-screen HUD is registered after save, which would hide
-    // the floppy. Until core sorts overlays by `overlayZ` or registers save last (docs/core-requests/save.md
-    // #2), move save's entry to the end ONCE, right after boot: a microtask runs after createGame() has
-    // returned, so this is never inside g.init()'s or g.step()'s loop over g.modules. No-op when already
-    // last, and never in headless runs (tests, bot), which do not draw.
-    if (!g.headless && typeof queueMicrotask === 'function') queueMicrotask(() => this.drawLast());
+    // Browser-only bridges, run once right after boot (a microtask runs after main.ts has finished its
+    // synchronous setup, outside every loop over g.modules). Each is a no-op once core/showcase do it.
+    if (!g.headless && typeof queueMicrotask === 'function') queueMicrotask(() => g.safe('save', () => this.afterBoot()));
   }
 
-  private drawLast() {
-    const m = this.g.modules, i = m.indexOf(this);
-    if (i < 0 || i === m.length - 1) return;
-    m.splice(i, 1); m.push(this);
+  /**
+   * - `?showcase=save&stage=...` until src/showcase calls stage() itself (R3-3)
+   * - `__game.exportSave()` / `__game.importSave(code)` until core/api.ts has them (R3-4)
+   * - Ctrl/Cmd+C copies a save code, Ctrl/Cmd+V pastes one (title, pause menu, recovery screen)
+   */
+  private afterBoot() {
+    const w = globalThis as any;
+    try {
+      const q = new URLSearchParams(w.location?.search ?? '');
+      if (q.get('showcase') === 'save' && q.get('stage') && !this.staged) this.stage(q.get('stage')!);
+    } catch { /* no URL: nothing to stage */ }
+    const api = w.__game;
+    if (api && api.game === this.g) {
+      api.exportSave ??= () => this.exportString();
+      api.importSave ??= (code: string) => this.importString(code);
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('copy', e => this.onCopy(e));
+      document.addEventListener('paste', e => this.onPaste(e));
+    }
+  }
+
+  /** where the clipboard shortcuts work: never mid-flight, only on calm screens */
+  private clipboardOk(paste: boolean): boolean {
+    const sc = this.g.state.scene, menu = this.g.mods.ui?.menuOpen;
+    if (sc === 'title' || sc === 'map' || (sc === 'recovery' && paste)) return !menu || menu === 'none';
+    return menu === 'pause';
+  }
+  private onCopy(e: ClipboardEvent) {
+    if (!this.clipboardOk(false) || !e.clipboardData) return;
+    const code = this.exportString();
+    e.preventDefault();
+    if (code) e.clipboardData.setData('text/plain', code);
+    this.g.mods.ui?.toast?.(code ? CODE_TOAST.copied : CODE_TOAST.none);
+  }
+  private onPaste(e: ClipboardEvent) {
+    if (!this.clipboardOk(true) || !e.clipboardData) return;
+    const code = e.clipboardData.getData('text/plain') ?? '';
+    if (!/POODLE\d*:|^\s*[A-Za-z0-9+/_=-]{40,}\s*$/.test(code)) return;
+    e.preventDefault();
+    const ui = this.g.mods.ui;
+    if (ui?.menuOpen === 'pause') ui.closeMenus?.(false);
+    const r = this.importString(code);
+    ui?.toast?.(r === 'ok' || r === 'recovered' ? CODE_TOAST.loaded : CODE_TOAST.bad);
   }
 
   /** Swap the backend (tests, or a host that provides its own), wrapped in a SafeStore with memory fallback. */
@@ -125,6 +177,7 @@ class Save implements Module {
 
   update(g: Game) {
     this.clock++;
+    if (this.confirmFresh && (g.state.scene !== 'recovery' || g.input.pressed('up') || g.input.pressed('down') || g.input.pressed('back'))) this.confirmFresh = false;
     if (this.tokens < BURST && this.clock >= this.refillAt) { this.tokens++; this.refillAt = this.clock + REFILL; }
     if (this.pending && this.tokens > 0) this.write();
     if (this.blink > 0 && this.holdBlink === null) this.blink--;
@@ -148,11 +201,32 @@ class Save implements Module {
     return g.mods.ui?.touch?.visible?.(g) ?? g.input.lastDevice === 'touch';
   }
 
+  /**
+   * Overlays draw in module order and ui (registered after save) paints full-screen HUDs and menus, which
+   * would hide the floppy. Until render.ts sorts by `overlayZ` or boot.ts registers save last (R3-2), save
+   * defers its drawing to a microtask: it runs when the frame callback returns, after every other overlay
+   * and before the browser paints. g.modules is never touched. When save already is the last overlay it
+   * draws in place.
+   */
   overlay(g: Game, ctx: CanvasRenderingContext2D) {
+    this.frameNo++;
+    const ov = g.modules.filter(m => m.overlay);
+    if (ov[ov.length - 1] === this || typeof queueMicrotask !== 'function') { this.drawOverlay(g, ctx); return; }
+    queueMicrotask(() => g.safe('save:overlay', () => this.drawOverlay(g, ctx)));
+  }
+
+  private drawOverlay(g: Game, ctx: CanvasRenderingContext2D) {
+    // ui draws the recovery card itself once it reads recoveryOptions() (R3-5); until then save repaints
+    // the card's middle with the slot status, the right primary label and the chewed master floppy
+    if (g.state.scene === 'recovery' && this.frameNo - this.optsFrame > 2) {
+      const ui = g.mods.ui;
+      drawRecoveryCard(ctx, this.options(), ui?.sel ?? 0, ui?.t ?? this.clock, this.confirmFresh, ui?.dev?.() ?? 'keyboard');
+    }
     const left = this.holdBlink ?? this.blink;
-    if (left <= 0) return;
+    // never a "saved" floppy over the recovery screen (it would contradict "a cat chewed your save")
+    if (left <= 0 || NO_WRITE_SCENES.has(g.state.scene)) return;
     const p = indicatorPos(g.state.scene, this.touchDeck(g));
-    drawIndicator(ctx, p.x, p.y, left);
+    drawIndicator(ctx, p.x, p.y, left, this.store.persistent === false);
   }
 
   /**
@@ -162,7 +236,8 @@ class Save implements Module {
    * - 'recovery' (default): the recovery screen
    */
   stage(name = 'recovery'): void {
-    const g = this.g;
+    const g = this.g; this.staged = true;
+    if (name === 'indicator-memory') { this.useStorage(null); name = 'indicator'; }
     if (name !== 'indicator' && name !== 'indicator-touch') { g.setScene('recovery'); return; }
     if (name === 'indicator-touch') g.state.settings.touch = 'on';
     const W_ = g.mods.world, Q = g.mods.quest;
@@ -171,7 +246,8 @@ class Save implements Module {
     if (W_) W_.titleCard = 0;
     for (let i = 0; i < 240; i++) g.step();
     g.mods.ui?.muteToasts?.(false);
-    g.mods.ui?.toast?.(FALLBACK_TOAST.blocked);
+    g.mods.ui?.toast?.(this.store.persistent === false ? FALLBACK_TOAST.blocked : 'PROGRESS SAVED');
+    this.outbox.length = 0;
     for (let i = 0; i < 40; i++) g.step();
     this.holdBlink = IND_FRAMES - 4;
     g.paused = true;
@@ -239,7 +315,7 @@ class Save implements Module {
       this.store.set(MAIN, raw); this.lastRaw = raw; this.lastData = null;
     } else this.store.set(SETTINGS, JSON.stringify(settings));
     this.keep();
-    this.blink = IND_FRAMES;
+    // no floppy here: settings and keepsakes are not progress, and the title may read CONTINUE [NO SAVE]
     return true;
   }
 
@@ -303,8 +379,14 @@ class Save implements Module {
    * Main -> backup -> recovery screen. Called again from the recovery screen ("try backup") it also
    * salvages a save whose checksum fails but whose data still parses.
    */
-  load(resume = true): LoadStatus {
+  load(resume = true): RecoveryLoadStatus {
     try {
+      if (this.g.state.scene === 'recovery' && this.options().doomed) {
+        // "TRY AGAIN" with nothing left to fetch: look once more (another tab may have saved), and if it is
+        // still empty, ask first. The caller's next load() really fails, and ui starts fresh as before.
+        if (!this.confirmFresh) { this.confirmFresh = true; this.g.mods.audio?.sfx?.('blip'); return 'confirm'; }
+        this.confirmFresh = false;
+      }
       const main = this.store.get(MAIN), bak = this.store.get(BACKUP);
       if (!main && !bak) return (this.lastStatus = 'none');
       const salvaging = this.g.state.scene === 'recovery';
@@ -361,7 +443,7 @@ class Save implements Module {
     try { this.restoreHi(); this.keep(); } catch { /* best effort */ }
     try { this.store.set(SETTINGS, JSON.stringify(this.g.state.settings)); } catch { /* best effort */ }
     this.store.del(MAIN); this.store.del(BACKUP);
-    this.live = false; this.pending = false; this.lastRaw = this.lastData = null;
+    this.live = false; this.pending = false; this.lastRaw = this.lastData = null; this.confirmFresh = false;
   }
 
   /**
@@ -371,6 +453,10 @@ class Save implements Module {
    * - `doomed`: true when row 0 cannot find anything, so ui should confirm with `confirm` before wiping
    */
   recoveryOptions() {
+    this.optsFrame = this.frameNo;
+    return this.options();
+  }
+  private options() {
     const i = this.info();
     const word = (s: string) => (s === 'ok' ? 'SAFE' : s === 'damaged' ? 'NIBBLED' : s === 'corrupt' ? 'CHEWED' : 'GONE');
     const anyDamaged = i.main === 'damaged' || i.backup === 'damaged';
@@ -406,7 +492,7 @@ class Save implements Module {
       if (cur && decodeEnvelope(cur)) this.store.set(BACKUP, cur);
       this.store.set(MAIN, d.future ? raw : encodeEnvelope(d.data, d.at));
       if (this.g.state.scene === 'recovery') this.g.setScene('title');
-      return this.load();
+      return this.load() as LoadStatus;
     } catch { return 'corrupt'; }
   }
 }

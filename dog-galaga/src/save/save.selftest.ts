@@ -9,6 +9,7 @@ import type { Game } from '../core/game';
 import { checksum, encodeEnvelope, migrate, toExportString, type Migration } from './codec';
 import { memStorage, type Storage } from './storage';
 import { KEYS, BURST, REFILL, FALLBACK_TOAST, FUTURE_TOAST, indicatorPos } from './index';
+import { FLOPPY, FLOPPY7 } from './indicator';
 import { IND_W, IND_H } from './indicator';
 import { W, H, PF_X, PF_W } from '../core/game';
 
@@ -274,6 +275,40 @@ const CASES: [string, () => void][] = [
     const g4 = fresh(); g4.setScene('title'); g4.state.settings.sfx = 0.3; S(g4).save();
     check(!S(g4).hasSave(), 'no fake save created');
     eq(relaunch(S(g4).store).state.settings.sfx, 0.3, 'settings-only restore');
+    // settings-only writes never blink the floppy (the title may read CONTINUE [NO SAVE])
+    eq(S(g4).blink, 0, 'no floppy for a settings-only write'); eq(S(g2).blink, 0, 'no floppy for a settings patch');
+    g.mods.world.newGame(); S(g).flush(); g.state.score = 1; S(g).save(); check(S(g).blink > 0, 'a real save blinks');
+  }],
+
+  ['recovery: TRY AGAIN with nothing left asks first; moving away cancels; second press starts fresh', () => {
+    const g = fresh(); g.mods.world.newGame(); S(g).save();
+    const store = S(g).store; store.set(KEYS.MAIN, 'chewed'); store.set(KEYS.BACKUP, 'chewed too');
+    const g2 = relaunch(store);
+    eq(S(g2).load(), 'corrupt', 'recovery'); check(S(g2).recoveryOptions().doomed, 'doomed');
+    eq(S(g2).load(), 'confirm', 'first press only asks'); eq(g2.state.scene, 'recovery', 'still on the recovery screen');
+    eq(store.get(KEYS.MAIN), 'chewed', 'nothing wiped by asking');
+    g2.input.synthetic = new Set(['down'] as any); g2.step(); g2.input.synthetic = new Set(); g2.step();
+    check(!S(g2).confirmFresh, 'moving the selection cancels the question');
+    eq(S(g2).load(), 'confirm', 'asks again'); eq(S(g2).load(), 'corrupt', 'second press really fails (ui starts fresh)');
+    // ui's existing recovery path on that result: wipe + title, hi score kept
+    S(g2).wipe(); g2.setScene('title'); check(!S(g2).hasSave() && !S(g2).confirmFresh, 'fresh start');
+    // a salvageable slot is never doomed: one press patches it up
+    const g3 = fresh(); g3.mods.world.newGame(); g3.state.score = 99; S(g3).save();
+    const env = JSON.parse(S(g3).store.get(KEYS.MAIN)!); env.sum = 'x'; S(g3).store.set(KEYS.MAIN, JSON.stringify(env)); S(g3).store.del(KEYS.BACKUP);
+    const g4 = relaunch(S(g3).store); eq(S(g4).load(), 'corrupt', 'needs recovery');
+    eq(S(g4).load(), 'recovered', 'patched in one press'); eq(g4.state.score, 99, 'score back');
+    eq([...g2.errors, ...g4.errors], [], 'no errors');
+  }],
+
+  ['storage notices fit one toast line; memory-only saves are flagged for the grey floppy; one floppy sprite', () => {
+    for (const t of Object.values(FALLBACK_TOAST)) check(t.length <= 26, `toast too long: ${t}`);
+    const g = fresh(); S(g).useStorage(hostile('blocked')); g.mods.world.newGame(); S(g).save();
+    eq(S(g).info().persistent, false, 'memory-only store reported'); check(S(g).blink > 0, 'still acknowledges the save');
+    const g2 = fresh(); g2.mods.world.newGame(); S(g2).save(); eq(S(g2).info().persistent, true, 'persistent store');
+    eq([FLOPPY.length, ...new Set(FLOPPY.map(r => r.length))], [16, 16], '16x16 master');
+    eq([FLOPPY7.length, ...new Set(FLOPPY7.map(r => r.length))], [7, 7], '7x7 glyph');
+    eq(FLOPPY.filter(r => r.includes('7')).length, 7, '7-row label');
+    eq([FLOPPY[0].slice(13), FLOPPY[1].slice(13), FLOPPY[2].slice(13)], ['0..', '30.', '330'], 'clean 2px diagonal notch');
   }],
 ];
 

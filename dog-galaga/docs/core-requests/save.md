@@ -135,3 +135,54 @@ Unchanged; see #4/#5 above.
   are gone (no menus open), and save's notices are spaced >= 2 s apart so they never stack with each other.
 - Autosave floppy is 16x16, right-aligned to the right panel's text column: beside the FLIGHT TIME clock with
   keyboard/gamepad, in the free slot above the ACTION deck when touch controls show, bottom-right on title/map.
+
+# Core requests from save (round 3)
+
+Status: none of R2-1..R2-8 is applied in this branch. To make them a one-command job, **every integrator-side
+change is now a tested patch**: `src/save/integration.patch` (8 files, +45/-22). I applied it in my worktree,
+ran `npm run verify` (green: 4 files / 21 tests, incl. the 14 save self-test cases), screenshotted the result
+(recovery card, pause menu, indicator), then reverted it, since those files are not mine.
+
+```sh
+cd /home/user/wt/<integrator> && git apply dog-galaga/src/save/integration.patch && cd dog-galaga && npm run verify
+```
+
+What the patch does (each piece is independent; drop any hunk you dislike):
+
+| id | file(s) | change |
+|----|---------|--------|
+| R3-1 (BLOCKING, was R2-1) | `tests/save.selftest.test.ts` (new) | runs `saveSelftest()` in `npm test`: 14 cases |
+| R3-2 (was R2-2) | `core/game.ts`, `core/render.ts` | `Module.overlayZ?: number`; overlays drawn sorted by it (stable, default 0) |
+| R3-3 (was R2-3) | `showcase/index.ts` | `case 'save'` calls `g.mods.save.stage(p.get('stage') ?? 'recovery')` |
+| R3-4 (was #5/R2-8) | `core/api.ts` | `__game.exportSave()` / `__game.importSave(code)` |
+| R3-5 (was R2-4) | `ui/index.ts` recovery() | the card's middle is `this.rows = drawRecoveryCard(ctx, S.recoveryOptions(), this.sel, t, !!S.confirmFresh, this.dev())`; START FRESH toast = `freshToast`; `save:recovered` toast from `recoveredToast(slot)` |
+| R3-6 (was R2-5) | `ui/draw.ts` | `ICONS.disk = FLOPPY7` (7x7 reduction of save's master floppy: same notch, shutter, paw dots) |
+| R3-7 (was #4) | `ui/index.ts` pause | `COPY SAVE CODE` row (paw icon) before SAVE & QUIT: `navigator.clipboard.writeText`, falls back to a `PRESS CTRL+C TO COPY` toast |
+| R3-8 | `ARCHITECTURE.md` | save API line: `flush()`, `info()`, `recoveryOptions()`, `stage()`, draw helpers, overlayZ, clipboard keys; `__game.exportSave/importSave`; Module gains `overlay`/`overlayZ` |
+
+`recoveryNav()` needs no logic change: `save.load()` itself now answers `'confirm'` on the first TRY AGAIN press
+when nothing is left (ui stays on the card, which then reads `NOTHING LEFT TO FETCH. START FRESH?` /
+`YES, START FRESH`); moving the selection cancels; the second press returns `'corrupt'` and ui's existing
+wipe + title path runs.
+
+## Correction to R2-2's wording
+R2-2 said "the round-1 shim is gone". True for the mid-step splice, but round 2 still moved save's entry to the
+end of `g.modules` from a microtask. **Round 3 removes that too: save never mutates `g.modules`.** Until R3-2
+lands, `save.overlay()` defers its own drawing to a microtask (runs when the rAF callback returns, after every
+other overlay, before paint); when save is already the last overlay it draws in place.
+
+## Interim bridges in src/save (all switch themselves off once the patch lands)
+- Recovery card: while ui does not call `recoveryOptions()`, save repaints the card's middle band (status line,
+  primary label, confirm step, cat chewing the chewed master floppy) with ui's own draw kit. Detected per frame.
+- `?showcase=save&stage=indicator|indicator-touch|indicator-memory|recovery` works without the showcase hunk.
+- `__game.exportSave/importSave` are added (`??=`) if `api.ts` lacks them.
+- Ctrl/Cmd+C copies a save code (title, map, pause menu); Ctrl/Cmd+V pastes one (also on the recovery screen),
+  through the DOM clipboard events, so no permission prompt.
+
+## Still ui-owned (no patch from me, small)
+- R2-6: toasts on `title`/`recovery` cover the logo (seen again in `shots/e-badpaste.png`).
+- R2-7 / critic 11a: the empty pill drawn while a toast collapses (top of `shots/e-badpaste.png`).
+
+## Not save-owned, from the critic's sweep (FYI for world/art)
+- docks at dusk fills the playfield with a red/brown 50% checker dither (breaks "no dither on large areas";
+  Persian cats turn to mush). FPS 24-36 during parallel captures, 60 alone: worth a perf check.
