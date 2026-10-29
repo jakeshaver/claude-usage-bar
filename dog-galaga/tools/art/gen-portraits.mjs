@@ -51,28 +51,33 @@ function biscuit() {
   // medals on the left chest (viewer's right reads as his left): ribbons + gold discs
   coat.rect(5, 35, 6, 1, 'f'); // shoulder braid
   const ears = L(); ears.poly([[6, 10], [12, 7], [11, 14]], 'a').poly([[34, 10], [28, 7], [29, 14]], 'a'); ears.relight('a', { lo: 'b' });
-  const head = L(); head.ellipse(20, 19, 13, 11, '9'); head.relight('9', { hi: '8', lo: 'a' });
-  head.poly([[18, 9], [22, 9], [24, 24], [16, 24]], '7', ['9', '8', 'a']); // white blaze
-  for (const [y, w] of [[12, 4], [14, 5]]) { head.line(20 - w - 4, y, 20 - 6, y + 1, 'a'); head.line(20 + w + 3, y, 20 + 5, y + 1, 'a'); } // brow wrinkles
-  // droopy old eyes with heavy lids and bushy grey brows
-  for (const [x, flip] of [[11, false], [24, true]]) {
-    const e = ['oooo.', '00000', '0660.', '.000.'].map(r => flip ? [...r].reverse().join('') : r);
-    head.stamp(x, 15, e);
-    head.px(flip ? x + 3 : x + 1, 17, '6').px(flip ? x + 2 : x + 2, 17, '0');
-  }
-  // bulldog jowls: heavy flews painted INTO the head (one silhouette, soft inner folds, no black blob)
-  head.ellipse(13, 27, 7, 4.8, '9').ellipse(27, 27, 7, 4.8, '9');
+  // old English bulldog: wide flat skull, short pushed-in face, huge jowls, underbite
+  const head = L(); head.ellipse(20, 19, 14, 10.5, '9');
+  // jowls: wide flews hanging past the cheeks
+  head.ellipse(11.5, 26.5, 7.5, 5.6, '9').ellipse(28.5, 26.5, 7.5, 5.6, '9');
   head.relight('9', { hi: '8', lo: 'a', lo2: 'b', d: 2 });
-  head.ellipse(20, 24, 4.6, 3.4, '7', ['9', '8', 'a', 'b']); // muzzle
-  head.ellipse(16.5, 26.6, 3, 2, '7', ['9', '8', 'a']).ellipse(23.5, 26.6, 3, 2, '7', ['9', '8', 'a']);
+  head.poly([[18, 9], [22, 9], [23, 17], [17, 17]], '7', ['9', '8', 'a']); // short white blaze
+  // heavy brow wrinkles: three stacked folds across the forehead
+  for (const [y, w] of [[10, 5], [12, 7], [14, 8]]) { head.line(20 - w, y + 1, 20 - 2, y, 'b'); head.line(20 + w - 1, y + 1, 20 + 1, y, 'b'); }
+  // droopy old eyes under bushy grey brows, set wide
+  for (const [x, flip] of [[9, false], [26, true]]) {
+    const e = ['ooooo', '.0000', '.0660', '..00.'].map(r => flip ? [...r].reverse().join('') : r);
+    head.stamp(x, 14, e);
+  }
+  // short pushed-in muzzle: greyed (old dog), wide flat nose high up between the eyes
+  head.ellipse(20, 22.5, 6.5, 4, '7', ['9', '8', 'a', 'b']);
+  head.ellipse(15, 25.5, 4.2, 2.8, '7', ['9', '8', 'a', 'b']).ellipse(25, 25.5, 4.2, 2.8, '7', ['9', '8', 'a', 'b']);
   head.relight('7', { lo: '8' });
-  head.stamp(17, 20, ['.0000.', '0q0000', '000000', '.0000.']); // squashed nose
-  head.line(19, 24, 19, 25, '0').line(20, 24, 20, 25, '0');
-  head.line(13, 27, 19, 26, 'b').line(20, 26, 26, 27, 'b'); // upper lip / flews line
-  head.line(11, 29, 14, 31, 'a').line(28, 29, 25, 31, 'a'); // jowl folds
-  // protruding lower jaw (underbite) with two little canines pointing up over the lip
-  const jaw = L(); jaw.ellipse(20, 29.6, 4.8, 2.2, '8'); jaw.relight('8', { hi: '7', lo: '9' });
-  jaw.px(17, 27, '6').px(17, 28, '6').px(22, 27, '6').px(22, 28, '6');
+  for (const [x, y] of [[14, 24], [16, 26], [13, 26], [25, 24], [24, 26], [27, 26], [18, 23], [22, 23], [11, 25], [29, 25]]) head.px(x, y, 'o');
+  head.stamp(16, 18, ['.0000000.', '00q000000', '000000000', '.00.0.00.']); // flat wide nose with nostrils
+  head.line(20, 21, 20, 23, '0');
+  head.line(12, 26, 19, 24, 'b').line(21, 24, 28, 26, 'b'); // upper lip / flews line
+  head.line(8, 28, 11, 31, 'a').line(32, 28, 29, 31, 'a'); // jowl folds
+  // protruding lower jaw (underbite): lower teeth and two canines jutting up over the lip
+  const jaw = L(); jaw.ellipse(20, 29.2, 6.2, 2.6, 'e'); jaw.relight('e', { lo: 'b' });
+  jaw.rect(16, 27, 9, 1, '6'); jaw.px(16, 26, '6').px(16, 25, '6').px(24, 26, '6').px(24, 25, '6');
+  jaw.px(17, 27, '7').px(23, 27, '7');
+  const chin = L(); chin.ellipse(20, 31.2, 5, 1.8, '8'); chin.relight('8', { hi: 'o', lo: '9' });
   // medals: three coloured ribbon bars with hanging gold discs
   const med = L();
   for (const [x, rib] of [[25, ['r', '6', 'r']], [29, ['m', 'f', 'm']], [33, ['j', '6', 'j']]]) {
@@ -83,8 +88,8 @@ function biscuit() {
   const hs = L();
   for (let a = Math.PI * 1.05; a <= Math.PI * 1.95; a += 0.02) { hs.px(20 + Math.cos(a) * 14.2, 19 + Math.sin(a) * 12.4, 'q'); hs.px(20 + Math.cos(a) * 13.2, 19 + Math.sin(a) * 11.4, 'p'); }
   hs.rect(3, 15, 5, 8, 'q').rect(4, 16, 3, 6, 'p').px(4, 16, 'o');
-  hs.line(6, 22, 10, 29, 'q').line(10, 29, 13, 30, 'q'); hs.rect(13, 29, 2, 2, 'r');
-  return stack([coat, ears, head, jaw, hs, med]);
+  hs.line(6, 22, 9, 30, 'q').line(9, 30, 12, 31, 'q'); hs.rect(12, 30, 2, 2, 'r');
+  return stack([coat, ears, head, chin, jaw, hs, med]);
 }
 // ---- Empress Fluffington ------------------------------------------------------------
 function empress() {

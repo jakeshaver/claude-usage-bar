@@ -36,3 +36,17 @@ The LOCAL TIME panel shows the moon icon for dusk as well as night; dusk wants i
 portrait_<breed> are now their own 40x40 busts (3/4 head turn + expression), not boss crops;
 names unchanged, so content/dialogue.json keeps working. Hairball now carries its own light-tan
 highlight, so the draw-time ring in interaction can be subtler (request 1 still stands).
+
+## 8. Round 4: art showcase labels truncated (owner: showcase, src/showcase/index.ts ~line 49)
+The art gallery cuts names to the cell width (`SCOTTISHFOL`, `PORTRAI`, `TUR`, `HEA`, `MAINEC`),
+so the gallery cannot be audited. Please print the full name (minus the `cat_/boss_/pk_/hud_`
+prefix) and wrap it onto a second line when it is wider than the cell, e.g.:
+`const label = name.replace(/^(cat_|boss_|pk_|hud_|portrait_)/, ''); const per = Math.max(3, Math.floor((w + 6) / 6));`
+`text(ctx, label.slice(0, per), x, y + h + 2, c); if (label.length > per) text(ctx, label.slice(per, per * 2), x, y + h + 9, c);`
+and add ~7px row spacing for the second line. For portraits, strip `portrait_` so the
+breed/character name shows (POM, BISCUIT, EMPRESS, TABBY...).
+
+## 9. Round 4: time-of-day tint on sprites (owner: world/effects), optional
+Cats keep full daylight colours at dawn/dusk/night and stick out. A cheap fix is a
+`drawSprite(..., { recolor })` map per time of day, or a multiply overlay over the play field
+after sprites are drawn (the art module already supports `recolor`).

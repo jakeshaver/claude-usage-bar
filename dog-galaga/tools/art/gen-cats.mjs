@@ -26,7 +26,7 @@ const EYE = {
 const MOUTH = {
   cat: ['..cd..', '0.00.0', '.0..0.'],
   flat: ['.cd.', '.00.'],
-  persian: ['ee', '00'], // squashed nose set high between the eyes, tiny frown under it
+  persian: ['.cd.', '0..0'], // squashed nose set high between the eyes, tiny frown under it
   siamese: ['......', '.0..0.', '..00..'],
   boss: ['...ccdd...', '...cddd...', '....dd....', '....00....', '.0..00..0.', '..00..00..'],
   bossFlat: ['..cdd..', '...d...', '..000..', '.0...0.'],
@@ -48,9 +48,9 @@ const TABBY_M = { // bold dark "M" on the forehead
   1: ['b...b', 'bb.bb', 'b.b.b'],
   2: ['bb.......bb', 'bbb.....bbb', 'bbbb...bbbb', 'bb.bb.bb.bb', 'bb..bbb..bb', 'bb...b...bb'],
 };
-const ROSETTE = { // open-ring spot: dark brown ring, warm centre
-  1: ['bb.', 'bgb', '.bb'],
-  2: ['.bbb.', 'bbggb', 'bgggb', 'bggbb', '.bbb.'],
+const ROSETTE = { // broken C-shaped ring of dark brown around a burnt-orange centre (not a hole)
+  1: ['bb.', 'bh.', '.bb'],
+  2: ['.bb.b', 'bhhh.', 'bhhhb', '.hhhb', 'b.bb.'],
 };
 
 // ---- breeds --------------------------------------------------------------------------
@@ -58,14 +58,14 @@ const ROSETTE = { // open-ring spot: dark brown ring, warm centre
 // hw/hh head radii, bw/bh/by body, tw tail width, ty tail tip y, ts tail swing, px/py paw offset
 const BREEDS = {
   tabby: { fur: ['f', 'g', 'h', 'b'], light: ['6', '7', '8'], eye: ['i', 'j'], ears: 'point', head: 'round', hw: 9.2, hh: 7.0, tail: 'ringed', tw: 1.7, marks: 'tabby', stripe: 'a', rim: 'f' },
-  tuxedo: { fur: ['3', '2', '1', '0'], light: ['6', '6', '5'], eye: ['f', 'g'], ears: 'point', head: 'round', hw: 9.6, hh: 7.8, bw: 6.4, tail: 'thin', tw: 1.0, ty: 0.6, ts: 5, px: 9.6, py: 1, marks: 'tuxedo', rim: '4', rimTL: '4', rimBR: '2' },
-  siamese: { fur: ['7', '7', '8', '9'], light: ['6', '7', '8'], point: ['a', 'b', 'v'], eye: ['l', 'm'], ears: 'upright', head: 'wedge', hw: 7.4, hh: 7.4, bw: 5.4, bh: 6.4, px: 8.4, py: 1.2, tail: 'whip', tw: 1.0, ts: 4, marks: 'points', eyeType: 'almond', mouth: 'siamese', rim: '6' },
-  persian: { fur: ['6', '7', '8', '9'], light: ['6', '6', '7'], eye: ['g', 'h'], ears: 'tiny', head: 'flat', hw: 10.2, hh: 7.0, body: 'puff', tail: 'plume', tw: 3.2, marks: 'persian', eyeType: 'round', mouth: 'persian', rim: '6', ring: '9' },
+  tuxedo: { fur: ['q', 'v', '1', '1'], light: ['6', '6', 'o'], eye: ['f', 'g'], ears: 'point', head: 'round', hw: 9.6, hh: 7.8, bw: 6.4, tail: 'thin', tw: 1.0, ty: 0.6, ts: 5, px: 9.6, py: 1, marks: 'tuxedo', rim: 'o', rimTL: 'p', rimBR: 'q' },
+  siamese: { fur: ['7', '7', '8', '9'], light: ['6', '7', '8'], point: ['a', 'b', 'v'], eye: ['l', 'm'], ears: 'corner', head: 'wedge', hw: 7.4, hh: 7.4, bw: 5.4, bh: 6.4, px: 8.4, py: 1.2, tail: 'whip', tw: 1.0, ts: 4, marks: 'points', eyeType: 'almond', mouth: 'siamese', rim: '6' },
+  persian: { fur: ['6', '7', '8', '9'], light: ['6', '6', '7'], eye: ['g', 'h'], ears: 'tiny', head: 'flat', hw: 10.2, hh: 7.0, body: 'puff', tail: 'plume', tw: 3.2, marks: 'persian', eyeType: 'round', mouth: 'persian', rim: '6', ring: '8' },
   sphynx: { fur: ['7', 'c', 'd', 'e'], light: ['7', 'c', 'd'], eye: ['i', 'j'], ears: 'bat', head: 'round', hw: 7.8, hh: 7.4, bw: 5.6, bh: 6.2, tail: 'rat', tw: 0.85, marks: 'wrinkles', noWhisk: 1, px: 9.2, rim: '7' },
-  mainecoon: { fur: ['8', '9', 'a', 'b'], light: ['6', '7', '8'], eye: ['i', 'j'], ears: 'tuft', head: 'round', hw: 9.0, hh: 7.4, body: 'big', bw: 9.6, bh: 6.8, px: 11.6, tail: 'bushy', tw: 2.6, marks: 'mainecoon', ruff: 1, stripe: 'b', rim: '7' },
+  mainecoon: { fur: ['8', '9', 'a', 'b'], light: ['6', '7', '8'], eye: ['i', 'j'], ears: 'tuft', head: 'round', hw: 9.0, hh: 7.4, body: 'big', bw: 8.6, bh: 6.0, by: 14, px: 11.6, tail: 'bushy', tw: 2.7, ty: 8.5, ts: 12.2, tfix: 1, marks: 'mainecoon', ruff: 1, stripe: 'b', rim: '7' },
   calico: { fur: ['6', '6', '7', '8'], light: ['6', '6', '7'], eye: ['f', 'g'], ears: 'point', head: 'round', hw: 8.0, hh: 7.0, bw: 5.6, bh: 7.0, tail: 'banded', tw: 1.6, ty: 0.4, ts: 5, px: 8.4, py: 1.6, marks: 'calico', rim: '6' },
   russianblue: { fur: ['o', 'o', 'p', 'q'], light: ['o', 'o', 'p'], eye: ['i', 'j'], ears: 'tall', head: 'round', hw: 7.6, hh: 8.0, bw: 5.4, bh: 7.4, tail: 'stub', tw: 2.4, ty: 5.4, ts: 1.5, px: 7.4, py: 3.0, marks: 'sheen', rim: '6' },
-  bengal: { fur: ['7', 'f', 'g', 'h'], light: ['6', '7', '8'], eye: ['i', 'j'], ears: 'small', head: 'round', hw: 7.2, hh: 7.0, bw: 5.2, bh: 7.8, by: 12.4, tail: 'spotted', tw: 1.3, ty: 0.6, ts: 4, px: 9.0, py: 0.6, marks: 'rosettes', rim: '7' },
+  bengal: { fur: ['f', 'f', 'g', 'h'], light: ['7', '7', '8'], eye: ['i', 'j'], ears: 'small', head: 'round', hw: 7.2, hh: 7.0, bw: 5.2, bh: 7.8, by: 12.4, tail: 'spotted', tw: 1.3, ty: 0.6, ts: 4, px: 9.0, py: 0.6, marks: 'rosettes', rim: '7' },
   scottishfold: { fur: ['o', 'o', 'p', 'q'], light: ['6', '6', '7'], eye: ['g', 'h'], ears: 'fold', head: 'owl', hw: 9.6, hh: 8.4, tail: 'thin', tw: 1.3, marks: 'fold', eyeType: 'owl', yarn: 1, stripe: 'p', rim: '6' },
 };
 // boss costume props: shown only at S=2
@@ -117,7 +117,7 @@ function cat(b, frame, S = 1, opts = {}) {
   // ---- tail
   {
     const T = layer();
-    const sw = (frame ? 1 : -1) * (b.ts ?? 3);
+    const sw = b.tfix ? b.ts + (frame ? 0.8 : -0.8) : (frame ? 1 : -1) * (b.ts ?? 3);
     const ty = b.ty ?? 1.6;
     const p0 = [16, 11], p1 = [16 + sw * 0.4, (11 + ty) / 2], p2 = [16 + sw, ty + b.tw * 0.6];
     const at = (t) => [(1 - t) ** 2 * p0[0] + 2 * (1 - t) * t * p1[0] + t * t * p2[0], (1 - t) ** 2 * p0[1] + 2 * (1 - t) * t * p1[1] + t * t * p2[1]];
@@ -156,12 +156,13 @@ function cat(b, frame, S = 1, opts = {}) {
       B.line(cx + s * k(bw - 3.4) - (s > 0 ? 1 : 0), k(by - 3.2), cx + s * k(bw - 1.8) - (s > 0 ? 1 : 0), k(by + 0.6), LO);
     }
     const on = FURSET;
-    if (b.marks === 'tabby' || b.marks === 'mainecoon') { for (const y of [-4, -1, 2]) for (const s of [-1, 1]) B.rect(cx + (s < 0 ? -k(4.4) : k(1.4)), k(by + y), k(3), S, b.stripe); B.rect(cx - S, k(by - 5.5), k(2), k(8), b.stripe); }
+    if (b.marks === 'tabby' || b.marks === 'mainecoon') { for (const y of [-4, -1, 2]) for (const s of [-1, 1]) B.rect(cx + (s < 0 ? -k(4.4) : k(1.4)), k(by + y), k(3), S, b.stripe); if (b.marks === 'tabby') B.rect(cx - S, k(by - 5.5), k(2), k(8), b.stripe); }
     if (b.marks === 'rosettes') for (const [x, y] of [[-3.6, -4.6], [2, -5.4], [-1.5, -1.2], [2.6, 0.6], [-3.4, 2.4], [0.8, 4]]) B.stamp(Math.round(cx + k(x)), Math.round(k(by + y)), ROSETTE[S]);
-    if (b.marks === 'calico') { B.ellipse(cx - k(3.5), k(11), k(3.6), k(3), 'g', on); B.ellipse(cx + k(4), k(14), k(3.2), k(2.6), '2', on); B.relight('g', isBoss ? { lo: 'h', d: 2 } : { lo: 'h' }); }
+    if (b.marks === 'calico') { B.ellipse(cx - k(3.5), k(11), k(3.6), k(3), 'g', on); B.ellipse(cx + k(2.6), k(14), k(2.6), k(2.4), 'v', on); B.relight('g', isBoss ? { lo: 'h', d: 2 } : { lo: 'h' }); }
     if (b.marks === 'wrinkles') for (const y of [10, 13]) B.line(cx - k(3), k(y), cx + k(3) - 1, k(y), LO);
     if (b.marks === 'points' && !isBoss) for (const s of [-1, 1]) B.ellipse(cx + s * k(bw - 0.5), k(10 + flap * 0.8), k(2.1), k(1.8), b.point[1]);
-    if (b.marks === 'tuxedo' && !isBoss) for (const s of [-1, 1]) B.ellipse(cx + s * k(bw - 0.5), k(10.6 + flap * 0.8), k(1.6), k(1.1), '6');
+    if (b.marks === 'tuxedo' && !isBoss) for (const s of [-1, 1]) B.ellipse(cx + s * k(bw - 0.5), k(10.4 + flap * 0.8), k(2.1), k(1.6), '6');
+    if (b.marks === 'tuxedo') B.ellipse(cx, k(by + 2), k(2.4), k(3), '6', on);
     if (b.marks === 'sheen') { B.line(cx - k(4), k(by - 3), cx - k(1), k(by - 4.2), '6'); B.px(cx - k(4), k(by - 2.4), 's'); }
     if (isBoss) furStrokes(B, BASE, LO, 3);
     rim(B, FURSET);
@@ -184,14 +185,15 @@ function cat(b, frame, S = 1, opts = {}) {
       if (b.ears === 'tall') tri(s, [8.4, 16], [6.6, 5.6], [2.4, 12.6], 0.5);
       if (b.ears === 'big') tri(s, [9.4, 19], [9.6, 6.4], [1.6, 13.2], 0.55);
       if (b.ears === 'upright') tri(s, [8.6, 16.5], [7.4, 3.2], [2.0, 12.4], 0.5);
-      if (b.ears === 'bat') tri(s, [8, 19], [14.6, 5.4], [2, 13], 0.6);
+      if (b.ears === 'corner') tri(s, [8.4, 16.4], [8.0, 7.6], [2.6, 12.8], 0.45);
+      if (b.ears === 'bat') tri(s, [9.2, 18], [12.4, 2.6], [1.6, 12.6], 0.62);
       if (b.ears === 'tuft') tri(s, [9.4, 17], [8.2, 5.6], [1.8, 13], 0.5, true);
       if (b.ears === 'small') { E.ellipse(HX + s * k(5.2), k(14.2), k(2.0), k(2.2), BASE); E.ellipse(HX + s * k(5.2), k(14.6), k(1.0), k(1.2), inner); }
       if (b.ears === 'tiny') tri(s, [7.4, 16], [6.4, 10.6], [3, 13.6], 0.4);
     }
     lit(E, BASE, HI, LO, LO2);
     if (b.marks === 'points') for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const c = E.get(x, y); if (c === BASE || c === HI || c === LO || c === LO2) E.px(x, y, b.point[c === LO || c === LO2 ? 2 : 1]); }
-    if (b.marks === 'calico') for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const c = E.get(x, y); if ((c === BASE || c === HI || c === LO || c === LO2) && x < cx) E.px(x, y, c === LO || c === LO2 ? 'h' : 'g'); if ((c === BASE || c === HI || c === LO || c === LO2) && x >= cx) E.px(x, y, c === LO || c === LO2 ? '1' : '2'); }
+    if (b.marks === 'calico') for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const c = E.get(x, y); if ((c === BASE || c === HI || c === LO || c === LO2) && x < cx) E.px(x, y, c === LO || c === LO2 ? 'h' : 'g'); if ((c === BASE || c === HI || c === LO || c === LO2) && x >= cx) E.px(x, y, c === LO || c === LO2 ? '1' : 'v'); }
     if (b.ears === 'tuft') for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (E.get(x, y) === HI && y < k(7.4)) E.px(x, y, LO2);
     if (isBoss && ['point', 'tall', 'big', 'tuft'].includes(b.ears)) for (const s of [-1, 1]) for (let i = 0; i < 3; i++) E.line(HX + s * k(5 + i * 0.7), k(14.6 - i * 0.3), HX + s * k(5.6 + i * 0.6), k(12 - i * 0.6), LHI);
     add(E);
@@ -203,7 +205,7 @@ function cat(b, frame, S = 1, opts = {}) {
   // bosses: forearms reach out past the cheeks and the paws sit low, so the whole body reads
   const pxo = (b.body === 'puff' ? 10.6 : (b.px ?? 10.2)) + (isBoss ? 3.2 : 0);
   const pyy = py + (isBoss ? 3.4 : 0);
-  const pawC = b.marks === 'points' ? b.point : b.marks === 'tuxedo' ? ['6', '6', '5'] : null;
+  const pawC = b.marks === 'points' ? b.point : b.marks === 'tuxedo' ? ['6', '6', 'o'] : null;
   {
     const P = layer();
     if (isBoss) for (const s of [-1, 1]) { // forearm from the shoulder to the paw
@@ -212,7 +214,7 @@ function cat(b, frame, S = 1, opts = {}) {
     for (const s of [-1, 1]) P.ellipse(HX + s * k(pxo), k(pyy), k(isBoss ? 2.9 : 2.5), k(isBoss ? 2.4 : 2.1), BASE);
     lit(P, BASE, HI, LO, LO2);
     if (pawC) for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const c = P.get(x, y); if (c !== '.' && (!isBoss || Math.abs(y - k(pyy)) < k(2.6) && Math.abs(Math.abs(x - HX) - k(pxo)) < k(2.8))) P.px(x, y, c === LO || c === LO2 ? pawC[2] : c === HI ? pawC[0] : pawC[1]); }
-    for (const s of [-1, 1]) { const x0 = HX + s * k(pxo), y0 = k(pyy) + k(1.2); for (const d of [-0.8, 0.8]) P.px(x0 + k(d) - (isBoss ? 0 : 0.5), y0, b.marks === 'tuxedo' ? '5' : pawC ? pawC[2] : LO2); }
+    for (const s of [-1, 1]) { const x0 = HX + s * k(pxo), y0 = k(pyy) + k(1.2); for (const d of [-0.8, 0.8]) P.px(x0 + k(d) - (isBoss ? 0 : 0.5), y0, b.marks === 'tuxedo' ? 'o' : pawC ? pawC[2] : LO2); }
     if (isBoss) for (const s of [-1, 1]) { const x0 = HX + s * k(pxo), y0 = k(pyy); P.ellipse(x0, y0 + k(0.4), k(0.8), k(0.6), 'c'); }
     if (isBoss) rim(P, FURSET);
     add(P);
@@ -242,17 +244,16 @@ function cat(b, frame, S = 1, opts = {}) {
       for (const s of [-1, 1]) for (const dy of [0.5, 2.5]) H.rect(s < 0 ? HX - hrx : HX + hrx - k(2.4), HY + k(dy), k(2.4), S, b.stripe);
     }
     if (b.marks === 'tuxedo') {
-      H.poly([[HX, HY - k(3.5)], [HX + k(5), HY + k(7.5)], [HX - k(5), HY + k(7.5)]], '6', on);
-      H.ellipse(HX, HY + k(4), k(5.2), k(3.4), '6', on);
-      H.relight('6', isBoss ? { lo: '5', d: 2 } : { lo: '5' });
+      H.poly([[HX, HY - k(4.6)], [HX + k(6.4), HY + k(7.5)], [HX - k(6.4), HY + k(7.5)]], '6', on);
+      H.ellipse(HX, HY + k(4), k(6.2), k(3.8), '6', on);
+      H.relight('6', isBoss ? { lo: b.marks === 'tuxedo' ? 'o' : '5', d: 2 } : { lo: b.marks === 'tuxedo' ? 'o' : '5' });
     }
-    if (b.marks === 'points') { // seal point: a soft oval mask on the nose only
-      H.poly([[HX - k(4.2), HY + k(0.9)], [HX + k(4.2), HY + k(0.9)], [HX + k(1.4), HY + k(8.4)], [HX - k(1.4), HY + k(8.4)]], b.point[0], on);
-      H.poly([[HX - k(2.4), HY + k(2.4)], [HX + k(2.4), HY + k(2.4)], [HX + k(1.0), HY + k(8.4)], [HX - k(1.0), HY + k(8.4)]], b.point[1], [b.point[0]]);
-      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (H.get(x, y) === b.point[0] && y < HY + k(1.9) && (x + y) % 2 === 0) H.px(x, y, LO); // soft fade into the cream
+    if (b.marks === 'points') { // seal point: ONE diamond mask centred on the nose, cream all around it
+      H.poly([[HX, HY - k(2.6)], [HX + k(4.6), HY + k(2.4)], [HX, HY + k(7.0)], [HX - k(4.6), HY + k(2.4)]], b.point[0], on);
+      H.poly([[HX, HY + k(0.6)], [HX + k(2.6), HY + k(3.4)], [HX, HY + k(6.4)], [HX - k(2.6), HY + k(3.4)]], b.point[1], [b.point[0]]);
     }
-    if (b.marks === 'calico') { H.ellipse(HX - k(4.5), HY - k(3), k(4), k(3.4), 'g', on); H.ellipse(HX + k(5), HY - k(3.4), k(3.4), k(3), '2', on); H.relight('g', isBoss ? { lo: 'h', d: 2 } : { lo: 'h' }); }
-    if (b.marks === 'wrinkles') { for (const [y, w] of [[-5, 2.6], [-3.8, 1.6]]) H.line(HX - k(w), HY + k(y), HX + k(w) - 1, HY + k(y), LO); for (const s of [-1, 1]) H.line(HX + s * k(6.4) - (s > 0 ? 1 : 0), HY + k(2.5), HX + s * k(7.6) - (s > 0 ? 1 : 0), HY + k(4), LO); }
+    if (b.marks === 'calico') { H.ellipse(HX - k(4.5), HY - k(3), k(4), k(3.4), 'g', on); H.ellipse(HX + k(3.6), HY - k(3.2), k(2.8), k(2.6), 'v', on); H.relight('g', isBoss ? { lo: 'h', d: 2 } : { lo: 'h' }); }
+    if (b.marks === 'wrinkles') { for (const [y, w] of [[-6, 2.0], [-4.8, 3.0], [-3.6, 1.6]]) H.line(HX - k(w), HY + k(y), HX + k(w) - 1, HY + k(y), LO); for (const s of [-1, 1]) H.line(HX + s * k(6.4) - (s > 0 ? 1 : 0), HY + k(2.5), HX + s * k(7.6) - (s > 0 ? 1 : 0), HY + k(4), LO); }
     if (b.marks === 'rosettes') { for (const [x, y] of [[-6.2, -2.6], [4.4, -3.4]]) H.stamp(Math.round(HX + k(x)), Math.round(HY + k(y)), ROSETTE[S]); for (const s of [-1, 1]) H.line(HX + s * k(2.2) - (s > 0 ? 1 : 0), HY - hry + k(1.4), HX + s * k(1.4) - (s > 0 ? 1 : 0), HY - k(3.6), 'b'); }
     if (b.marks === 'sheen') { H.line(HX - k(5.2), HY - k(4), HX - k(2.4), HY - k(5.4), '6'); H.px(HX - k(5.2), HY - k(3.4), 's'); for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (!isBoss && H.get(x, y) === BASE && hash2(x, y, 5) < 0.06 && y < HY) H.px(x, y, 's'); }
     // muzzle (light)
@@ -311,7 +312,7 @@ function cat(b, frame, S = 1, opts = {}) {
     Y.outline('0');
     // trailing strand: 1px, curls down from the ball
     let tx = Math.round(yx - yr * 0.3), ty = Math.round(yy + yr) + 1;
-    for (let i = 0; i < k(4); i++) { if (Y.get(tx, ty) === '.') Y.px(tx, ty, 'l'); ty += 1; if (i % 2) tx -= 1; }
+    if (isBoss) for (let i = 0; i < k(3); i++) { if (ty < N - 1 && Y.get(tx, ty) === '.') Y.px(tx, ty, 'l'); ty += 1; if (i % 2) tx -= 1; }
     const P = layer(); P.ellipse(HX + k(pxo), k(pyy + 0.6), k(2.5), k(2.1), BASE); lit(P, BASE, HI, LO, LO2); P.outline('0');
     out.over(Y); out.over(P);
   }
@@ -322,6 +323,10 @@ function cat(b, frame, S = 1, opts = {}) {
       if (isSil(x - 1, y) || isSil(x, y - 1)) out.px(x, y, b.rimTL);
       else if (b.rimBR && (isSil(x + 1, y) || isSil(x, y + 1))) out.px(x, y, b.rimBR);
     }
+  }
+  if (b.marks === 'calico') { // black patches: 1px dark-grey rim on the silhouette so they never bleed into dark ground
+    const c = out.clone(); const isSil = (x, y) => c.get(x, y) === '0' && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => c.get(x + dx, y + dy) === '.');
+    for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) if ((c.get(x, y) === 'v' || c.get(x, y) === '1') && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => isSil(x + dx, y + dy))) out.px(x, y, 'q');
   }
   if (opts.crown) { const Cr = layer(); Cr.stamp(Math.round(HX - 10), Math.round(HY - hry - k(4.4)), CROWN); out.over(Cr); }
   return out;

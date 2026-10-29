@@ -12,7 +12,7 @@ const S = {};
     L.outline('0'); g.over(L); };
   { const L = new Grid(11, 14); L.px(6, 1, '9').px(7, 1, '9').px(7, 2, 'a').px(6, 3, 'a').px(5, 3, '9'); L.outline('0'); g.over(L); } // curled tip
   tier(5.5, 5.0, 2.4, 1.7); tier(5.5, 7.8, 3.6, 1.9); tier(5.5, 10.9, 4.8, 2.2);
-  g.px(4, 4, '8').px(3, 7, '8').px(4, 7, '8').px(2, 10, '8').px(3, 10, '8').px(6, 1, '8'); // highlight ramp
+  g.px(4, 4, '7').px(5, 4, '7').px(3, 7, '7').px(4, 7, '7').px(5, 7, '8').px(2, 10, '7').px(3, 10, '7').px(4, 9, '8').px(6, 1, '7'); // cream highlight swirl stripe
   g.px(4, 11, '0').px(7, 11, '0').px(4, 10, '6').px(7, 10, '6'); // eyes with shine
   g.px(3, 12, 'c').px(8, 12, 'c'); // blush
   S.turd = g; }
@@ -20,19 +20,20 @@ const S = {};
 // dark outline. Two wobble frames (tufts move). Reads as a threat, not a gem: no sparkle, no
 // facets, no symmetric shape.
 function hairball(f) {
+  // a lumpy wad of shed fur: muted tan/brown with grey and pink strands, NOT a glossy ball
   const g = new Grid(12, 12);
-  g.fluff(6, 6, 4.2, 3.9, 'e', 9, 1.1, f ? 0.4 : 0);
-  g.relight('e', { hi: 'd', lo: 'v', d: 1 });
-  // matted grey-brown hair clumps
-  for (const [x, y] of f ? [[4, 4], [7, 6], [5, 8], [8, 4]] : [[5, 4], [7, 7], [4, 7], [8, 5]]) { g.px(x, y, 'p'); if (g.get(x + 1, y) === 'e') g.px(x + 1, y, 'q'); }
-  // self-lit: a light-tan highlight cluster at the top-left so it reads on dark floors without a ring
-  g.ellipse(4.6, 4.4, 1.9, 1.5, 'd', ['e', 'p', 'q']); g.ellipse(4.4, 4.2, 1.2, 0.9, '8', ['d', 'e']); g.px(f ? 6 : 5, 3, '8');
+  g.fluff(6, 6, 4.0, 3.7, '9', 7, 1.4, f ? 0.5 : 0.1);
+  g.relight('9', { hi: '8', lo: 'a', d: 1 });
+  // fur strands: short diagonal strokes in grey, tan and dusty pink
+  const strokes = f ? [[3, 5, 'p'], [6, 3, '8'], [7, 6, 'p'], [4, 8, 'c'], [8, 8, 'a']] : [[4, 4, 'p'], [6, 6, 'c'], [7, 4, '8'], [3, 7, 'a'], [7, 8, 'p']];
+  for (const [x, y, c] of strokes) { if (g.get(x, y) !== '.') g.px(x, y, c); if (g.get(x + 1, y - 1) !== '.') g.px(x + 1, y - 1, c); }
   g.outline('0');
-  // stray hairs: short strands that grow out of the outline (always attached, never floating)
-  for (const a of f ? [0.5, 2.2, 3.7, 5.3] : [0.9, 2.6, 4.1, 5.7]) {
-    let x = 6, y = 6, n = 0;
-    for (let r = 0; r < 8 && n < 2; r += 0.5) { const px = Math.round(6 + Math.cos(a) * r), py = Math.round(6 + Math.sin(a) * r); if (g.get(px, py) === '.' && (px !== x || py !== y)) { g.px(px, py, 'o'); n++; } x = px; y = py; }
-  }
+  // stray hairs: 2px strands growing out of the outline (attached, never floating)
+  const cols = ['8', 'o', 'c', '8'];
+  (f ? [0.4, 2.0, 3.6, 5.2] : [1.0, 2.7, 4.3, 5.8]).forEach((ang, i) => {
+    let n = 0;
+    for (let r = 2; r < 7 && n < 2; r += 0.5) { const px = Math.round(6 + Math.cos(ang) * r), py = Math.round(6 + Math.sin(ang) * r); if (g.get(px, py) === '.') { g.px(px, py, cols[i]); n++; } }
+  });
   return g;
 }
 S.hairball = [hairball(0), hairball(1)];
