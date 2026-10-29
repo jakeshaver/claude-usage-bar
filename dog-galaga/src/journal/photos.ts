@@ -121,9 +121,14 @@ export function photo(id: string, area: string): HTMLCanvasElement | null {
   extras(x, late);
   cache.set(key, c); return c;
 }
-/** Silhouette of Pom on a dark plate: what a locked photo shows. */
-export function lockedPhoto(): HTMLCanvasElement | null {
-  const hit = cache.get('#locked'); if (hit) return hit;
+/** Layers that cover the whole frame: left out of a locked photo's silhouette (they would read as noise). */
+const BACKDROP_EXTRAS: Extra[] = ['window', 'rain', 'drops', 'blanket'];
+/**
+ * What a locked photo shows: a dark plate with Pom as a dim silhouette and the memory's own subject (pup, prop,
+ * cup, door...) as a brighter silhouette, so every locked polaroid has its own shape. Cached per memory.
+ */
+export function lockedPhoto(id = ''): HTMLCanvasElement | null {
+  const key = '#locked|' + id; const hit = cache.get(key); if (hit) return hit;
   if (typeof document === 'undefined') return null;
   const c = document.createElement('canvas'); c.width = PHOTO_W; c.height = PHOTO_H;
   const x = c.getContext('2d')!;
@@ -131,5 +136,16 @@ export function lockedPhoto(): HTMLCanvasElement | null {
   for (let yy = 0; yy < PHOTO_H; yy += 3) checkRow(x, '0', yy, PHOTO_W, (yy / 3) % 2);
   const all: Record<string, string> = {}; for (const k of '0123456789abcdefghijklmnopqrstuv') all[k] = '2';
   sprite(x, 'portrait_pom', 46, 40, all);
-  cache.set('#locked', c); return c;
+  const S = SHOTS[id];
+  if (S) {
+    // subject layer: drawn in full colour on a scratch canvas, then flattened to one palette colour
+    const t = document.createElement('canvas'); t.width = PHOTO_W; t.height = PHOTO_H;
+    const tx = t.getContext('2d')!;
+    extras(tx, S.extra.filter(e => !BACKDROP_EXTRAS.includes(e)));
+    if (S.pup) sprite(tx, 'pup', 72, 50);
+    if (S.prop) sprite(tx, S.prop, 70, 48);
+    tx.globalCompositeOperation = 'source-in'; R(tx, '3', 0, 0, PHOTO_W, PHOTO_H);
+    x.drawImage(t, 0, 0);
+  }
+  cache.set(key, c); return c;
 }
