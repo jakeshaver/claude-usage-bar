@@ -5,7 +5,7 @@ import { PALETTE } from '../core/palette';
 import { Rng } from '../core/rng';
 import { text, textWidth } from '../art/font';
 import { drawSprite } from '../art/sprite';
-import { C, rect, frame, dither, scanlines, chamferFill, chamferLine, darkOf, lighter, hintRow, keys } from '../ui/draw';
+import { C, rect, frame, dither, scanlines, chamferFill, chamferLine, darkOf, lighter, hintRow, keys, dimRect } from '../ui/draw';
 
 /**
  * Treat Bonanza: Galaga-style challenging stages. Cats fly scripted patterns (run by interaction.startBonus)
@@ -24,16 +24,21 @@ import { C, rect, frame, dither, scanlines, chamferFill, chamferLine, darkOf, li
 
 type St = 'idle' | 'intro' | 'fly' | 'results';
 
-const INTRO = 168;            // ticks: banner + countdown; cats launch when it ends
-const COUNT_AT = 66;          // countdown "3" appears
+const INTRO = 168;            // ticks: banner + countdown on the first visit; cats launch when it ends
+const COUNT_AT = 66;          // countdown "3" appears (first visit)
+const COUNT_AT_REPEAT = 34;   // repeat visits: no typed title, no rules line, straight to the count
+const SKIP_AT = 40;           // fire / confirm after this jumps the briefing straight to the countdown
 const BEAT = 30;              // ticks per countdown number
-const GO_T = 34;              // GO! burst lingers into the fly phase
+const GO_T = 20;              // GO! burst lingers into the fly phase (short: the cats are entering)
+const GO_R = 60;              // GO! rings stop growing here, well clear of the entry lanes
 const PERFECT_BONUS = 10000;
 const PER_HIT = 100;
 const HARD_CAP = 60 * 90;     // nothing in a bonus stage may take longer than 90 s (pause excluded)
 const NO_FLIGHT = 90;         // fly ticks without a running interaction flight before the results open anyway
 const CCY = 226;              // countdown reticle / GO! centre (screen y)
-const GREEN = PALETTE[20];    // dark green: the GO! outline
+const GREEN = PALETTE[20];
+/** Timing contract, exported for the watchdog tests. */
+export const BONUS_TIMING = { INTRO, NO_FLIGHT, HARD_CAP, RESULTS_MAX: 26 + 60 + 26 + 40 + 240 };    // dark green: the GO! outline
 
 /** Results board timeline, computed once when the results open. */
 interface Board { hits: number; total: number; bonus: number; perfect: boolean; hitsAt: number; roll: number; bonusAt: number; bonusRoll: number; doneAt: number; end: number; H: number }
@@ -57,6 +62,9 @@ class Minigames implements Module {
   g!: Game;
   st: St = 'idle';
   t = 0;                  // ticks in the current state
+  countAt = COUNT_AT;     // this stage's countdown start (shorter on repeat visits)
+  intro = INTRO;          // this stage's intro length
+  repeat = false;         // the player has seen a bonus stage before (flag bonus_seen)
   all = 0;                // ticks since the bonus started (hard cap)
   def: BonusDef | null = null;
   hits = 0;               // own count from cat:boop (fallback if interaction loses its tally)
@@ -72,13 +80,13 @@ class Minigames implements Module {
   bits: Bit[] = [];
   rng = new Rng(0xb0a7);  // cosmetic only: never touches the game's seeded stream
   /** showcase pinning: ?showcase=bonus&phase=intro|fly|results|perfect&at=<tick> */
-  demo: { phase: string; at: number } | null = null;
+  demo: { phase: string; at: number; repeat: boolean } | null = null;
 
   init(g: Game) {
     this.g = g;
     if (!g.headless && typeof location !== 'undefined') {
       const p = new URLSearchParams(location.search); const sc = p.get('showcase');
-      if ((sc === 'bonus' || sc === 'minigames') && p.get('phase')) this.demo = { phase: p.get('phase')!, at: +(p.get('at') ?? -1) };
+      if ((sc === 'bonus' || sc === 'minigames') && p.get('phase')) this.demo = { phase: p.get('phase')!, at: +(p.get('at') ?? -1), repeat: p.get('repeat') === '1' };
     }
     g.bus.on('cat:boop', (p: any) => {
       if (this.st !== 'fly' || !p?.bonus) return;
@@ -105,6 +113,8 @@ class Minigames implements Module {
     this.def = def; this.hits = 0; this.pop = 0; this.board = null; this.all = 0; this.noFlight = 0;
     this.added = 0; this.revealed = false; this.bits = []; this.resultFromBus = false;
     this.flyLimit = def.groups * 140 + 60 * 30;
+    this.repeat = !!g.state.flags?.bonus_seen || !!this.demo?.repeat;
+    this.countAt = this.repeat ? COUNT_AT_REPEAT : COUNT_AT; this.intro = this.countAt + 3 * BEAT + 12;
     g.setScene('bonus');
     this.muteToasts(true);
     g.bus.emit('bonus:start', { id });
@@ -166,6 +176,7 @@ class Minigames implements Module {
     if (b) { this.pay(b.bonus); this.reveal(); }
     this.muteToasts(false);
     this.st = 'idle'; this.t = 0; this.board = null; this.bits = [];
+    try { g.ops.setFlag('bonus_seen'); } catch { /* cosmetic: only shortens the next intro */ }
     if (g.state.scene === 'bonus') g.setScene('play');
     g.bus.emit('bonus:end', { id, hits, total });
   }
@@ -194,9 +205,11 @@ class Minigames implements Module {
     if (!pinned) this.stepBits();
 
     if (this.st === 'intro') {
-      for (let k = 0; k < 3; k++) if (this.t === COUNT_AT + k * BEAT) this.sfx('blip');
-      if (this.t === COUNT_AT + 3 * BEAT) this.sfx('select');
-      if (this.t >= INTRO) this.launch();
+      // the briefing is skippable: fire / confirm jumps straight to the 3-2-1 (never past it)
+      if (!d && this.t > SKIP_AT && this.t < this.countAt && (g.input.pressed('fire') || g.input.pressed('confirm'))) this.t = this.countAt;
+      for (let k = 0; k < 3; k++) if (this.t === this.countAt + k * BEAT) this.sfx('blip');
+      if (this.t === this.countAt + 3 * BEAT) this.sfx('select');
+      if (this.t >= this.intro) this.launch();
     } else if (this.st === 'fly') {
       this.noFlight = g.mods.interaction?.mode === 'bonus' ? 0 : this.noFlight + 1;
       if (this.noFlight > NO_FLIGHT || this.t > this.flyLimit || this.all > HARD_CAP) {   // watchdog: no report back
@@ -262,9 +275,10 @@ class Minigames implements Module {
     }
     this.bits = out;
   }
-  private drawBits(ctx: CanvasRenderingContext2D, T: number) {
+  private drawBits(ctx: CanvasRenderingContext2D, T: number, keep: { x: number; y: number; w: number; h: number }) {
     for (const p of this.bits) {
       const x = Math.round(p.x), y = Math.round(p.y); if (x < PF_X + 1 || x > PF_X + PF_W - 4) continue;
+      if (x + 3 > keep.x && x - 2 < keep.x + keep.w && y + 2 > keep.y && y - 2 < keep.y + keep.h) continue;   // off the board
       if (p.life < 20 && (T & 2)) continue;              // fade = blink out
       const ph = ((T >> 2) + p.k) & 3;
       if (p.k === 3) {                                    // tiny star, glinting white
@@ -281,7 +295,7 @@ class Minigames implements Module {
     if (this.st === 'idle' || g.state.scene !== 'bonus') return;
     const T = g.tick;
     if (this.st === 'intro') this.drawIntro(ctx, T);
-    if (this.st === 'fly' || (this.st === 'intro' && this.t > INTRO - 24)) this.drawCounter(ctx, T);
+    if (this.st === 'fly' || (this.st === 'intro' && this.t > this.intro - 24)) this.drawCounter(ctx, T);
     if (this.st === 'fly' && this.t < GO_T) this.drawGo(ctx, this.t);
     if (this.st === 'results') this.drawResults(ctx, T);
   }
@@ -349,7 +363,7 @@ class Minigames implements Module {
 
   private drawIntro(ctx: CanvasRenderingContext2D, T: number) {
     const t = this.t; const cx = PF_X + PF_W / 2; const def = this.def!;
-    const open = t < 14 ? t / 14 : t > INTRO - 14 ? Math.max(0, (INTRO - t) / 14) : 1;
+    const I = this.intro; const open = t < 14 ? t / 14 : t > I - 14 ? Math.max(0, (I - t) / 14) : 1;
     const CY = 124, BH = 108;
     this.band(ctx, CY, BH, open, C.gold, T);
     if (open < 1) return;
@@ -363,7 +377,7 @@ class Minigames implements Module {
     // the stage's own name types in letter by letter, the newest letter flashing white
     const title = (def.name || 'Treat Bonanza').toUpperCase() + '!';
     const sc = textWidth(title, 3) <= PF_W - 24 ? 3 : 2;
-    const shown = Math.min(title.length, Math.max(0, Math.floor((t - 10) / 2)));
+    const shown = this.repeat ? title.length : Math.min(title.length, Math.max(0, Math.floor((t - 10) / 2)));
     if (shown > 0) {
       const full = textWidth(title, sc); const left = Math.round(cx - full / 2);
       for (let i = 0; i < shown; i++) {
@@ -373,16 +387,18 @@ class Minigames implements Module {
       }
     }
     // briefing lines
-    if (t > 40) {
+    const L = this.repeat ? 14 : 40;   // briefing reveal (repeat visits: at once, and without the rules line)
+    if (t > L) {
       const tot = def.groups * 8; const ed = this.g.content.enemies.find(e => e.id === def.breed);
       const nm = (ed?.name ?? def.breed).toUpperCase();
       text(ctx, `${tot} ${plural(nm, tot)} INBOUND`, cx, top + 56, C.pink, { align: 'center', shadow: C.ink });
-      if (t > 48) text(ctx, 'THEY WON\'T FIGHT BACK. BOOP THEM ALL!', cx, top + 70, C.text, { align: 'center', shadow: C.ink });
-      if (t > 56) {   // flight plan: tiny path glyph + hint, centred as one unit
+      if (!this.repeat && t > 48) text(ctx, 'THEY WON\'T FIGHT BACK. BOOP THEM ALL!', cx, top + 70, C.text, { align: 'center', shadow: C.ink });
+      if (t > L + 16) {   // flight plan: tiny path glyph + hint, centred as one unit
         const hint = `FLIGHT PLAN: ${plan(def.pattern).hint}`; const gw = 30, uw = gw + 6 + textWidth(hint);
         const ux = Math.round(cx - uw / 2);
-        this.planGlyph(ctx, ux, top + 83, gw, 15, T);
-        text(ctx, hint, ux + gw + 6, top + 87, C.ice, { shadow: C.ink });
+        const py = this.repeat ? top + 72 : top + 83;
+        this.planGlyph(ctx, ux, py, gw, 15, T);
+        text(ctx, hint, ux + gw + 6, py + 4, C.ice, { shadow: C.ink });
       }
       if (ed?.sprite) {   // breed mugshots flanking the briefing
         const bob = (T >> 4) & 1;
@@ -390,8 +406,11 @@ class Minigames implements Module {
         drawSprite(ctx, ed.sprite, PF_X + PF_W - 30, top + 64 + (bob ^ 1), { flipX: true });
       }
     }
+    // skip hint under the band while the briefing reads (first visit only: repeat visits are already short)
+    if (!this.repeat && t > SKIP_AT && t < this.countAt && (T >> 4) % 4 !== 3)
+      hintRow(ctx, [[keys(this.g.input.lastDevice ?? 'keyboard').fire, 'SKIP']], cx, CY + BH / 2 + 12, C.gold);
     // countdown: 3, 2, 1 inside a spinning targeting reticle
-    const ct = t - COUNT_AT;
+    const ct = t - this.countAt;
     if (ct >= 0 && ct < 3 * BEAT) {
       const k = Math.floor(ct / BEAT); const lt = ct % BEAT; const num = String(3 - k);
       const ccx = cx, ccy = CCY;
@@ -411,50 +430,50 @@ class Minigames implements Module {
   private drawGo(ctx: CanvasRenderingContext2D, t: number) {
     const cx = PF_X + PF_W / 2, cy = CCY;
     if (t > GO_T - 10 && (t & 2)) return;            // blinks out
-    for (let i = 0; i < 2; i++) { const r = 20 + t * 3 - i * 14; if (r > 8) this.annulus(ctx, cx, cy, r, r + 1, i ? C.lime : C.cream, 12, 0.6, t * 0.05); }
+    for (let i = 0; i < 2; i++) { const r = Math.min(GO_R - i * 12, 24 + t * 3 - i * 12); if (r > 8) this.annulus(ctx, cx, cy, r, r + 1, i ? C.lime : C.cream, 12, 0.6, t * 0.05); }
     this.outlined(ctx, 'GO!', cx + 2, cy - 14, t < 4 ? C.text : C.lime, GREEN, 4);
   }
 
-  /** Live hit counter docked at the top of the playfield: HITS nn/NN plus one cell per cat, grouped by squadron. */
+  /**
+   * Live hit counter: frameless and slim (y 3..17) so the flyby cats stay visible behind it. One outlined line,
+   * HITS 07/40, over one pip per cat grouped by squadron (each group a 1px ink-rimmed strip, no fill behind).
+   */
   private drawCounter(ctx: CanvasRenderingContext2D, T: number) {
     const total = this.total(); const hits = this.liveHits(); const groups = Math.max(1, Math.ceil(total / 8));
-    const cw = 4, ch = 5, gap = 5, gw = 8 * (cw + 1) - 1; const cellsW = groups * gw + (groups - 1) * gap;
-    const w = Math.max(132, cellsW + 20), h = 30; const x = Math.round(PF_X + PF_W / 2 - w / 2), y = 6;
-    const hot = this.pop > 6; const cx = PF_X + PF_W / 2;
-    frame(ctx, x, y, w, h, hot ? C.text : C.gold, C.night, 4);
-    // one readout, one format: HITS 07/40 (label ice, number gold), with a blinking live LED to its left
-    const num = `${String(hits).padStart(2, '0')}/${total}`; const lw = textWidth('HITS '), nw = textWidth(num);
-    const tx = Math.round(cx - (lw + nw) / 2);
-    rect(ctx, tx - 8, y + 7, 3, 3, (T >> 4) & 1 ? C.lime : darkOf(C.lime));
-    text(ctx, 'HITS', tx, y + 6, C.ice, { shadow: C.ink });
-    text(ctx, num, tx + lw, y + 6 - (this.pop > 7 ? 1 : 0), hot ? C.text : C.gold, { shadow: C.burnt });
-    const cx0 = Math.round(cx - cellsW / 2);
+    const cw = 4, ch = 3, gap = 5, gw = 8 * (cw + 1) - 1; const cellsW = groups * gw + (groups - 1) * gap;
+    const cx = PF_X + PF_W / 2; const y = 4; const hot = this.pop > 6;
+    const num = `${String(hits).padStart(2, '0')}/${total}`; const s = `HITS ${num}`;
+    const tx = Math.round(cx - textWidth(s) / 2), lw = textWidth('HITS ');
+    const ol = (str: string, x: number, yy: number, c: string) => {
+      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1]]) text(ctx, str, x + dx, yy + dy, C.ink);
+      text(ctx, str, x, yy, c);
+    };
+    ol('HITS', tx, y, C.ice);
+    ol(num, tx + lw, y - (this.pop > 7 ? 1 : 0), hot ? C.text : C.gold);
+    const ly = y + 2; rect(ctx, tx - 7, ly - 1, 5, 5, C.ink); rect(ctx, tx - 6, ly, 3, 3, (T >> 4) & 1 ? C.lime : darkOf(C.lime));   // live LED
+    const cx0 = Math.round(cx - cellsW / 2), py = y + 11;
     for (let gi = 0; gi < groups; gi++) {
-      const have = Math.max(0, Math.min(8, hits - gi * 8)); const full = have === 8;
+      const gx = cx0 + gi * (gw + gap); const have = Math.max(0, Math.min(8, hits - gi * 8)); const full = have === 8;
+      rect(ctx, gx - 1, py - 1, gw + 2, ch + 2, C.ink);
       for (let i = 0; i < 8; i++) {
-        const px = cx0 + gi * (gw + gap) + i * (cw + 1), py = y + 18;
-        if (i < have) { const c = full ? C.lime : C.gold; rect(ctx, px, py, cw, ch, c); rect(ctx, px, py, cw, 1, lighter(c)); rect(ctx, px, py + ch - 1, cw, 1, darkOf(c)); }
-        else { rect(ctx, px, py, cw, ch, C.deep); rect(ctx, px, py, cw, 1, C.line2); }
+        const px = gx + i * (cw + 1);
+        if (i < have) { const c = full ? C.lime : C.gold; rect(ctx, px, py, cw, ch, c); rect(ctx, px, py, cw, 1, lighter(c)); }
+        else rect(ctx, px, py, cw, ch, C.deep);
       }
     }
-    if (this.pop > 0 && hits > 0) {   // the newest cell sparkles
+    if (this.pop > 0 && hits > 0) {   // the newest pip sparkles
       const i = hits - 1; const px = cx0 + Math.floor(i / 8) * (gw + gap) + (i % 8) * (cw + 1);
-      rect(ctx, px - 2, y + 20, 1, 1, C.text); rect(ctx, px + cw + 1, y + 20, 1, 1, C.text); rect(ctx, px + 1, y + 16, 2, 1, C.text);
+      rect(ctx, px - 2, py + 1, 1, 1, C.text); rect(ctx, px + cw + 1, py + 1, 1, 1, C.text); rect(ctx, px + 1, py + ch + 1, 2, 1, C.text);
     }
   }
 
-  /** Pom, drawn clean above the results dim so the player stays the hero. Mirrors the player's own pose. */
-  private drawPom(ctx: CanvasRenderingContext2D, top: number, bottom: number) {
-    try {
-      const P: any = this.g.mods.player; if (!P || this.g.mods.world?.phase === 'nap') return;
-      const camX = Math.round(P.camera?.x ?? 0); const bob = Math.round(Math.sin((P.anim ?? 0) / 10));
-      const sx = PF_X - camX + P.x, sy = P.y + bob; if (sy + 16 > top && sy - 16 < bottom) return;   // never over the board
-      if (P.invuln > 0 && Math.floor(P.invuln / 4) % 2 === 0) return;
-      const name = P.vx < -0.8 ? 'poodle_left' : P.vx > 0.8 ? 'poodle_right' : 'poodle';
-      ctx.save(); ctx.beginPath(); ctx.rect(PF_X, 0, PF_W, 360); ctx.clip();
-      drawSprite(ctx, name, sx, sy, { frame: Math.floor((P.anim ?? 0) / 6) % 2 });
-      ctx.restore();
-    } catch { /* cosmetic */ }
+  /** Mugshot: the breed at 1x (same pixel density as everything else) in a 36x36 chip, bobbing inside it. */
+  private mugshot(ctx: CanvasRenderingContext2D, x: number, y: number, acc: string, T: number) {
+    const ed = this.def ? this.g.content.enemies.find(e => e.id === this.def!.breed) : null;
+    frame(ctx, x, y, 36, 36, acc, C.ink, 3);
+    if (!ed?.sprite) return;
+    ctx.save(); ctx.beginPath(); ctx.rect(x + 1, y + 1, 34, 34); ctx.clip();
+    drawSprite(ctx, ed.sprite, x + 18, y + 18 + ((T >> 4) & 1)); ctx.restore();
   }
 
   private drawResults(ctx: CanvasRenderingContext2D, T: number) {
@@ -465,15 +484,24 @@ class Minigames implements Module {
     const W0 = 304, H0 = b.H;
     const h = Math.max(4, Math.round(H0 * open) & ~1); const x = cx - W0 / 2, y = 64 + (H0 - h) / 2;
     const acc = b.perfect ? [C.gold, C.hot, C.line, C.lime][(T >> 3) & 3] : C.line;
-    // a light 25% dim on a normal clear (none on a perfect: the reward moment stays loud and clean), then a
-    // solid ink apron hugging the board so it lifts off any scenery; Pom is redrawn clean on top of the dim
-    if (!b.perfect) dither(ctx, PF_X, 0, PF_W, 360, C.ink, 'sparse');
+    // the board lifts off the scenery with a local falloff only (never a full-field screen door): a 16px band
+    // remapped to the palette's dark neighbours, a 4px ink checker, then the solid ink apron. Perfect: no dim.
+    if (!b.perfect) {
+      // ring(r0, r1): the frame-shaped strip between insets r0 and r1 outside the board, as 4 rects
+      const ring = (r0: number, r1: number, fn: (rx: number, ry: number, rw: number, rh: number) => void) => {
+        const X0 = Math.max(PF_X + 1, x - r1), X1 = Math.min(PF_X + PF_W - 1, x + W0 + r1), Y0 = Math.max(0, y - r1), Y1 = y + h + r1;
+        fn(X0, Y0, X1 - X0, y - r0 - Y0); fn(X0, y + h + r0, X1 - X0, Y1 - (y + h + r0));
+        fn(X0, y - r0, x - r0 - X0, h + 2 * r0); fn(x + W0 + r0, y - r0, X1 - (x + W0 + r0), h + 2 * r0);
+      };
+      ring(3, 15, (a, c, w, hh) => dimRect(ctx, a, c, w, hh));                       // remapped dark neighbours
+      ring(15, 19, (a, c, w, hh) => dither(ctx, a, c, w, hh, C.ink, 'sparse'));     // dithered fringe: no hard edge
+    }
     rect(ctx, x - 3, y - 3, W0 + 6, h + 6, C.ink);
     dither(ctx, x - 7, y - 7, W0 + 14, 4, C.ink, 'check'); dither(ctx, x - 7, y + h + 3, W0 + 14, 4, C.ink, 'check');
     dither(ctx, x - 7, y - 3, 4, h + 6, C.ink, 'check'); dither(ctx, x + W0 + 3, y - 3, 4, h + 6, C.ink, 'check');
-    if (!b.perfect) this.drawPom(ctx, y - 8, y + h + 8);
+    const keep = { x: x - 7, y: y - 7, w: W0 + 14, h: h + 14 };   // confetti never lands on the board
     frame(ctx, x, y, W0, h, acc, C.night, 6);
-    if (open < 1) { this.drawBits(ctx, T); return; }
+    if (open < 1) { this.drawBits(ctx, T, keep); return; }
     scanlines(ctx, x + 2, y + 2, W0 - 4, h - 4);
     // header strip: the stage's name, a marching chevron run centred between the labels, RESULTS
     chamferFill(ctx, x + 10, y + 8, W0 - 20, 15, C.deep, 4);
@@ -486,16 +514,8 @@ class Minigames implements Module {
       const xx = c0 + i * 6; const lit = ((i - (T >> 2)) % 10 + 10) % 10 < 2; const cc = lit ? C.ice : C.line2;
       rect(ctx, xx, y + 12, 1, 1, cc); rect(ctx, xx + 1, y + 13, 1, 1, cc); rect(ctx, xx + 2, y + 14, 1, 1, cc); rect(ctx, xx + 1, y + 15, 1, 1, cc); rect(ctx, xx, y + 16, 1, 1, cc);
     }
-    // breed mugshot at 2x in a framed chip, lined up with the HITS row (and the BONUS row on a normal clear)
-    const ed = this.def ? this.g.content.enemies.find(e => e.id === this.def!.breed) : null;
-    const chipH = b.perfect ? 22 : 42, chipY = y + 29, chipW = b.perfect ? 30 : 42;
-    frame(ctx, x + 14, chipY, chipW, chipH, b.perfect ? C.gold : C.line, C.ink, 3);
-    if (ed?.sprite) {
-      ctx.save(); ctx.beginPath(); ctx.rect(x + 15, chipY + 1, chipW - 2, chipH - 2); ctx.clip();
-      const scl = b.perfect ? 1 : 2; ctx.translate(x + 14 + chipW / 2, chipY + chipH / 2 + ((T >> 4) & 1)); ctx.scale(scl, scl);
-      drawSprite(ctx, ed.sprite, 0, 0); ctx.restore();
-    }
-    const LX = x + 66, RX = x + W0 - 18;
+    this.mugshot(ctx, x + 14, y + 29, b.perfect ? C.gold : C.line, T);
+    const LX = x + 60, RX = x + W0 - 18;
     const row = (lbl: string, val: string, yy: number, c: string, live: boolean) => {
       text(ctx, lbl, LX, yy, C.text, { shadow: C.ink });
       for (let px = LX + textWidth(lbl) + 6; px < RX - textWidth(val) - 6; px += 4) rect(ctx, px, yy + 5, 2, 1, C.peri);   // leader dots
@@ -503,11 +523,14 @@ class Minigames implements Module {
     };
     if (t >= b.hitsAt) {
       row('NUMBER OF HITS', `${this.shown.hits}/${b.total}`, y + 32, C.gold, t <= b.hitsAt + b.roll);
-      const total = Math.max(1, b.total); const cw = Math.max(2, Math.min(4, Math.floor((RX - LX) / total) - 1));   // one pip per cat
-      const sw = total * (cw + 1) - 1; const sx = RX - sw;
-      for (let i = 0; i < total; i++) {
-        const on = i < this.shown.hits; const c = on ? (b.perfect ? C.lime : C.gold) : C.deep;
-        rect(ctx, sx + i * (cw + 1), y + 44, cw, 3, c); rect(ctx, sx + i * (cw + 1), y + 44, cw, 1, on ? lighter(c) : C.line2);
+      // one pip per cat while counting; on a perfect the bar leaves once full (40/40 already says it)
+      if (!b.perfect || t < b.bonusAt) {
+        const total = Math.max(1, b.total); const cw = Math.max(2, Math.min(4, Math.floor((RX - LX) / total) - 1));
+        const sw = total * (cw + 1) - 1; const sx = RX - sw;
+        for (let i = 0; i < total; i++) {
+          const on = i < this.shown.hits; const c = on ? (b.perfect ? C.lime : C.gold) : C.deep;
+          rect(ctx, sx + i * (cw + 1), y + 44, cw, 3, c); rect(ctx, sx + i * (cw + 1), y + 44, cw, 1, on ? lighter(c) : C.line2);
+        }
       }
     }
     const prompt = (yy: number) => {
@@ -527,18 +550,27 @@ class Minigames implements Module {
     }
     if (t >= b.bonusAt && b.perfect) {
       const pt = t - b.bonusAt;
-      // PERFECT! drops in with a bounce: solid gold, a single white sweep running across the letters
       const word = 'PERFECT!'; const sc = 4; const full = textWidth(word, sc);
-      const dy = pt < 8 ? -(8 - pt) * 4 : pt < 12 ? (12 - pt) - 2 : 0;
-      const left = Math.round(cx - full / 2); const sweep = ((pt >> 1) % 30) - 8;
-      for (let i = 0; i < word.length; i++) {
-        const dd = Math.abs(i - sweep); const c = pt < 3 || dd === 0 ? C.text : dd === 1 ? C.cream : C.gold;
-        this.outlined(ctx, word[i], left + i * 6 * sc + 10, y + 58 + dy, c, C.burnt, sc, C.ink);
-      }
-      for (let i = 0; i < 6; i++) {   // sparkles orbiting the word
-        const a = (T / 20) + i * Math.PI / 3; const sx = Math.round(cx + Math.cos(a) * 112), sy = Math.round(y + 72 + Math.sin(a) * 18);
+      const wy = y + 54; const dy = pt < 8 ? -(8 - pt) * 4 : pt < 12 ? (12 - pt) - 2 : 0;
+      const left = Math.round(cx - full / 2);
+      // sparkles orbit the word BEHIND it, and never inside a text box (word, HITS row, mugshot, bonus chip)
+      const clear = [
+        { x: left - 4, y: wy - 4, w: full + 8, h: 7 * sc + 10 },
+        { x: LX - 4, y: y + 28, w: RX - LX + 8, h: 16 },
+        { x: x + 10, y: y + 25, w: 44, h: 44 },
+        { x: cx - 114, y: y + 94, w: 228, h: 23 },
+      ];
+      for (let i = 0; i < 6; i++) {
+        const a = (T / 20) + i * Math.PI / 3; const sx = Math.round(cx + Math.cos(a) * 124), sy = Math.round(wy + 15 + Math.sin(a) * 32);
+        if (clear.some(r => sx + 3 > r.x && sx - 3 < r.x + r.w && sy + 3 > r.y && sy - 3 < r.y + r.h)) continue;
         const s = ((T >> 2) + i) & 1 ? 2 : 1; const c = i & 1 ? C.gold : C.text;
         rect(ctx, sx - s, sy, s * 2 + 1, 1, c); rect(ctx, sx, sy - s, 1, s * 2 + 1, c);
+      }
+      // PERFECT! drops in with a bounce: solid gold, a single white sweep running across the letters
+      const sweep = ((pt >> 1) % 30) - 8;
+      for (let i = 0; i < word.length; i++) {
+        const dd = Math.abs(i - sweep); const c = pt < 3 || dd === 0 ? C.text : dd === 1 ? C.cream : C.gold;
+        this.outlined(ctx, word[i], left + i * 6 * sc + 10, wy + dy, c, C.burnt, sc, C.ink);
       }
       if (pt > 20) {
         const sw = 220; chamferFill(ctx, cx - sw / 2, y + 98, sw, 15, C.burnt, 4); chamferLine(ctx, cx - sw / 2, y + 98, sw, 15, C.gold, 4);
@@ -548,7 +580,7 @@ class Minigames implements Module {
       if (pt > 52) text(ctx, 'GOOD GIRL, POM. TAIL WAGS ALL ROUND.', cx, y + 134, C.dim, { align: 'center' });
       prompt(y + 150);
     }
-    this.drawBits(ctx, T);
+    this.drawBits(ctx, T, keep);
   }
 }
 

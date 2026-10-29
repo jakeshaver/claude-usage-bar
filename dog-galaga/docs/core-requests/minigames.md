@@ -37,3 +37,38 @@
      `groups*140 + 1800` fly ticks, hard cap 90 s. When minigames opens the board itself it emits
      `bonus:result {id, hits, total, synthetic: true}` so audio plays the results stinger.
    - Results accept fire / confirm (keyboard, gamepad A, touch TOOT) to skip the tail once counting is done.
+
+## Round 3 (wave 2)
+
+7. **vite.config.ts (tests): run the minigames watchdog tests.** New file `src/minigames/minigames.test.ts`
+   (6 tests: throwing `interaction.startBonus`, no-op start, a flight that never reports (fly limit), the scene
+   switched to 'play' underneath, the real flight + double-start guard, unknown id). Module owners can only write
+   inside their folder, so please widen the include:
+   `test: { ..., include: ['tests/**/*.test.ts', 'src/**/*.test.ts'] }`. Verified green with that include
+   (`npx vitest run --config <cfg with that include>`: 6/6 pass, ~1.4 s). It typechecks under `tsc --noEmit -p .`.
+8. **ui (right panel during `scene === 'bonus'`): no duplicate counter, show the stage instead.** Supersedes
+   requests 1, 4 and 5. The live counter now lives only in the playfield (frameless `HITS 07/40` + pip row at
+   y 3..17, owned by minigames). Two labels ('HITS' vs 'TREATS CAUGHT') counting the same thing is the critic's
+   #2, and an empty BONANZA body during intro/results is #4. Please, whenever `g.state.scene === 'bonus'`:
+   - WAVE slot: `BONUS STAGE 01` (index = `g.content.bonus.indexOf(g.mods.minigames.def) + 1`, 2 digits) in
+     place of `WAVE 1/11`, the stage name (`def.name`, upper case, e.g. `MAILBOX BONANZA`) on the next line,
+     and no wave progress bar.
+   - Threat slot (`src/ui/index.ts` ~line 457): header `BONUS STAGE` (not BONANZA), body = the breed mugshot
+     plus `NO RETURN FIRE` / `BOOP THEM ALL`, i.e. static stage info, not a second tally. If you prefer to keep a
+     number there, use exactly `HITS 07/40` from `g.mods.minigames.liveHits()` / `total()` (always defined while
+     `g.mods.minigames.active()`), never interaction's tally (it is empty during the intro and results).
+9. **interaction (owner of `bonusPath` / `startBonus`): clean single-file trains (critic #5).** Today each
+   squadron flies as 4 side-by-side pairs (`lat: k % 2 ? -8 : 8`, `delay: gi * 140 + Math.floor(k / 2) * 16`), so
+   two 32 px cats share a spot 16 px apart and read as clumps. Galaga's challenging stages are single-file trains
+   of evenly spaced sprites. Suggested in `src/interaction/index.ts` `startBonus`:
+   `lat: 0, delay: gi * 150 + k * 14` (14 ticks x speed 2.5 = 35 px between cats, so no two overlap by more
+   than ~0 px on a straight; <= 8 px on the tightest curve), and let consecutive squadrons start >= 150 ticks
+   apart so trains of mirrored paths cross rather than stack. Minigames' fly limit (`groups*140 + 1800`) still
+   covers it (`groups*150` adds 10 ticks per group, well inside the 1800 slack).
+10. **ARCHITECTURE.md (events table + minigames API).**
+    - `bonus:start` `{id}`; `bonus:end` `{id, hits, total}` (minigames, always exactly once per start).
+    - Add a row: `bonus:result` | `{id, hits, total, synthetic?}` | interaction (flight finished), or minigames
+      with `synthetic: true` when its watchdog / a throw opened the board. Audio plays the results stinger on it.
+    - Intro: fire / confirm after 40 ticks skips the briefing straight to the 3-2-1. After the first stage the
+      flag `bonus_seen` is set (in `finish`), and later stages play a short intro (title at once, no rules line,
+      countdown at tick 34, 136 ticks total instead of 168).
