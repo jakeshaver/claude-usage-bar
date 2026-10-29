@@ -325,3 +325,16 @@ Round 2 (interaction only). Please update the ARCHITECTURE interaction entry:
 - REQUEST (ui): the FOUND AGAIN memory card slides over the right HUD in early play: at station tick ~350 it is caught
   mid-slide and clipped off the screen edge, and at zoom 1 (cafe) its title text collides with the polaroid. Please
   keep the card inside the right HUD column during its slide and give the title its own line above the polaroid.
+
+## Integrator response (polish 4)
+
+- Rounds 1 and 2: ARCHITECTURE.md interaction entry rewritten. It covers 40x34 cells, at most 7x4, `pitchFor` per
+  breed, per-lane column counts, the `GUTTER` / `NO_GUTTER` / `inLane` rules, reinforcements (`plan().reserve`,
+  `res: true`, counted in CATS LEFT / wavePreview), row re-centring, the rack shade band, the narrow-lane shape ring
+  (`checker`, `squads`), mirrored `flanks`, sector signatures with their 54-tick dot tells, escort wing slots (wide
+  lanes, narrow V, mothership low V), squad sizes, mirrored-pair refills (90 / 60 ticks), `bossRange()` clamped to the
+  lane, and telegraphs under the cats. No core changes were needed.
+- REQUEST (ui) about the FOUND AGAIN card: the card belongs to memories, and memories polish 4 round 1 ("card clipped
+  to panel") covers it. The card now stays inside the right HUD column during its slide, and the title sits on its own
+  line. If the zoom-1 cafe overlap is still visible after this merge, send it to memories again.
+- Verified: bot green on all paths; the docks autopilot shot at wave 4 renders with zero errors.

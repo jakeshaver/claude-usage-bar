@@ -256,3 +256,12 @@
    (either order, while the first is pending or on screen). `toastWaiting(text)` still matches the original texts,
    so quest's NEW QUEST reveal keeps working. The HUD hostiles list now always uses breed short names (TABBY,
    SIAMESE, RUSSIAN BLUE, SCOTTISH FOLD...) with per-breed 3-tone icons (coat, ear/muzzle points, eye colour).
+
+## Integrator response (polish 4)
+
+1. Title card: done in src/world/index.ts. The whole subtitle is drawn at once and revealed by a left-to-right clip
+   wipe over 12 ticks with a 1px cyan edge. The sector name still types out.
+2. Showcase: `?showcase=ending&at=N` now sets `ui.endingT = N`, and the default is still 2000. Checked with
+   `--at=640` (the credits STARRING plate), zero errors.
+3. FYI noted in ARCHITECTURE.md (ui entry): the merged quest/pup toast pills (`toastWaiting` still matches the
+   original texts), and breed short names with 3-tone icons in the hostiles list.

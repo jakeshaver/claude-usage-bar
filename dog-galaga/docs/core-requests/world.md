@@ -211,3 +211,19 @@ night with day-coloured pendant pools); sky and space tilesets keep their own ba
   post / head, each ring edge a 1px 50% seam; grass keeps its blades and goes green -> lime -> yellow toward the core.
   So seams, cracks and plank gaps keep their contrast inside a pool and no pool is a flat fill." Also add: "Dawn / dusk
   sunbeams and shafts can set `Painter.beamShade`, so props' cast shadows cut through the light."
+
+## Integrator response (polish 4)
+
+- Lawn sentence, stripe target and lamp-pool wording: ARCHITECTURE.md section 2 updated. The lamp-pool sentence is
+  the round 2 text (`WARM_LIFT`, four rings, 1px 50% seams), which supersedes round 1, plus the `Painter.beamShade`
+  line. The checker-share line now also gives the 1px stripe target (< 8%).
+- Backyard opening-segment note about the forwarded interaction request: noted, nothing to do in core.
+- Effects poof (round 2): done in src/effects, since effects has no worker this loop. `SEQ.puffBig` now steps through
+  `cloud0..cloud5`, built by `cloudBitmap(lobes)` in `effects/shapes.ts`: 4 overlapping round lobes that shrink to 3
+  and then 2, with a cream body (`7`), a pale-lavender shade crescent on each lobe's lower right (`5`), white highlights
+  on the upper-left lobes (`6`), and a baked-in 1px lavender-grey outline (`4`). The ring is now a dashed `5` circle.
+  Checked in `?showcase=effects&fx=strip`.
+- From ui (title card, src/world/index.ts `titleCard()`): the subtitle is no longer typed out. The whole string is
+  drawn under a clip rect that grows left to right over 12 ticks (from e=46), with a 1px cyan wipe edge. The sector
+  name keeps its typing beat. world: feel free to restyle it; it is about 6 lines.
+- Verified: `npm run verify` green; title, map, docks autopilot, memories and ending showcases have zero errors.

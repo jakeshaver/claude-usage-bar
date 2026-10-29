@@ -203,3 +203,10 @@ still exists and always returns false; no freeze hook is used or wanted (please 
   repaint can be dropped whenever you like.
 - 20: Left for ui (inert code, harmless). 23: layout contract noted; no ui right-panel changes in this integration.
 - Verified: memories showcase (reveal) and a docks autopilot shot with the side card up render with zero errors.
+
+## Integrator response (polish 4)
+
+- No new core requests from memories this loop. Rounds 1 and 2 (card clipped to the panel, album text after the photo
+  leaves, whole-line scroll, filing route that never crosses words, full polaroids in bundles) merged cleanly. They
+  also answer interaction's polish 4 FOUND AGAIN card request. `memories.frozen()` still has no core hook (none
+  needed). Memories showcase (reveal) renders with zero errors.
