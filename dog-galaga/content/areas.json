@@ -14,9 +14,7 @@
    "backyard-w4",
    "backyard-w5",
    "backyard-w6",
-   "backyard-w7",
-   "backyard-w8",
-   "backyard-w9"
+   "backyard-w7"
   ],
   "boss": "boss_whiskers",
   "exits": [
@@ -43,9 +41,7 @@
    "street-w5",
    "street-w6",
    "street-w7",
-   "street-w8",
-   "street-w9",
-   "street-w10"
+   "street-w8"
   ],
   "boss": "boss_tom",
   "exits": [
@@ -76,9 +72,7 @@
    "park-w5",
    "park-w6",
    "park-w7",
-   "park-w8",
-   "park-w9",
-   "park-w10"
+   "park-w8"
   ],
   "boss": "boss_duchess",
   "exits": [
@@ -105,9 +99,7 @@
    "alley-w5",
    "alley-w6",
    "alley-w7",
-   "alley-w8",
-   "alley-w9",
-   "alley-w10"
+   "alley-w8"
   ],
   "boss": "boss_sal",
   "exits": [
@@ -134,10 +126,7 @@
    "rooftops-w5",
    "rooftops-w6",
    "rooftops-w7",
-   "rooftops-w8",
-   "rooftops-w9",
-   "rooftops-w10",
-   "rooftops-w11"
+   "rooftops-w8"
   ],
   "boss": "boss_mau",
   "exits": [
@@ -168,10 +157,7 @@
    "cafe-w5",
    "cafe-w6",
    "cafe-w7",
-   "cafe-w8",
-   "cafe-w9",
-   "cafe-w10",
-   "cafe-w11"
+   "cafe-w8"
   ],
   "boss": "boss_patches",
   "exits": [
@@ -198,10 +184,7 @@
    "docks-w5",
    "docks-w6",
    "docks-w7",
-   "docks-w8",
-   "docks-w9",
-   "docks-w10",
-   "docks-w11"
+   "docks-w8"
   ],
   "boss": "boss_mainsail",
   "exits": [
@@ -228,10 +211,7 @@
    "factory-w5",
    "factory-w6",
    "factory-w7",
-   "factory-w8",
-   "factory-w9",
-   "factory-w10",
-   "factory-w11"
+   "factory-w8"
   ],
   "boss": "boss_fold",
   "exits": [
@@ -258,10 +238,7 @@
    "sky-w5",
    "sky-w6",
    "sky-w7",
-   "sky-w8",
-   "sky-w9",
-   "sky-w10",
-   "sky-w11"
+   "sky-w8"
   ],
   "boss": "boss_ace",
   "exits": [
@@ -296,10 +273,7 @@
    "moon-w5",
    "moon-w6",
    "moon-w7",
-   "moon-w8",
-   "moon-w9",
-   "moon-w10",
-   "moon-w11"
+   "moon-w8"
   ],
   "boss": "boss_blue",
   "exits": [
@@ -326,10 +300,7 @@
    "nebula-w5",
    "nebula-w6",
    "nebula-w7",
-   "nebula-w8",
-   "nebula-w9",
-   "nebula-w10",
-   "nebula-w11"
+   "nebula-w8"
   ],
   "boss": "boss_kingpin",
   "exits": [
@@ -356,10 +327,7 @@
    "station-w5",
    "station-w6",
    "station-w7",
-   "station-w8",
-   "station-w9",
-   "station-w10",
-   "station-w11"
+   "station-w8"
   ],
   "boss": "boss_admiral",
   "exits": [
@@ -387,10 +355,7 @@
    "mothership-w6",
    "mothership-w7",
    "mothership-w8",
-   "mothership-w9",
-   "mothership-w10",
-   "mothership-w11",
-   "mothership-w12"
+   "mothership-w9"
   ],
   "boss": "boss_empress",
   "exits": [],

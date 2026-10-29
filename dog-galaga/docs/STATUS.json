@@ -18,13 +18,13 @@
    "ending_true"
   ],
   "botMinutes": [
-   41,
-   43
+   33,
+   35
   ],
-  "note": "perfect-aim bot; human estimate 65-100 min"
+  "note": "waves trimmed to 7-9 per sector (104 waves); human estimate 70-100 min"
  },
  "tests": {
-  "passed": 53,
+  "passed": 56,
   "failed": 0
  },
  "modules": {
@@ -40,20 +40,20 @@
    "history": null
   },
   "world": {
-   "score": 7.0,
-   "status": "polish3 r2: lawn blade stripes, lamp pools, rooftops tod"
+   "score": 7.6,
+   "status": "polish4 r3"
   },
   "player": {
    "score": 7.6,
    "status": "wave2 4 rounds, fail"
   },
   "interaction": {
-   "score": 8.0,
-   "status": "polish3 r2"
+   "score": 8.2,
+   "status": "polish4 r2"
   },
   "ui": {
-   "score": 8.6,
-   "status": "PASSED polish3 r2"
+   "score": 8.5,
+   "status": "PASSED"
   },
   "audio": {
    "score": 7.2,
@@ -74,7 +74,7 @@
    "status": "wave2 4 rounds, fail"
   },
   "memories": {
-   "score": 8.5,
+   "score": 8.6,
    "status": "PASSED"
   },
   "minigames": {
@@ -97,7 +97,7 @@
   "1px stray line ~y140 in some sectors; sky seam",
   "secret_route quest left active on moon route"
  ],
- "nextStep": "Polish loop 4 running (world x3 rounds: tod per area, lamp pools, alley, nebula, factory, backyard; interaction: formation air, escort wings, sector signature waves; ui nits; memories nits). Then whole-game critic; target 8.5.",
+ "nextStep": "Polish loop 5: world dawn/dusk light (not hue wash), dark night grass, dither band behind rack, nebula/station/factory/alley lamps; interaction boss arena drama; ui HUD density + title attract demo. Target 8.5.",
  "passedModules": [
   "memories",
   "journal",
@@ -106,7 +106,7 @@
  ],
  "finalGate": {
   "round": 1,
-  "wholeGameCritic": 8.2,
+  "wholeGameCritic": 8.3,
   "criticPass": false,
   "blindJudgeWinRate": 0.78,
   "blindPairs": 6,
@@ -141,6 +141,10 @@
    {
     "round": "polish3",
     "wholeGameCritic": 8.2
+   },
+   {
+    "round": "polish4",
+    "wholeGameCritic": 8.3
    }
   ]
  }
