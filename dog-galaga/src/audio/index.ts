@@ -4,7 +4,6 @@ import { makeKit, type Kit } from './synth';
 import { buildMixer, Sequencer, LEVELS, PAUSE, SIDE, sideDip, type Mixer } from './engine';
 import { startAmbience, type AmbHandle } from './ambience';
 import { SfxVoices, SFX_LEN } from './sfx';
-import { col } from '../core/palette';
 
 export type { RenderStats } from './offline';
 export { TRACKS, validateTracks, findUnknownSfx } from './tracks';
@@ -25,19 +24,6 @@ const BIG = new Set(['quest', 'memory', 'pickup', 'bossdown', 'select', 'bark'])
 /** Longest wait for a bar-line switch before falling back to a half bar / beat. */
 const MAX_QUANT = 1.1;
 
-/** Speaker icon (palette keys) for the "sound is off until you press something" hint. */
-const SPEAKER = [
-  '.....66',
-  '....656',
-  '...6556',
-  '6666556',
-  '6555556',
-  '6555556',
-  '6666556',
-  '...6556',
-  '....656',
-  '.....66',
-];
 export { SFX_IDS } from './sfx';
 export { AMBIENCE_IDS } from './ambience';
 
@@ -87,8 +73,6 @@ class Audio implements Module {
     g.bus.on('bonus:start', () => this.music('bonus'));
     g.bus.on('bonus:result', () => this.stinger('results', this.wantLoop()));
     g.bus.on('ending', () => this.music('ending'));
-    // the hint must draw above the UI's title screen, so it is a tiny module appended after every other one
-    g.register({ id: 'audio-hint', overlay: (gg, ctx) => this.hint(gg, ctx) });
   }
 
   /** True once sound can actually be heard. */
@@ -293,23 +277,5 @@ class Audio implements Module {
     }
   }
 
-  /**
-   * "Sound is off" hint on every scene until sound is actually running (gamepad presses can't unlock audio on their
-   * own): a small pixel speaker in the top-right corner with a blinking red slash (the indie convention).
-   */
-  hint(g: Game, ctx: CanvasRenderingContext2D) {
-    if (g.headless || this.failed || this.running()) return;
-    try {
-      const x0 = 612, y0 = 6;
-      ctx.fillStyle = col(2); ctx.fillRect(x0 - 1, y0 - 1, 22, 16); ctx.fillStyle = col(1); ctx.fillRect(x0, y0, 20, 14);
-      const keys = '0123456789abcdefghijklmnopqrstuv';
-      SPEAKER.forEach((row, y) => { for (let x = 0; x < row.length; x++) { const ch = row[x]; if (ch === '.') continue; ctx.fillStyle = col(keys.indexOf(ch)); ctx.fillRect(x0 + 6 + x, y0 + 2 + y, 1, 1); } });
-      // red slash with an ink shadow, blinking ~1 Hz (the speaker itself stays put)
-      if (Math.floor(g.tick / 30) % 2 === 0) {
-        for (let i = 0; i < 11; i++) { ctx.fillStyle = col(0); ctx.fillRect(x0 + 16 - i, y0 + 1 + i, 3, 2); }
-        for (let i = 0; i < 11; i++) { ctx.fillStyle = col(27); ctx.fillRect(x0 + 16 - i, y0 + 1 + i, 2, 1); }
-      }
-    } catch { /* ignore */ }
-  }
 }
 export const makeAudio = (): Module => new Audio();
