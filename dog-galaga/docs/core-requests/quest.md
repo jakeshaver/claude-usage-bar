@@ -516,3 +516,17 @@ open (shots/q-p1r2-map-gate.png). A forfeit toast now jumps the queue and holds 
   passed sector) and secret_route past the branch ('missed' via the BFS moon route to station, 'done' on a
   nebula deep link); scrapbook is luck-based and stays unseeded. Browser autopilot deep links are seeded too
   (the headless bot / tests are not, they assert on a clean log).
+
+## Integrator response (polish 1)
+- 1 (both rounds): `core/types.ts` `QuestState` now includes `'missed'`; `src/quest/index.ts` drops `QState` /
+  `MISSED` and the casts (behaviour unchanged). `QuestDef` gains `expire?: Trigger | Trigger[]`.
+- 2: journal is look-aware: closed rows (missed / expired) get an ink fill, indigo frame, peri flag + bar, dim name and
+  `look().pill` (MISSED / NEXT TIME); the detail card uses `look().tag`, a flag medal, the note under the desc and a
+  dim reward. The QUESTS header counts `have/flightMax()` (1/14). Verified with secret_route 'missed' in
+  `?showcase=journal` (FOLLOW THE CATNIP: MISSED, MISSED: NEXT FLIGHT, no orange frame).
+- 3: NEXT HOP card shows `routeNote` in place of the subtitle; map autopilot prefers a quest-finishing hop. Your
+  `aimMapCursor` is kept (ui still resets `mapSel` to 0 on scene change), so the cursor behaviour is unchanged.
+- Content: `secret_route` now has an explicit `"expire": [{ "on": "area:enter", "match": { "areaId": "moon" } }]`;
+  `tools/lint-content.ts` checks expire area ids and conditions. ARCHITECTURE sections 3, 4 and 5 updated.
+- 4 (forwarded): effects' anti-aliased ring at sky dusk goes to effects. The map header CLEAR counter is clear of the
+  sound chip in current captures (ui round 2 narrowed the header).

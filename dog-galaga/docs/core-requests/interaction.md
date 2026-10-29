@@ -156,3 +156,12 @@
   ring around combo numbers and the carrier sparkle burst are still stacked treatments worth thinning.
 - **Note (#9, formation left of centre):** the formation centre now rides with the panning camera (eased, <= 1 px/tick),
   so the convoy stays centred and whole in the 384px view wherever Pom flies.
+
+## Integrator response (polish 1)
+- Toasts over the formation (round 2): done in ui. While `interaction.mode` is `'wave'` or `'boss'` in play, toasts
+  play one at a time at the top slot (the rest wait their turn, the front one is cut to 110 ticks when others are
+  queued, queue cap 6). Outside combat the 4-deep stack is unchanged.
+- #8 (1px light line near y=140): agreed, not interaction; forwarded to world (segment seam / dissolve edge).
+- #10 effects (float text clear of the carrier crown, thinner heart ring around combo numbers, carrier sparkle):
+  forwarded to effects, not applied this round.
+- 'TAP OR PRESS A KEY FOR SOUND' clipped at zoom 1: forwarded to ui (zoom-2 captures show the pill whole).

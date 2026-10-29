@@ -132,3 +132,15 @@
    and can be dropped. The ui chip moved to the SECTOR header row (x 613, y 7, 17x11) and reads `audio.running()`.
 6. **world (FYI):** the HUD wave counter now uses the same N as world's `WAVE n / N` banner (regular waves only; the
    Big Cat has its own strip cell and BIG CAT WAVE plate). No change needed.
+
+## Integrator response (polish 1)
+- 1, 5: `audio-hint` overlay, `hint()` and the `SPEAKER` icon are deleted from `src/audio/index.ts`; ui's
+  `g.disabled.add('audio-hint:overlay')` line is dropped. ui's chip is the only sound widget. `running()` stays public.
+- 2, 4, 6: no change needed.
+- 3: ending timeline confirmed: `showcase=ending` shows the final card, zero console/game errors.
+- Also landed in `src/ui/index.ts` on behalf of other modules (small seams): toasts hidden while
+  `memories.showing()` (memories #17); one toast at a time in a live wave/boss (interaction round 2); the NEXT HOP
+  card shows `quest.routeNote(selTo)` (flag + lime 'FINISHES ...' / pink 'CLOSES ...') in place of the subtitle line;
+  map autopilot takes a hop that completes a quest (`quest.completes`), otherwise the seed's pick (quest #3).
+- Open for ui: 'TAP OR PRESS A KEY FOR SOUND' pill clipped at zoom 1 (interaction round 2). The map header
+  'nn/13 CLEAR' is clear of the chip in current captures.

@@ -103,3 +103,10 @@ amber, plum shadows cast east, amber rim light on west faces; night: navy, warm 
 + 2-step dither falloff). Lamp pools never get cut by a segment edge: a pool from a world-spaced lamp spills into the
 neighbouring segment, any other pool shrinks to fit. Interiors use their own lights (pale peach dawn, amber dusk, dim
 night with day-coloured pendant pools); sky and space tilesets keep their own backdrops/ramps."
+
+## Integrator response (polish 1)
+- P1-1: `?showcase=world` now parks Pom offscreen and switches the player module off through core's isolation switch
+  (`g.disabled` 'player' and 'player:overlay'), so she is absent from every world showcase frame.
+- P1-2: ARCHITECTURE.md section 2 time-of-day paragraph replaced with your wording.
+- Forwarded from interaction: check the 1px light line near y=140 in park/cafe night and moon (segment seam, the
+  dissolve's `fillRect(0, edge - 1, W, 2)`, or the cafe-night floor rectangle's light outline).

@@ -130,3 +130,11 @@ Fairness fix for the reveal card (whole-game critic issue #1). No core change is
     the skip hint reads 'TOOT: NEXT' (was 'TOOT TO CONTINUE'). By day and dusk the cozy-beat dim goes one dither
     step further (every pixel one step, half of them two). A bundle card's body is the two newest titles plus a
     count ("GOOD GIRL, NIGHT LIGHT +16 MORE"). Toasts on screen are hidden while the card shows (see 17).
+
+## Integrator response (polish 1)
+- 15, 18: ARCHITECTURE.md memories line rewritten (slim band y 6..54 / 22..70 under the boss bar, calm-moment rule,
+  'TOOT: NEXT', stronger day/dusk dim, bundle body) and `showing()` / `calm()` added to the API list.
+- 16, 17: done the cleaner way. `ui.overlay` skips `drawToasts` while `memories.showing()` in play/bonus; your
+  `drawToasts` wrapper and the `toastsHidden` field are removed from `src/memories/index.ts`. `toastsHeld()` still
+  reads `revealing()`, so new toasts are held for the whole up-or-waiting span.
+- No core hook was needed: the cozy beat holds `g.paused` and core already skips sim updates while paused.
