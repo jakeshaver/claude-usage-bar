@@ -299,3 +299,12 @@ night with day-coloured pendant pools); sky and space tilesets keep their own ba
   - Mothership: one landmark per segment cycling over six (cat-face bulkhead, cat-eye windows to space, hangar bay, yarn-reactor core, Empress banners, paw-print markings); the left conduit alternates yarn cable / pipe bundle / cable tray with junction boxes at seams.
   - Station: eight pod module types (habitat, observation, garden, dock, grooming, cargo, comms, nap) walked in a fixed stride.
   - Sky dawn: bands indigo -> periwinkle -> violet -> rose -> pink -> peach -> gold, clouds lit from below.
+- Polish 6 round 2 (integrator, ARCHITECTURE wording, optional): lamp pools are now a sodium remap: `WARM_LIFT` steps each
+  night colour toward the warm ramp (night-dark -> plum -> dark brown -> brown -> light brown -> tan), two clean steps
+  (edge one step, core two) with organic undithered edges and no fixed hot centre (`WARM_HOT` is identity); every pool has
+  a visible warm lamp head (factory work lamps are grey enamel shades round an amber bulb). `Painter.spillRim` adds a 1px
+  rim along door-light cones (peach at alley dawn). Alley dusk light comes through a dark roofline gap split by a bright
+  sliver, and the floor beams are a one-step warm remap. Nebula clouds are sampled per pixel from a smooth field with a 3x3
+  majority pass (1px organic edges) and a lit top rim; a small ringed planet alternates with the cat-eye galaxy. Sky band
+  seams undulate with lens-shaped strata; sky night has a moon, mid-sky strata and a far city glow. Mothership plates use
+  two values (`s` = armour plate) with inset panels and diagonal seams; station pods use three shell silhouettes.

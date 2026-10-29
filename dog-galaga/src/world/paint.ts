@@ -81,13 +81,13 @@ export const RIM_RAMP: Partial<Record<Tod, Ramp>> = {
  * Four steps from the rim inward (edge, middle, core, a small hot centre). Grass keeps its blades (lit green,
  * then gold-tipped yellow-green), water lifts through teal. No pixel is painted with a flat fill.
  */
-// lamp light lifts each material one value step in its own family (never a brown / tan overlay): night-dark ground
-// through plum to slate grey, greys to lighter greys (only the palest grey warms to tan), woods to lighter woods,
-// oranges to yellow, blues through teal; pools are 1-2 steps (edge / middle one step, core two)
-const WARM_LIFT = remap('0:1 1:v v:q 2:q q:p 3:p p:o 4:o o:8 5:7 8:7 7:7 6:6 9:8 a:9 b:a h:g g:f f:7 e:d d:c c:7 r:g u:t t:c n:m m:s l:s s:7 k:j j:i i:f');
+// sodium lamp light: each pixel's night colour is remapped one step toward the warm ramp per ring (night-dark -> plum
+// -> dark brown -> brown -> light brown -> tan), so the floor texture (seams, cracks, specks) is kept inside the pool and
+// only value and temperature move; pools are two clean steps (edge one step, core two) with organic, undithered edges
+const WARM_LIFT = remap('0:1 1:v v:b 2:b b:a q:a 3:a a:9 p:9 4:9 9:8 o:8 5:7 8:7 7:7 6:6 h:g g:f f:7 e:d d:c c:7 r:g u:t t:c n:m m:s l:s s:7 k:j j:i i:f');
 function liftN(v: number, n: number) { for (let i = 0; i < n; i++) v = WARM_LIFT.a[v]; return v; }
 // the small hot centre right under the lamp head: the 2-step lift, then one warm step (greys to tan / light brown)
-const WARM_HOT = remap('v:b q:a p:9 o:8 3:9 4:8 2:v');
+const WARM_HOT = remap('');
 const GK = KEY.indexOf('k'), GJ = KEY.indexOf('j'), GI = KEY.indexOf('i');
 /** grass under a lamp, by ring (edge..hot) for the day indices k (ground), j (blade), i (tip) */
 export const GRASS_LIT: [string, string, string][] = [['k', 'k', 'j'], ['k', 'j', 'i'], ['j', 'j', 'i'], ['j', 'i', 'i']];
@@ -177,6 +177,8 @@ export class Painter {
   beamShade = false;
   /** light spilling from a lit doorway / window across the floor: a cone that fades in steps with distance */
   spills: { x: number; y: number; h: number; len: number; tilt: number; dir: number }[] = [];
+  /** ramp for the 1px rim along the long edges of a spill cone (e.g. a faint peach edge at dawn); null = no rim */
+  spillRim: Ramp | null = null;
   /** ramp for the faint outer step of a spill (falls back to the soft ramp) */
   sunTail: Ramp | null = null;
   /** palette key a shadow takes where it falls onto the (clear) layer below */
@@ -322,7 +324,7 @@ export class Painter {
       buf[i] = sh.lv[v] > BAYER[(((i / w) | 0) & 3) * 4 + ((i % w) & 3)] ? sh.b[v] : sh.a[v];
     }
     for (const f of this.objs) f();
-    // light mask: 1 lamp pool, 2 sunbeam, 3 rim, 4 lamp falloff, 5 lamp middle ring, 6 soft sunbeam edge, 7 hot lamp centre, 8 faint spill tail
+    // light mask: 1 lamp pool, 2 sunbeam, 3 rim, 4 lamp falloff, 5 lamp middle ring, 6 soft sunbeam edge, 7 hot lamp centre, 8 faint spill tail, 9 spill rim
     let mask: Uint8Array | null = null;
     if (rimRamp && this.rims.length) {
       mask = new Uint8Array(w * h); const R = this.rims;
@@ -344,8 +346,8 @@ export class Painter {
           const d = Math.hypot(ddx, ddy) / wob; if (d > R) continue;
           const o = y * w + x;
           // stepped: hot centre, core, middle, edge; each boundary is a ~2px ordered-dither seam so the steps melt
-          const dj = d + (BAYER[(y & 3) * 4 + (x & 3)] / 15 - 0.5) * (stepped ? 2.6 : 1.2);
-          const v = stepped ? (dj <= R * 0.2 ? 7 : dj <= R * 0.44 ? 1 : dj <= R * 0.7 ? 5 : dj <= R ? 4 : 0)
+          // two clean steps (a 2-step falloff): the lit core under the lamp and one softer ring; organic edges, no dither
+          const v = stepped ? (d <= R * 0.55 ? 1 : 4)
             : d <= R - 2 ? 1 : d <= R - 1 ? 4 : ((x + y) & 1 ? 4 : 0);
           const rank = (m: number) => m === 7 ? 4 : m === 1 ? 3 : m === 5 ? 2 : m === 4 ? 1 : 0;
           if (v && rank(v) > rank(mask[o])) mask[o] = v;
@@ -362,8 +364,10 @@ export class Painter {
           const e = Math.abs(y + 0.5 - c) / half; if (e > 1) continue;
           // clean stepped bands (no dither seams): bright core by the door, a softer middle, a faint tail that just ends
           const v = f * 0.82 + e * e * 0.3, o = y * w + x;
-          const m = v < 0.34 ? 2 : v < 0.58 ? 6 : v < 0.86 ? 8 : 0;
-          const rank = (k: number) => k === 2 ? 3 : k === 6 ? 2 : k === 8 ? 1 : 0;
+          let m = v < 0.34 ? 2 : v < 0.58 ? 6 : v < 0.86 ? 8 : 0;
+          // a 1px rim along the cone's long edges (never past the faint tail)
+          if (this.spillRim && (m === 2 || m === 6) && Math.abs(y + 0.5 - c) > half - 1) m = 9;
+          const rank = (k: number) => k === 9 ? 4 : k === 2 ? 3 : k === 6 ? 2 : k === 8 ? 1 : 0;
           if (m && mask[o] !== 1 && rank(m) > rank(mask[o])) mask[o] = m;
         }
       }
@@ -388,8 +392,8 @@ export class Painter {
     if (!todRamp.id || mask) {
       const L = stepped ? lampRamps(todRamp, this.poolLift, this.grassLit) : null;
       const tail = this.sunTail ?? this.sunSoft ?? this.sunRamp;
-      const ramps: (Ramp | null)[] = L ? [todRamp, L[2], this.sunRamp, rimRamp, L[0], L[1], this.sunSoft ?? this.sunRamp, L[3], tail]
-        : [todRamp, poolRamp, this.sunRamp, rimRamp, edgeRamp, poolRamp, this.sunSoft ?? this.sunRamp, null, tail];
+      const ramps: (Ramp | null)[] = L ? [todRamp, L[2], this.sunRamp, rimRamp, L[0], L[1], this.sunSoft ?? this.sunRamp, L[3], tail, this.spillRim]
+        : [todRamp, poolRamp, this.sunRamp, rimRamp, edgeRamp, poolRamp, this.sunSoft ?? this.sunRamp, null, tail, this.spillRim];
       for (let y = 0, i = 0; y < h; y++) for (let x = 0; x < w; x++, i++) {
         const v = buf[i]; if (v === CLEAR) continue;
         const m = mask ? mask[i] : 0;
