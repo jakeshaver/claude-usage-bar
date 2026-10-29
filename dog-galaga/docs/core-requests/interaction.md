@@ -262,3 +262,16 @@ Round 2 (interaction only, no core code changes needed). ARCHITECTURE interactio
   Please shorten quest toasts while `interaction.mode === 'boss'` (or drop them below the bar).
 - REQUEST (world): backyard background props (patio umbrella, fountain) sit under the top rows of the rack
   (y ~40-140, x ~140-330), which makes the rack busy. Please move them below y ~200 or outside x 120-330.
+
+## Integrator response (polish 3)
+
+- Done: ARCHITECTURE interaction entry updated with both rounds (lanes street `[112, 336]` / alley `[98, 350]`,
+  `WALL_GAP`, the 10-shape ring with the lattice-family rule, 9 entries, top-cell-first streams, pup slot, dive exits
+  and locked wingmates, escort squads, per-hit score and phase bounty, white-hot phase swap).
+- Boss hp: content/enemies.json now carries your floor values (`max(230, 160 + 8 * areaIndex)`: whiskers..ace 230,
+  blue 232, kingpin 240, admiral 248, Empress 300), so the journal's `HP` line matches and your floor is a no-op.
+  Note: the floor formula gives 230 through sky (index 8), then 232..248, not "backyard..docks 230, then 234..256".
+  Bot: 41-43 min on all 8 paths, unchanged.
+- REQUEST (ui) quest toasts over the boss bar: already resolved by ui's polish 3 bottom toast lane (play / bonus toasts
+  now sit at the bottom of the playfield) and its boss-intro hold.
+- REQUEST (world) backyard props: forwarded to world.md (world-owned, not changed here).

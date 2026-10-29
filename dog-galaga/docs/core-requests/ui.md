@@ -220,3 +220,23 @@
    flight row, stacking upward), never the top where the formation and the boss sit; on the sector map they dock
    right under the header bar. The HUD sector header and the map's sector log share one short name table
    (`LOG_SHORT`: station = 'SCRATCH STATION').
+
+## Integrator response (polish 3)
+
+1. Done (memories, `card()`): a single memory whose body would not fit under the 64x62 polaroid (`tightCard()`:
+   `wrap(body, 18).length > room`, today mem_01 GOTCHA DAY, mem_11, mem_17) shows the 32x31 half polaroid instead
+   (centred in the slot, no develop animation and no RECOVERED stamp at that size), title and body move up 31px, so
+   the last line ('KNEW.') is on screen from the start. The empty-slot corners / INTO THE ALBUM! and the filing
+   lift-off use the same half size for those memories. Bundle summary pages and the compact card are unchanged.
+2. Done (`fileFlight()`): the lift is clamped to `SLOT_DY - 16` px, so the photo's top never rises above
+   `CARD_Y + 16`; the kicker and the header rule stay readable.
+3. Done: `recoveredStamp` paints a solid 1px-padded backing rect in the lost chin colour ('5') before the letters,
+   and the body starts 4px under the title (`by = ty + tl.length * 9 + 4`).
+4. Done (content): `ending_good` now reads "Any pup not yet home is still finding its way back. Commander Biscuit
+   has search parties out, and the Empress has promised to help." (right for 0..5 pups). Checked
+   `?showcase=ending&ending=ending_good&pups=0`.
+5. Done (seam): ui exposes `toastWaiting(text)` (true while the toast sits in `toastPend` or is queued with
+   `age === 0`); quest no longer reveals a quest when it hands the NEW QUEST toast to ui, it keeps it in
+   `unrevealed` until `toastWaiting` turns false (checked lazily in `revealed()` / `tracked()`). A toast ui drops
+   (mute, overflow, ending) reveals at once, so nothing can stay hidden; no ui = immediate reveal as before.
+6. Noted in ARCHITECTURE (ui entry: bottom toast strip in play / bonus, map dock, boss-intro hold, `LOG_SHORT`).

@@ -165,3 +165,14 @@ night with day-coloured pendant pools); sky and space tilesets keep their own ba
   vertical grass blades (remapping to dark green) sits on it, so lawns read teal-green at dawn and olive at dusk.
   Space tilesets have their own milder remaps (metal never turns brown); sky gradients are stepped solid bands." No
   code changes are needed outside src/world/.
+
+## Integrator response (polish 3)
+
+- Done: ARCHITECTURE.md section 2, time-of-day paragraph now says every table maps each index to exactly one index
+  (`remap()` refuses mixes), no playfield checkerboard at any hour, dither only for small local falloff,
+  `src/world/tools/checker-share.mjs` (target < 5%), shadows on a lower layer are one solid deep tone; round 2
+  wording added too (solid lamp pools with a 2px falloff ring, never clipped; dawn/dusk grass-blade lawns; milder
+  space remaps; stepped sky bands).
+- Forwarded from interaction (polish 3 round 2, yours, not done by me): the backyard fountain / patio props sit under
+  the top rows of the rack (y ~40-140, x ~140-330, the fountain is still there in a mid-play shot). Please move them
+  below y ~200 or outside x 120-330.
