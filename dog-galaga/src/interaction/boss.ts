@@ -64,6 +64,7 @@ export class Boss {
     this.atk = this.nextAttack(); this.beginTell(WORLD_W / 2);
   }
 
+  private range(): [number, number] { return this.ix.bossRange?.() ?? [60, WORLD_W - 60]; }
   private speed() { return this.ix.T.spitSpeed * (0.95 + this.phase * 0.08); }
   private tellLen() { return [48, 40, 34][this.phase]; }
   private go(st: BState) { this.st = st; this.stT = 0; }
@@ -90,7 +91,14 @@ export class Boss {
       this.phase = want; this.go('phase');
       for (const s of this.ix.spits) g.mods.effects?.burst(s.x, s.y, 'sparkle');
       this.ix.spits = [];
-      g.mods.effects?.shake(5, 24); g.mods.effects?.flash('f', 6); g.mods.audio?.sfx('bark');
+      // punchy: a beat of hit-stop, a boom and a shockwave rolling off the boss, a recoil, a phase bounty and
+      // reinforcements for its escort squad
+      const fx = g.mods.effects;
+      fx?.hitStop(6); fx?.shake(6, 30); fx?.flash('f', 8); fx?.burst(this.x, this.y, 'boom'); fx?.burst(this.x, this.y - 8, 'fur');
+      g.mods.audio?.sfx('bark'); g.mods.audio?.sfx('thud');
+      const bounty = 250 * this.phase * (1 + this.tier); g.ops.addScore(bounty); fx?.floatText(this.x, this.y - 44, String(bounty));
+      this.y -= 10; this.flash = 6;
+      this.ix.bossPhase?.(this.x, this.y);
       g.mods.ui?.toast(`${this.def.name.toUpperCase()} GETS GRUMPY!`);
       g.bus.emit('boss:phase', { bossId: this.def.id, phase: this.phase });
     }
@@ -108,8 +116,10 @@ export class Boss {
         if (this.stT > 60) this.go('idle');
         break;
       case 'idle': {
-        const amp = 96 + this.phase * 12;
-        const hx = WORLD_W / 2 + Math.sin(this.t / (95 - this.phase * 15)) * amp;
+        // drift inside the range that keeps the escort squad inside the lane walls
+        const [lo, hi] = this.range();
+        const amp = Math.min(96 + this.phase * 12, (hi - lo) / 2);
+        const hx = (lo + hi) / 2 + Math.sin(this.t / (95 - this.phase * 15)) * amp;
         this.x += (hx - this.x) * 0.05; this.y += (HOME_Y + Math.sin(this.t / 37) * 10 - this.y) * 0.08;
         if (this.stT > [96, 74, 56][this.phase] * (1 - this.ix.T.d * 0.25)) { this.atk = this.nextAttack(); this.beginTell(px); }
         break;
@@ -135,7 +145,8 @@ export class Boss {
 
   private beginTell(px: number) {
     this.go('tell');
-    this.tx = Math.max(60, Math.min(WORLD_W - 60, px));
+    const [lo, hi] = this.range();   // charge lanes stay where the escorts can make room (the squad rides along)
+    this.tx = Math.max(Math.max(60, lo), Math.min(Math.min(WORLD_W - 60, hi), px));
     this.g.mods.audio?.sfx('tell');
   }
 
@@ -189,7 +200,7 @@ export class Boss {
       }
       case 'summon': { // kittens pop from the boss's sides in a little arc
         const pairs = 1 + ph;
-        if (T % 16 === 1 && T < pairs * 16 && ix.cats.length < 8) for (const s of [-1, 1]) ix.spawnKitten(this.x + s * (38 + this.tier * 6), this.y + 6, s * (1.1 + (T >> 4) * 0.4), -1.4);
+        if (T % 16 === 1 && T < pairs * 16 && ix.cats.filter((c: { st: string }) => c.st === 'kdive').length < 6) for (const s of [-1, 1]) ix.spawnKitten(this.x + s * (38 + this.tier * 6), this.y + 6, s * (1.1 + (T >> 4) * 0.4), -1.4);
         if (T > pairs * 16 + 30) this.go('recover');
         break;
       }
