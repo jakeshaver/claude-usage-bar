@@ -59,13 +59,18 @@ and applied by the integrator.
 - **Determinism**: fixed 60 Hz timestep. All randomness goes through
   `core/rng.ts` (mulberry32), seeded from `hash(saveSeed, areaId, waveIndex)`.
   `Math.random` is banned in src/ (lint check). Same seed + same inputs = same run.
-- **Time of day is lighting, not a tint**: segments are painted into a palette-index buffer in day
-  colours, then remapped one palette entry to one palette entry per material (no dither on large areas,
-  `src/world/paint.ts`). Day is the brightest key; dawn is cool with pink sky reflections, long lavender
-  shadows cast down-left and peach rim light on top edges; dusk drops lights one step, with long plum
-  shadows to the east and amber rim light on west faces; night is navy/indigo about 30% darker, with warm
-  lit windows and small hard-edged sodium lamp cones. Backgrounds are far / main / fg layers of 448x256
-  segments painted once and cached; rare fast foreground flyers (birds, leaves, steam) are drawn per frame.
+- **Time of day is light, not a recolour**: segments are painted into a palette-index buffer in day colours, then
+  every palette entry is lit by a coloured light (multiply + ambient in linear RGB, `paint.ts` `lightRamp`) and
+  matched back to the palette by hue-weighted OKLab distance, so each material keeps its hue family and only value and
+  temperature move. Where the lit colour falls between two entries, a 25/50/75% ordered dither of two neighbouring
+  entries is used; a few big ground materials are pinned per time of day (dewy lawn at dawn, olive lawn with amber
+  tufts at dusk, blue-green lawn at night). Dawn: cool slate neutrals, pink highlights, lavender shadows cast
+  down-left, peach rim light; dusk: darker, amber, plum shadows cast east, amber rim light on west faces; night: navy,
+  warm windows and sodium lamp pools (solid core + 2-step dither falloff). Lamp pools never get cut by a segment edge:
+  a pool from a world-spaced lamp spills into the neighbouring segment, any other pool shrinks to fit. Interiors use
+  their own lights (pale peach dawn, amber dusk, dim night with day-coloured pendant pools); sky and space tilesets
+  keep their own backdrops/ramps. Backgrounds are far / main / fg layers of 448x256 segments painted once and cached;
+  rare fast foreground flyers (birds, leaves, steam) are drawn per frame.
 - **Hit-stop**: `Game.step()` skips every module except effects, ui and audio while
   `g.mods.effects.frozen()` is true (a few ticks on big impacts). `frozen()` is always false headless,
   so the bot and tests never see it.
@@ -79,7 +84,7 @@ interface GameState {
   areaId: string; waveIndex: number; tod: 'dawn'|'day'|'dusk'|'night';
   score: number; hiScore: number; hearts: number; maxHearts: number;
   flags: Record<string, boolean>;
-  quests: Record<string, 'locked'|'active'|'done'>;
+  quests: Record<string, 'locked'|'active'|'done'|'missed'>;   // 'missed': closed, terminal, no reward
   inventory: Record<string, number>;
   memories: string[];               // collected memory ids
   areasCleared: string[];
@@ -153,7 +158,8 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
   Overlay draws at `overlayZ = 100` (on top of ui). Ctrl/Cmd+C / Ctrl/Cmd+V copy / paste a save code on the
   title, map, pause menu and recovery screen.
 - **ui**: `toast(text)`, `muteToasts(on)`, `holdToasts(on)` (toasts are also held automatically while
-  `memories.revealing()`; held ones play when the card leaves), `openPause()`, `openMap()`, `showDialogue(nodeId)`,
+  `memories.revealing()`; held ones play when the card leaves; in a live wave / boss fight toasts play one at a time),
+  a static sound chip on the header row (reads `audio.running()` + volumes; the only sound widget), `openPause()`, `openMap()`, `showDialogue(nodeId)`,
   `dialogueBox(g, ctx, dock?)` (docks to the top while `quest.dock()` says Pom is under it; body lines from
   `quest.visibleLines()`), `dev()`, `touch.visible(g)`, `bestChain`. The HUD quest slot reads `quest.tracked()` /
   `goal()`; during `'bonus'` the wave slot reads `BONUS STAGE nn` + the stage name and the threat slot shows static
@@ -163,7 +169,8 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
   and `quest.update` idles while `g.paused`)
 - **audio**: `music(trackId)`, `ambience(id)`, `sfx(id)`, `setVolumes()`. Each area plays exactly its
   `music` id from content (a key of `TRACKS`); sfx ids are linted against `SFX_IDS`. Window-free offline
-  renderers live in `audio/offline.ts` (lazy chunk, used by `?showcase=audio`)
+  renderers live in `audio/offline.ts` (lazy chunk, used by `?showcase=audio`). `running()` (true once sound is
+  audible) feeds ui's sound chip; audio draws no overlay of its own
 - **effects**: `burst(x,y,kind,tint?)` kinds boop|bigboop|poof|sparkle|shield|splat|hearts|confetti|fur|boom
   (tint = palette key, used by boop and fur; unknown kinds report an error and fall back to boop),
   `shake(px,ticks)` (integer px, honours settings.shake/reduceMotion), `flash(paletteKey,ticks)` (palette key or an
@@ -185,14 +192,24 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
   title card is up and released one at a time; the press that closes a conversation is held back from play (max 40
   ticks). `dialogue(id, done)` while a conversation is open: one without `done` is replaced, one with `done` queues.
   Boss banter: `taunt-<bossId>` plays on `boss:start`, `defeat-<bossId>` opens the sector outro (missing ids are
-  skipped). Content problems go to `g.contentIssues` (`[quest] ...`), never to `g.errors`
-- **memories**: `placed(areaId)`, `collect(id)`, `offer(areaId, wave)`, `missed(areaId, wave)`, `revealing()`,
+  skipped). Content problems go to `g.contentIssues` (`[quest] ...`), never to `g.errors`. A quest whose window
+  passes is stored as `'missed'`: an `expire` trigger fired (route forfeit) or the `ending` event closed every quest
+  still active (quietly). Presentation: `look(id)` (`{state, tone: locked|active|done|missed|expired, pill, tag,
+  note, dimReward}`), `closedBy(id)` ('route' | 'run' | null), `flightMax()` (most quests one flight can reach),
+  `routeNote(areaId)` (NEXT HOP line), `completes(areaId)` / `forfeits(areaId)`, `preferredExit(exits)`
+- **memories**: `placed(areaId)`, `collect(id)`, `offer(areaId, wave)`, `missed(areaId, wave)`, `revealing()`, `showing()`, `calm()`,
   `stage(kind, index, at)` (carrier|drop|boop|reveal|lost|bundle, frozen). The memory carrier wears a 2px gold
   silhouette rim (solid gold at night) with walking shimmer, a pixel crown and the polaroid in its mouth drawn above
   all cats. Booping it is a beat: 4-tick hit-stop, a 2-frame white silhouette flash, a 2px 8-ray star. The photo
   sways down to Pom inside a 1px gold outline and a sparse dither glint (teal when recovered). Catching it starts a
-  ~2.2 s cozy beat (`g.paused` held, playfield dimmed one palette step, always released on scene change; FIRE skips
-  once developed); 3+ photos at once become one 'N LOST MEMORIES' card. A missed memory (route not taken) returns
+  ~2.2 s cozy beat (`g.paused` held, playfield dimmed one palette step (by day and dusk one step more on half the
+  pixels), always released on scene change; FIRE skips once developed). The card is a slim band docked to the top of
+  the playfield (y 6..54, y 22..70 under the boss bar; 1px ink line and 2px dither shadow below, only the polaroid
+  overhangs), one body line, hint 'TOOT: NEXT'. It waits for a calm moment: never over a sector title card, in the
+  first 90 ticks of a wave, or while a boss is in `enter` / `tell` / `attack` / `phase` (the photo is in the album at
+  once; play goes on until the card goes up). `showing()` = card on screen, `calm()` = a card may go up now,
+  `revealing()` = up or waiting (ui holds new toasts for that span and hides toasts already on screen while
+  `showing()`). 3+ photos at once become one 'N LOST MEMORIES' card (body: the two newest titles + a count). A missed memory (route not taken) returns
   as a LOST MEMORY on the next wave's carrier; the final sector brings the whole backlog, so 18/18 is reachable on
   every route. Derived from content + state, no save data
 - **minigames**: `startBonus(id)` (sets scene 'bonus', emits `bonus:start`, intro, then `interaction.startBonus`;
@@ -225,7 +242,8 @@ All in `content/*.json`, validated by `core/schema.ts` at load time and by
 - `waves.json`: `{id, formation:{cols, rows, spacing}, cats:[{breed, row}], entry:'swirl-left'|..., diveRate, fireRate}`
 - `enemies.json`: `{id, name, sprite, hp, points, diver, shooter, behavior, bestiary}`
 - `quests.json`: `{id, name, desc, start:{on, match?, when?}, complete:{on, match?, when?, count?}, reward:{flags?, items?, score?}, dialogue?, track?, expire?}`
-  (`match` compares payload fields loosely; `count` defaults to 1 and the start event counts when it matches; a
+  (`expire?: Trigger | Trigger[]` closes the quest as 'missed' when any trigger matches; derived from gated exits
+  when absent. `match` compares payload fields loosely; `count` defaults to 1 and the start event counts when it matches; a
   quest's `dialogue` plays when it starts; validation falls back field by field, only unusable triggers skip a quest)
 - `dialogue.json`: `{id, speaker, portrait, text, next?, when?}`
 - `items.json`: `{id, name, sprite, effect:{kind, value, ticks?}}`
@@ -259,8 +277,8 @@ headless sim along each to prove each reaches an ending.
 
 - Steady 60 fps on a mid-range laptop (<4 ms update+render per frame typical).
 - Load to interactive under 5 s (target <1 s: no assets to fetch).
-- Bundle: total `dist/` under **1 MB** (the hard budget). The main JS chunk is ~515 KB uncompressed
-  (~145 KB gzip), mostly palette-indexed sprite sheets and song data; vite warns above 600 KB
+- Bundle: total `dist/` under **1 MB** (the hard budget). The main JS chunk is ~735 KB uncompressed
+  (~220 KB gzip), mostly palette-indexed sprite sheets, tile painters and song data; vite warns above 800 KB
   (`chunkSizeWarningLimit`). The offline audio renderer is a separate lazy chunk.
 - No allocations in hot loops where avoidable; sprite canvases cached once.
 
