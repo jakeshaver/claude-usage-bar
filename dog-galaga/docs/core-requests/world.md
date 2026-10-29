@@ -308,3 +308,18 @@ night with day-coloured pendant pools); sky and space tilesets keep their own ba
   majority pass (1px organic edges) and a lit top rim; a small ringed planet alternates with the cat-eye galaxy. Sky band
   seams undulate with lens-shaped strata; sky night has a moon, mid-sky strata and a far city glow. Mothership plates use
   two values (`s` = armour plate) with inset panels and diagonal seams; station pods use three shell silhouettes.
+
+### Polish 6 round 3: ARCHITECTURE.md wording (doc only, no code needed)
+Please update the light-model paragraph in ARCHITECTURE.md section 2 to match `src/world/paint.ts` now:
+- Outdoor lamp pools are a remap of the floor's own night colour in TWO rings (edge one step, core two steps; `poolLift`
+  default [1, 1, 2, 2], alley [1, 1, 1, 1]) along `WARM_LIFT`, which now lifts navy / slate floors through the greys
+  (deep night -> plum slate -> dark grey -> grey -> light grey -> tan), woods one brown step; no brown/tan disc and no
+  dithered ring seam. Pools light only the floor layer: pixels written by props (`p.obj` passes) keep their colours
+  (`Painter.poolsOnProps` opts a tileset out when its walkable surface is itself drawn as props: rooftops, docks).
+- New Painter knobs: `poolExtra` (day keys that take one extra step, street asphalt `v`, so the pool keeps its strength
+  across the curb), `poolWarm` (a warm remap in the core only, factory `o:8` on the lit tread studs) and `glowPool(x, y, r)`
+  (a one-step glow that also lifts props / walls round a wall lamp, used by the alley lamps).
+- Grass under a lamp: k and j swap up one step (`GRASS_LIT`), the core adds lime tips. Night lawns: a dense carpet of
+  deep-night blades plus world-spaced "moon shade" zones where the turf inverts (dark turf between dark-green blades), so
+  a night lawn sits a value step under dusk while still reading green.
+- Tilted sunbeams / shafts have clean 2-step edges (solid core + solid soft halo), no 1px dither seam.

@@ -84,22 +84,28 @@ export const RIM_RAMP: Partial<Record<Tod, Ramp>> = {
 // sodium lamp light: each pixel's night colour is remapped one step toward the warm ramp per ring (night-dark -> plum
 // -> dark brown -> brown -> light brown -> tan), so the floor texture (seams, cracks, specks) is kept inside the pool and
 // only value and temperature move; pools are two clean steps (edge one step, core two) with organic, undithered edges
-const WARM_LIFT = remap('0:1 1:v v:b 2:b b:a q:a 3:a a:9 p:9 4:9 9:8 o:8 5:7 8:7 7:7 6:6 h:g g:f f:7 e:d d:c c:7 r:g u:t t:c n:m m:s l:s s:7 k:j j:i i:f');
+// (one value step per ring in each material's own family: night navy / slate floors lift to the next lighter warm-leaning
+// grey (deep night -> plum slate -> dark grey -> grey -> light grey -> tan), woods one brown step, so a pool reads as lit
+// floor under a lamp, never as a fixed brown / tan disc)
+const WARM_LIFT = remap('0:1 1:v v:q 2:q q:p 3:p n:3 p:o 4:o o:8 5:7 8:7 7:7 6:6 b:a a:9 9:8 h:g g:f f:7 e:d d:c c:7 r:g u:t t:c m:l l:s s:7 k:j j:i i:f');
 function liftN(v: number, n: number) { for (let i = 0; i < n; i++) v = WARM_LIFT.a[v]; return v; }
 // the small hot centre right under the lamp head: the 2-step lift, then one warm step (greys to tan / light brown)
-const WARM_HOT = remap('');
 const GK = KEY.indexOf('k'), GJ = KEY.indexOf('j'), GI = KEY.indexOf('i');
 /** grass under a lamp, by ring (edge..hot) for the day indices k (ground), j (blade), i (tip) */
-export const GRASS_LIT: [string, string, string][] = [['k', 'k', 'j'], ['k', 'j', 'i'], ['j', 'j', 'i'], ['j', 'i', 'i']];
+// (a remap of the night lawn texture: k and j swap up one step (the green turf to mid green, the deep-night blades /
+// moon-shade turf to dark green), so the blade texture survives everywhere in the pool and it never reads as a flat
+// green disc; the core adds lime tips)
+export const GRASS_LIT: [string, string, string][] = [['j', 'k', 'j'], ['j', 'k', 'j'], ['j', 'k', 'i'], ['j', 'k', 'i']];
 const lampCache = new WeakMap<Ramp, Map<string, Ramp[]>>();
 /** the four lamp ring ramps (edge, middle, core, hot), built from the area's night remap; lifts = warm steps per ring */
-export function lampRamps(night: Ramp, lifts: number[] = [1, 2, 3, 4], grass: [string, string, string][] = GRASS_LIT): Ramp[] {
+export function lampRamps(night: Ramp, lifts: number[] = [1, 2, 3, 4], grass: [string, string, string][] = GRASS_LIT, extra = '', warm = ''): Ramp[] {
   let m = lampCache.get(night); if (!m) lampCache.set(night, m = new Map());
-  const key = lifts.join() + '|' + grass.map(g => g.join('')).join();
+  const key = lifts.join() + '|' + grass.map(g => g.join('')).join() + '|' + extra + '|' + warm;
+  const W = remap(warm);
   let r = m.get(key); if (r) return r;
   r = lifts.map((n, ring) => {
     const a = new Uint8Array(32);
-    for (let i = 0; i < 32; i++) a[i] = ring === 3 ? WARM_HOT.a[liftN(night.a[i], n)] : liftN(night.a[i], n);
+    for (let i = 0; i < 32; i++) { const k = n + (extra.includes(KEY[i]) ? 1 : 0); a[i] = ring >= 2 ? W.a[liftN(night.a[i], k)] : liftN(night.a[i], k); }
     const g = grass[ring]; a[GK] = KEY.indexOf(g[0]); a[GJ] = KEY.indexOf(g[1]); a[GI] = KEY.indexOf(g[2]);
     a[0] = ring >= 2 ? 1 : 0; // ink outlines stay outlines
     return { a, b: a, lv: new Uint8Array(32), id: false };
@@ -148,7 +154,7 @@ const ci = (k: string) => KI[k.charCodeAt(0)];
 const CLEAR = 255;
 
 /** spill: the light source is world-spaced (painted in both neighbouring segments), so the pool may cross the segment edge */
-export interface Pool { x: number; y: number; r: number; clip?: [number, number, number, number]; spill?: boolean }
+export interface Pool { x: number; y: number; r: number; clip?: [number, number, number, number]; spill?: boolean; all?: boolean }
 
 /**
  * Painter over one segment. Everything is drawn into a palette-index buffer
@@ -193,15 +199,26 @@ export class Painter {
   shade: Ramp | null = null;
   /** how lumpy a lamp pool's outline is (1 = uneven ground; lower = a rounder, cleaner pool on smooth floors) */
   poolWobble = 1;
+  /** day palette keys that take one extra warm step inside a pool (a dark road beside a pale sidewalk: the pool keeps
+   *  the same strength across the curb instead of fading to a faint slab over the asphalt) */
+  poolExtra = '';
+  /** a warm remap applied after the lift in a pool's core only (e.g. 'o:8': the lit tread studs under a work lamp turn
+   *  tan while the plates stay grey), so the warmth sits in the floor texture, never in a flat disc */
+  poolWarm = '';
+  /** pools also light pixels drawn by props (tilesets whose walkable surface is itself drawn as objects, e.g. roof decks) */
+  poolsOnProps = false;
   constructor(public canvas: HTMLCanvasElement, public w: number, public h: number, public tod: Tod) {
     this.buf = new Uint8Array(w * h).fill(CLEAR);
     this.shadow = new Uint8Array(w * h);
   }
+  /** pixels written by props (obj passes): lamp pools light the floor layer only, never the props standing on it */
+  private objMask: Uint8Array | null = null;
   private fill(i: number, x: number, y: number, w: number, h: number) {
     let x0 = x | 0, y0 = y | 0; let x1 = x0 + (w | 0), y1 = y0 + (h | 0);
     if (x0 < 0) x0 = 0; if (y0 < 0) y0 = 0; if (x1 > this.w) x1 = this.w; if (y1 > this.h) y1 = this.h;
     if (x1 <= x0) return;
     for (let j = y0; j < y1; j++) this.buf.fill(i, j * this.w + x0, j * this.w + x1);
+    const om = this.objMask; if (om) for (let j = y0; j < y1; j++) om.fill(1, j * this.w + x0, j * this.w + x1);
   }
   /** filled rect in palette key k */
   r(k: string, x: number, y: number, w = 1, h = 1) { if (w <= 0 || h <= 0) return; this.fill(ci(k), x, y, w, h); }
@@ -239,7 +256,8 @@ export class Painter {
   /** direct pixel writes (for dense procedural fills); keys index the palette */
   pixels(fn: (set: (k: string, x: number, y: number) => void) => void) {
     const b = this.buf, w = this.w, h = this.h;
-    fn((k, x, y) => { x |= 0; y |= 0; if (x < 0 || y < 0 || x >= w || y >= h) return; b[y * w + x] = KI[k.charCodeAt(0)]; });
+    const om = this.objMask;
+    fn((k, x, y) => { x |= 0; y |= 0; if (x < 0 || y < 0 || x >= w || y >= h) return; b[y * w + x] = KI[k.charCodeAt(0)]; if (om) om[y * w + x] = 1; });
   }
 
   // ---- lighting model ----
@@ -307,6 +325,8 @@ export class Painter {
   spill(x: number, y: number, h: number, len: number, tilt: number, dir: number) { this.spills.push({ x, y, h, len, tilt, dir }); }
   /** a light source: lamp pool at night */
   pool(x: number, y: number, r: number, clip?: [number, number, number, number], spill = false) { this.pools.push({ x, y, r, clip, spill }); }
+  /** a small warm glow that also lifts the props / walls round the source (a wall lamp on brick); one step, no core */
+  glowPool(x: number, y: number, r: number) { this.pools.push({ x, y, r, all: true }); }
   /** emissive rect: shows `day` normally, `lit` (unaffected by darkness) when the light is on */
   glow(day: string, lit: string, x: number, y: number, w: number, h: number, chance = 1, roll = 0) {
     const t = this.tod; const p = t === 'night' ? chance : t === 'dusk' ? chance * 0.7 : t === 'dawn' ? chance * 0.3 : 0;
@@ -323,7 +343,9 @@ export class Painter {
       if (v === CLEAR) { buf[i] = this.clearShadow; continue; } // a shadow cast onto the layer below: one solid deep tone (never a checker)
       buf[i] = sh.lv[v] > BAYER[(((i / w) | 0) & 3) * 4 + ((i % w) & 3)] ? sh.b[v] : sh.a[v];
     }
+    if (stepped && !this.poolsOnProps && pools && this.pools.length && this.pools.some(p => !p.all)) this.objMask = new Uint8Array(w * h);
     for (const f of this.objs) f();
+    const om = this.objMask; this.objMask = null;
     // light mask: 1 lamp pool, 2 sunbeam, 3 rim, 4 lamp falloff, 5 lamp middle ring, 6 soft sunbeam edge, 7 hot lamp centre, 8 faint spill tail, 9 spill rim
     let mask: Uint8Array | null = null;
     if (rimRamp && this.rims.length) {
@@ -334,7 +356,7 @@ export class Painter {
       // a lamp pool centred on its source: one solid lit colour per material, with a 2px falloff ring
       mask = mask ?? new Uint8Array(w * h);
       for (const p of this.pools) {
-        let R = Math.max(6, Math.round(p.r * this.poolScale));
+        let R = p.all ? p.r : Math.max(6, Math.round(p.r * this.poolScale));
         // a pool whose source lives in this segment only must not be cut by the segment edge: it shrinks to fit instead
         if (!p.spill) R = Math.min(R, Math.floor(Math.min(p.y, h - 1 - p.y) * 1.15));
         if (R < 5) continue;
@@ -345,9 +367,11 @@ export class Painter {
           const ang = Math.atan2(ddy, ddx), wob = 1 + (0.07 * Math.sin(ang * 3 + p.x * 0.7) + 0.05 * Math.sin(ang * 5 + p.y * 1.3)) * this.poolWobble;
           const d = Math.hypot(ddx, ddy) / wob; if (d > R) continue;
           const o = y * w + x;
+          if (om && !p.all && om[o]) continue; // props keep their own colours: the pool lies on the floor under them
+          if (p.all) { if (!mask[o]) mask[o] = 4; continue; }
           // stepped: hot centre, core, middle, edge; each boundary is a ~2px ordered-dither seam so the steps melt
           // two clean steps (a 2-step falloff): the lit core under the lamp and one softer ring; organic edges, no dither
-          const v = stepped ? (d <= R * 0.55 ? 1 : 4)
+          const v = stepped ? (d <= R * 0.58 ? 1 : 4)
             : d <= R - 2 ? 1 : d <= R - 1 ? 4 : ((x + y) & 1 ? 4 : 0);
           const rank = (m: number) => m === 7 ? 4 : m === 1 ? 3 : m === 5 ? 2 : m === 4 ? 1 : 0;
           if (v && rank(v) > rank(mask[o])) mask[o] = v;
@@ -377,8 +401,8 @@ export class Painter {
       for (const b of this.beams) if (b.tilt !== undefined) {
         for (let x = Math.max(0, b.x); x < Math.min(w, b.x + b.w); x++) { const y0 = b.y + Math.round((x - b.x) * b.tilt);
           for (let y = Math.max(0, y0); y < Math.min(h, y0 + b.h); y++) { const o = y * w + x;
-            const rim = (y === y0 || y === y0 + b.h - 1) && ((x + y) & 1) === 1; // a 1px 50% seam on the long edges
-            if (b.soft) { if (!rim && mask[o] !== 1 && mask[o] !== 2) mask[o] = 6; } else if (mask[o] !== 1) mask[o] = rim ? 6 : 2; } }
+            // clean 2-step edges: the solid core, and (from a soft shaft laid under it) one solid halo step; never a dither seam
+            if (b.soft) { if (mask[o] !== 1 && mask[o] !== 2) mask[o] = 6; } else if (mask[o] !== 1) mask[o] = 2; } }
       } else for (let y = Math.max(0, b.y); y < Math.min(h, b.y + b.h); y++) {
         const x0 = b.x + Math.round((y - b.y) * b.skew);
         // crisp beams: solid inside, one 50% pixel row on the edge (no wide halftone falloff)
@@ -390,7 +414,7 @@ export class Painter {
       }
     }
     if (!todRamp.id || mask) {
-      const L = stepped ? lampRamps(todRamp, this.poolLift, this.grassLit) : null;
+      const L = stepped ? lampRamps(todRamp, this.poolLift, this.grassLit, this.poolExtra, this.poolWarm) : null;
       const tail = this.sunTail ?? this.sunSoft ?? this.sunRamp;
       const ramps: (Ramp | null)[] = L ? [todRamp, L[2], this.sunRamp, rimRamp, L[0], L[1], this.sunSoft ?? this.sunRamp, L[3], tail, this.spillRim]
         : [todRamp, poolRamp, this.sunRamp, rimRamp, edgeRamp, poolRamp, this.sunSoft ?? this.sunRamp, null, tail, this.spillRim];
