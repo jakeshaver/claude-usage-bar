@@ -370,6 +370,8 @@ class UI implements Module {
   /** Staged showcases mute HUD toasts (presentational only). */
   toastsMuted = false;
   muteToasts(on: boolean) { this.toastsMuted = on; if (on) this.toasts = []; }
+  /** the quest row held through a Big Cat knock-out (undefined: no KO in progress) */
+  koQuest: any = undefined;
   /** extra toast hold (on top of the automatic hold while memories' reveal card is up) */
   private toastHold = false; private toastPend: { s: string; o?: ToastOpts; parts?: string[]; wait?: number }[] = [];
   /** re-entry from the pend flush: never re-held */
@@ -944,7 +946,11 @@ class UI implements Module {
     header(ctx, 'QUEST', x1, QY, w0, C.violet, t);
     // quest.tracked() returns null while a NEW QUEST toast is still held: no find() fallback then
     const Q = g.mods.quest;
-    const q = Q?.tracked ? Q.tracked() : g.content.quests.find(q => s.quests[q.id] === 'active');
+    let q = Q?.tracked ? Q.tracked() : g.content.quests.find(q => s.quests[q.id] === 'active');
+    // a Big Cat knock-out holds the quest row on the quest it showed when the KO landed (ticked once boss:defeat
+    // completes it), so the line never jumps to the next quest while the explosion is still on screen
+    if (g.mods.interaction?.ko) { if (this.koQuest === undefined) this.koQuest = q ?? null; else if (this.koQuest) q = this.koQuest; }
+    else this.koQuest = undefined;
     if (q) {
       this.fitText(ctx, q.name, x1, QY + 11, w0, C.violet, C.ink);
       icon(ctx, 'flag', x1, QY + 22, C.violet);
