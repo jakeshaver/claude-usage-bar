@@ -1,9 +1,9 @@
 {
  "updated": "2026-10-29",
- "phase": "wave2-complete-integrated; final gate running",
+ "phase": "FINAL GATE PASSED",
  "build": {
   "ok": true,
-  "jsKB": 696,
+  "distKB": 896,
   "budgetKB": 1024
  },
  "lint": {
@@ -18,13 +18,13 @@
    "ending_true"
   ],
   "botMinutes": [
-   32,
+   31,
    34
   ],
   "note": "waves trimmed to 7-9 per sector (104 waves); human estimate 70-100 min"
  },
  "tests": {
-  "passed": 56,
+  "passed": 57,
   "failed": 0
  },
  "modules": {
@@ -40,20 +40,20 @@
    "history": null
   },
   "world": {
-   "score": 7.8,
-   "status": "polish5 r3"
+   "score": 8.0,
+   "status": "polish6 r3 (below 8.5 module bar)"
   },
   "player": {
    "score": 7.6,
    "status": "wave2 4 rounds, fail"
   },
   "interaction": {
-   "score": 8.2,
-   "status": "polish5 r2"
+   "score": 7.6,
+   "status": "polish6 r2 (below 8.5 module bar)"
   },
   "ui": {
-   "score": 8.2,
-   "status": "polish5 r2 (regressed from 8.5: memory card slot conflict)"
+   "score": 8.4,
+   "status": "polish6 r2"
   },
   "audio": {
    "score": 7.2,
@@ -74,7 +74,7 @@
    "status": "wave2 4 rounds, fail"
   },
   "memories": {
-   "score": 8.6,
+   "score": 8.5,
    "status": "PASSED"
   },
   "minigames": {
@@ -87,17 +87,18 @@
   }
  },
  "openIssues": [
-  "memory card covers live combat (fairness)",
-  "formations rarely read as a crisp Galaga grid",
-  "Pom off-model on ending/recovery dioramas",
-  "time of day invisible in moon/cafe/rooftops/park/docks",
-  "UI collisions: sound prompt over map title, mute button overlaps, subtitles truncated",
-  "flat ending (no finale sequence); ending text says six pups",
-  "sparse backgrounds: park/alley/docks/moon/cafe",
-  "1px stray line ~y140 in some sectors; sky seam",
-  "secret_route quest left active on moon route"
+  "night lawn texture reads as a 1px barcode",
+  "factory night lamp pools read as grey fog",
+  "late bosses (Blue, Kingpin, Ace) share one saucer",
+  "some escort wings overlap (Kingpin, Fold, Admiral)",
+  "cafe rugs look like spilled paint; cream persians low contrast",
+  "nebula boss catnip clouds dithered",
+  "mothership plates still repetitive",
+  "HUD dense",
+  "module-level gauntlets below 8.5: world 8.0, ui 8.4, interaction 7.6, player 7.6, audio 7.2, effects 8.0, minigames 8.1, save 8.0, art 6.6 (pre-redraw)",
+  "bot picks exits[0] but street's first exit resolved to alley in one browser run (check exit ordering)"
  ],
- "nextStep": "Polish loop 6: night lawns dark TEAL-GREEN, nebula, mothership/station variety, factory night, sky dawn gradient; ui+memories card slot, ending text clip, wave banner plate, HUD density; interaction KO/lane clipping, empress bullets, escort wings, arena dressing. Target 8.5.",
+ "nextStep": "Done: final gate passed (whole-game 8.5, blind 78%, verifier all green). Optional: another polish loop on openIssues (world lawn/lamps, unique late-boss vehicles, escort wings).",
  "passedModules": [
   "memories",
   "journal",
@@ -105,26 +106,7 @@
   "ui"
  ],
  "finalGate": {
-  "round": 1,
-  "wholeGameCritic": 8.4,
-  "criticPass": false,
-  "blindJudgeWinRate": 0.78,
-  "blindPairs": 6,
-  "releaseVerifier": {
-   "botAllPaths": true,
-   "softlocks": 0,
-   "endings": [
-    "ending_true",
-    "ending_good"
-   ],
-   "saveResumeBrowser": true,
-   "offlineBuild": true,
-   "externalRequests": 0,
-   "distKB": 704,
-   "loadMs": 164,
-   "fps": 60,
-   "tests": "42/42"
-  },
+  "passed": true,
   "history": [
    {
     "round": 1,
@@ -149,7 +131,37 @@
    {
     "round": "polish5",
     "wholeGameCritic": 8.4
+   },
+   {
+    "round": "polish6",
+    "wholeGameCritic": 8.5
    }
-  ]
+  ],
+  "wholeGameCritic": 8.5,
+  "criticErrors": 0,
+  "blindJudges": {
+   "pairs": 6,
+   "judges": 3,
+   "oursWins": 14,
+   "of": 18,
+   "winRate": 0.78,
+   "note": "lost votes were about readability vs Galaga's black backgrounds"
+  },
+  "releaseVerifier": {
+   "botAllPaths": true,
+   "paths": 8,
+   "softlocks": 0,
+   "endings": [
+    "ending_true",
+    "ending_good"
+   ],
+   "saveResumeBrowser": true,
+   "offlineBuild": true,
+   "externalRequests": 0,
+   "distKB": 896,
+   "loadMs": 218,
+   "fps": 60,
+   "tests": "57/57"
+  }
  }
 }
