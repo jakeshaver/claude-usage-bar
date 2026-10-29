@@ -5,7 +5,7 @@ import { drawSprite, spriteRows } from '../art/sprite';
 import { col } from '../core/palette';
 import { entryPath, divePath, bonusPath, Track, selfGaps, type Pt, type TrackPos } from './paths';
 import { tuning, type Tuning } from './tuning';
-import { pxRing, pxDither, pxSpark, pxDisc } from '../core/pixel';
+import { pxDisc } from '../core/pixel';
 import { ditherShadow, ditherRect, captureBeam, bubble, drawBullet, drawCombat, plaster, tractor, pickupBadge, ringC } from './art';
 import { Boss } from './boss';
 import { COL_SP, ROW_SP, WALL_GAP, GUTTER, plan, shapeFor, entryFor, signatureFor, latticeFor, laneOf, pitchFor, line, cellsUnique, closeRows, type Shape, type Entry } from './formation';
@@ -44,7 +44,7 @@ export interface Cat {
   res?: boolean;
 }
 /** `art` names the bullet sprite (cats: blt_fur / blt_yarn, bosses: one per bossPattern). */
-export interface Shot { x: number; y: number; vx: number; vy: number; kind: 'turd' | 'hairball' | 'yarn'; t: number; art?: string }
+export interface Shot { x: number; y: number; vx: number; vy: number; kind: 'turd' | 'hairball' | 'yarn'; t: number; art?: string; slow?: number }
 export interface Pickup { kind: string; x: number; y: number; vy: number; t: number; vx?: number }
 
 const WAVE_LIMIT = 75 * 60;  // cats lose interest after 75s, so waves can never stall
@@ -71,14 +71,22 @@ const PUP_LIFT = 14;        // the formation sits this much lower when a captive
 const REST_TICKS = 24;      // a cat parks at least this long before it may dive again
 const REST_LAST = 72;       // ...and much longer in the last stand: the stragglers visibly return between dives
 const ESC_GAP = 90;         // ticks the squad stays short-handed before the Big Cat whistles up replacements
+const ESC_REPAIR = 36;      // ...and only this long when one wing is short (the squad never flies lopsided for long)
 /** Escort cats' half width (opaque) and the air every escort keeps: one cat's width (28px) from the boss's hitbox and
  *  from each other (centre pitch 56 between escorts). */
 const ESC_HALF = 14, ESC_AIR = 28;
 /** Wing slots: every escort keeps at least ESC_CLEAR px of air to the Big Cat's hitbox; each slot further out along a
  *  wing steps WING_DX across and WING_DY back (down the field). */
 const ESC_CLEAR = 40, WING_DX = 34, WING_DY = 22;
+/** One escort wing slot (offset from the Big Cat): `out` steps out of the charge lane, (cx, cy) is its position in
+ *  the charge formation, (tx, ty) its tucked position while the Big Cat sheds a curtain. */
+interface EscSlot { x: number; y: number; out?: number; cx?: number; cy?: number; tx?: number; ty?: number }
+/** Vertical pitch of two stacked flank escorts (6px of air between them, 8 between their rims). */
+const ESC_PITCH = 36;
 /** How far each Big Cat tier's art reaches: half width (cat, jets, saucer, throne wings) and below its centre. */
 const BOSS_HW = [34, 36, 48, 78], BOSS_BOTTOM = [34, 32, 38, 44];
+/** Ticks after boss:defeat the knocked-out Big Cat stays in the HUD's BIG CAT panel (world holds 140 before the outro). */
+const KO_HOLD = 140;
 const HURRY_LEAVE = 6 * 60; // once only ~30% of a wave is left, stragglers dive from their slots, then fly off after 6s
 /** Stages with no ground below the action (sky and space): nothing to cast a shadow on. */
 const AIRBORNE = new Set(['sky', 'moon', 'nebula', 'station', 'mothership']);
@@ -124,6 +132,10 @@ function mailbox(ctx: CanvasRenderingContext2D, x: number, y: number, open: numb
   else { R(-9, -14, 3, 11, '0'); R(-8, -13, 1, 9, 'o'); R(-6, -4, 13, 2, '0'); }
   if (pop && (t >> 1) & 1) { R(-4, -12, 1, 3, '6'); R(3, -13, 1, 3, '6'); R(0, -16, 1, 3, 'f'); R(-6, -10, 2, 1, 'f'); R(5, -10, 2, 1, 'f'); }
 }
+/** Enemy bullets pop this far inside the lane walls (their 13px art never pokes past the wall). */
+const SPIT_WALL = 5;
+/** Catnip cloud (nebula Big Cat): half extents of the slowing zone. */
+const CATNIP_RX = 34, CATNIP_RY = 16;
 /** Orbit signature: its ring runs this far inside the lane's gutter lines (the right gutter sits at the view's edge). */
 const ORBIT_INSET = 18;
 
@@ -133,7 +145,11 @@ class Interaction implements Module {
   api = this;
   g!: Game;
   cats: Cat[] = []; turds: Shot[] = []; spits: Shot[] = []; pickups: Pickup[] = [];
-  boss: Boss | null = null;
+  /** The live Big Cat (null once it is knocked out). */
+  big: Boss | null = null;
+  /** What the HUD reads: the live Big Cat, or the knocked-out one (hp 0, `dead`) until the KO and its finale have
+   *  played out (KO_HOLD ticks after boss:defeat), so ui keeps the BIG CAT panel instead of a NEXT WAVE roster. */
+  get boss(): Boss | null { return this.big ?? (this.ko ? this.koBoss : null); }
   wave: WaveDef | null = null; waveT = 0; active = false; mode: 'none' | 'wave' | 'boss' | 'bonus' = 'none';
   bonus: { def: BonusDef; hits: number; total: number } | null = null;
   sway = 0; nextId = 1; pupHolder = -1; rowSp = ROW_SP; colSp = COL_SP; shape: Shape = 'galaga';
@@ -150,7 +166,7 @@ class Interaction implements Module {
   /** this wave's entry choreography (content entry, or convoy / drop / flank / escort picked per wave) */
   entry: Entry = 'swirl-left';
   /** Big Cat escorts: countdown to the next squad, the squad's anchor x, the side the next squad streams in from */
-  escT = 0; escAx = WORLD_W / 2; escAy = 76; escSide = 1; escSpread = 0;
+  escT = 0; escAx = WORLD_W / 2; escAy = 76; escSide = 1; escSpread = 0; escTuck = 0;
   /** every cell of this wave's shape (reinforcements fly into the empty ones), the reinforcement cooldown, and the
    *  sector signature's rack motion (docks: rows bob like moored boats) */
   cells: { row: number; u: number }[] = []; reT = 0; bob = false;
@@ -164,6 +180,16 @@ class Interaction implements Module {
   puffs: { x: number; y: number; t: number }[] = [];
   /** id of the Big Cat just knocked out (until the next wave / fight starts): ui's goal row can read BOOPED at once */
   bossDown: string | null = null;
+  /** The Big Cat being knocked out (from the KO hit until the finale and its explosion have played out, KO_HOLD ticks
+   *  after boss:defeat): ui keeps the BIG CAT panel (0% armor) on it instead of a wave roster. `ko` is true meanwhile. */
+  koBoss: Boss | null = null; koHold = 0; ko = false;
+  /** Escorts and kittens scattering after a knock-out: no longer hostiles, so never in `cats` (CATS LEFT / HOSTILES and
+   *  wave bookkeeping never see them); they climb out through the top of the lane. */
+  flee: Cat[] = [];
+  /** Arena dressing per Big Cat: nebula catnip clouds (slow enemy bullets). */
+  props: { kind: string; x: number; y: number; vx: number; vy: number; t: number; v: number }[] = []; propT = 0;
+  /** ticks until a Big Cat hit may splat again (hit fx stay sparse under constant fire) */
+  splatT = 0;
 
   // showcase staging (?showcase=interaction&stage=lineup|capturer|rescue|splitter|tank|dive|tell|boss|bullets|play)
   stageReq: string | null = null; staged = false; stageT = 0; stageAt = 0; stagePhase = 0; frozen = false; stageAtk: string | null = null;
@@ -179,10 +205,10 @@ class Interaction implements Module {
   }
   enemy(id: string) { return this.g.content.enemies.find(e => e.id === id) ?? this.g.content.enemies[0]; }
 
-  clearAll() { this.bossDown = null; this.puffs = []; this.cats = []; this.turds = []; this.spits = []; this.pickups = []; this.boss = null; this.active = false; this.mode = 'none'; this.bonus = null; this.shocks = []; }
+  clearAll() { this.bossDown = null; this.koBoss = null; this.koHold = 0; this.ko = false; this.flee = []; this.props = []; this.puffs = []; this.cats = []; this.turds = []; this.spits = []; this.pickups = []; this.big = null; this.active = false; this.mode = 'none'; this.bonus = null; this.shocks = []; }
   /** Pom napped: clear the air. Waves restart; a boss keeps its damage (cozy, never a full reset). */
-  napReset() { this.turds = []; this.spits = []; this.pickups = []; if (this.boss) { this.boss.reenter(); this.cats = []; this.escT = 40; } else this.clearAll(); }
-  liveCats() { return this.cats.length + (this.boss ? 1 : 0); }
+  napReset() { this.turds = []; this.spits = []; this.pickups = []; if (this.big) { this.big.reenter(); this.cats = []; this.escT = 40; } else this.clearAll(); }
+  liveCats() { return this.cats.length + (this.big ? 1 : 0); }
   /** True when the stage has a floor to cast shadows on. */
   grounded() { return !AIRBORNE.has(this.g.state.areaId); }
   /** Rim colour for combat sprites at this time of day (undefined: no rim needed in daylight). */
@@ -467,8 +493,9 @@ class Interaction implements Module {
     this.clearAll(); this.g.reseed('boss', id);
     this.T = tuning(this.g);
     const def = this.enemy(id);
-    this.boss = new Boss(this.g, this, def); this.active = true; this.mode = 'boss';
+    this.big = new Boss(this.g, this, def); this.active = true; this.mode = 'boss';
     this.escT = ESC_GAP; this.diveT = 200; this.escAx = WORLD_W / 2; this.escAy = -70; this.escSide = this.g.rng.chance(0.5) ? 1 : -1;
+    this.setupProps(id);
     this.spawnEscorts();   // the squad streams in alongside the Big Cat's entrance swoop: it is never alone on stage
     this.g.bus.emit('boss:start', { bossId: id });
   }
@@ -511,11 +538,11 @@ class Interaction implements Module {
   threats() {
     const out: { x: number; y: number; vx: number; vy: number; st?: string }[] = [...this.spits];
     for (const c of this.cats) if ((c.st === 'dive' || c.st === 'kdive' || c.st === 'return') && c.y > 60) out.push({ x: c.x, y: c.y, vx: c.vx, vy: c.vy, st: c.st });
-    if (this.boss) out.push(...this.boss.threats());
+    if (this.big) out.push(...this.big.threats());
     return out;
   }
   target(px: number) {
-    if (this.boss) return { x: this.boss.x };
+    if (this.big) return { x: this.big.x };
     let best: Cat | null = null, bd = 1e9;
     for (const c of this.cats) {
       if (c.st === 'wait' || c.st === 'leave' || c.y < 0 || c.y > 260) continue;
@@ -580,39 +607,65 @@ class Interaction implements Module {
   /** Where escort slot i sits right now: around the squad's anchor, which rides with the Big Cat. */
   private escSlot(i: number): Pt {
     const geo = this.escGeo(); const o = geo.slots[i] ?? geo.slots[geo.slots.length - 1];
-    const [l, rr] = laneOf(this.g.state.areaId); const pad = WALL_GAP + ESC_HALF;
-    // the V's lower slots step out of the charge lane while the Big Cat winds up and pounces
-    const sg = o[0] < 0 ? -1 : 1; let dx = o[0] + (o[2] ? sg * Math.round(this.escSpread) : 0), dy = o[1];
-    // the entrance: the whole V rides a little wider and trails higher, then closes into formation as the Big Cat
-    // arrives (every slot moves the same way, so the wing shape reads all the way down)
-    const fk = this.boss?.formK?.() ?? 0;
+    const [l, rr] = this.escLane(); const pad = WALL_GAP + ESC_HALF;
+    // while the Big Cat winds up and pounces, the slots under it step out of the charge lane (or morph into their
+    // charge formation); while it sheds a curtain, slots with a tuck position close up into one row above the curtain
+    const kc = Math.max(0, Math.min(1, this.escSpread / 26)), kt = this.escTuck;
+    let dx = o.x, dy = o.y;
+    if (o.cx !== undefined) { dx += (o.cx - o.x) * kc; dy += (o.cy! - o.y) * kc; }
+    else if (o.out) dx += (o.x < 0 ? -1 : 1) * Math.round(this.escSpread);
+    if (o.tx !== undefined && kt > 0) { dx += (o.tx - dx) * kt; dy += (o.ty! - dy) * kt; }
+    // the entrance: the whole formation rides a little wider and trails higher, then closes as the Big Cat arrives
+    // (every slot moves the same way, so the wing shape reads all the way down)
+    const fk = this.big?.formK?.() ?? 0;
     if (fk > 0) { dx *= 1 + 0.3 * fk; dy -= 46 * fk; }
     // homes never leave the lane: clamped to the wall + 16px of air
     return [Math.max(l + pad, Math.min(rr - pad, Math.round(this.escAx + dx))), Math.round(this.escAy + dy)];
   }
+  /** The part of the lane an escort may park in: the whole lane, except Maple Street, where the cars parked along both
+   *  curbs are decor no escort may sit on (escorts keep to the open road between them). */
+  private escLane(): [number, number] { const [l, r] = laneOf(this.g.state.areaId); return this.g.state.areaId === 'street' ? [l + 18, r - 18] : [l, r]; }
   /**
-   * Escort wing slots for this Big Cat (offsets from the boss centre; a third element marks the slots under it, which
-   * step out of the charge lane). Pairs in order: slot 2k is the left, 2k+1 the right cat of pair k. Every escort keeps
-   * ESC_CLEAR (40) px of air to the Big Cat's hitbox and is clear of its craft art.
+   * Escort wing slots for this Big Cat: offsets from the boss centre, always mirrored pairs (slot 2k is the left, 2k+1
+   * the right cat of pair k), so every Big Cat flies at least two escorts per side. Every escort keeps ESC_CLEAR (40)
+   * px of air to the Big Cat's hitbox and is clear of its craft art.
    *  - open lanes: a swept wing per side, the first escort beside the Big Cat, the second stepped WING_DX out and
-   *    WING_DY back; a third pair (6-cat squads) sits under it, a full 40px below its hitbox;
-   *  - narrow lanes (street, alley): one escort beside it per side, the second pair stepped back under it into a V;
-   *  - a craft too wide to fly beside (the Empress in the mothership's hall): a V under the saucer, outer pair at the
-   *    walls, inner pair stepped back toward the middle.
+   *    WING_DY back; a third pair (6-cat squads) sits under it, a full 40px below its hitbox (`out`: steps out of the
+   *    charge lane);
+   *  - Maple Street (the road between the parked cars): a tight V under Tuxedo Tom; it opens into two stacked flanks
+   *    while he pounces down the middle and closes into one row above his curtains;
+   *  - other narrow lanes (alley): two stacked flanks, one column per side beside the Big Cat;
+   *  - the Empress (her throne fills the hall): two stacked flanks along the walls under her wings, closing into one
+   *    row under the saucer for her curtains (so curtains and rings cross no escort).
    */
-  private escGeo(): { slots: [number, number, number?][]; ext: number; wide: boolean } {
-    const r = this.boss?.r ?? 26; const tier = this.boss?.tier ?? 0; const [l, rr] = laneOf(this.g.state.areaId);
-    const hw = BOSS_HW[tier] ?? 34, bot = BOSS_BOTTOM[tier] ?? 34;
+  escGeo(): { slots: EscSlot[]; ext: number; wide: boolean } {
+    const r = this.big?.r ?? 26; const tier = this.big?.tier ?? 0; const [l, rr] = this.escLane();
+    const hw = BOSS_HW[tier] ?? 34;
     const L = (rr - l) / 2 - WALL_GAP - ESC_HALF;     // furthest an escort centre may sit from the lane's middle
     const X0 = Math.max(r + ESC_CLEAR + ESC_HALF, hw + 12 + ESC_HALF);
     const deep = r + 4 + ESC_CLEAR + ESC_HALF + 4;     // under the hitbox (half height r + 4) with 40px of air
+    const pair = (o: EscSlot): EscSlot[] => [{ ...o, x: -o.x, cx: o.cx === undefined ? undefined : -o.cx, tx: o.tx === undefined ? undefined : -o.tx }, o];
+    if (this.g.state.areaId === 'street') {
+      const ty = r + 40;   // tucked row: above the curtain, under the hitbox
+      return { wide: false, ext: 56, slots: [
+        ...pair({ x: 54, y: 80, cx: 56, cy: 70, tx: 54, ty }),
+        ...pair({ x: 20, y: 100, cx: 56, cy: 104, tx: 20, ty }),
+      ] };
+    }
     if (X0 + WING_DX <= L) {
       const X1 = X0 + WING_DX, d = 4 + WING_DY;
-      return { wide: true, ext: X1, slots: [[-X0, 4], [X0, 4], [-X1, d], [X1, d], [-(r + 22), deep, 1], [r + 22, deep, 1]] };
+      return { wide: true, ext: X1, slots: [...pair({ x: X0, y: 4 }), ...pair({ x: X1, y: d }), ...pair({ x: r + 22, y: deep, out: 1 })] };
     }
-    if (X0 <= L) return { wide: false, ext: X0, slots: [[-X0, 4], [X0, 4], [-(X0 - 32), deep, 1], [X0 - 32, deep, 1]] };
-    const lo = bot + 36; const xo = Math.round(L), xi = Math.round(L - WING_DX);
-    return { wide: false, ext: L, slots: [[-xo, lo], [xo, lo], [-xi, lo + WING_DY, 1], [xi, lo + WING_DY, 1]] };
+    if (X0 <= L) return { wide: false, ext: X0, slots: [...pair({ x: X0, y: 4 }), ...pair({ x: X0, y: 4 + ESC_PITCH })] };
+    // the Empress: flanks along the walls, under her wings (30px of air to her hitbox), tucking into a row for curtains
+    const xo = Math.round(L) - 8, y0 = r + 30 + ESC_HALF, ty = 66;   // (8px off the hall's wall cables)
+    return { wide: false, ext: L, slots: [...pair({ x: xo, y: y0, tx: xo, ty }), ...pair({ x: xo, y: y0 + 34, tx: xo - 42, ty })] };
+  }
+  /** Where a Big Cat sheds its curtain rows (below its centre): under every escort's tucked row, so a curtain never
+   *  crosses its own squad. */
+  escCurtainDY(): number {
+    let m = -1; for (const o of this.escGeo().slots) if (o.ty !== undefined) m = Math.max(m, o.ty);
+    return m < 0 ? 54 : m + 28;
   }
   /** Angles (from the Big Cat) of its parked escorts nearby: its rings part around them instead of passing through. */
   escortAngles(x: number, y: number): number[] {
@@ -630,7 +683,7 @@ class Interaction implements Module {
   }
   /** World x range the Big Cat (and its squad's anchor) keeps to, so every escort stays WALL_GAP px inside the lane. */
   bossRange(): [number, number] {
-    const [l, rr] = laneOf(this.g.state.areaId); const ext = this.escGeo().ext + ESC_HALF;
+    const [l, rr] = this.escLane(); const ext = this.escGeo().ext + ESC_HALF;
     let lo = l + WALL_GAP + ext, hi = rr - WALL_GAP - ext; const mid = (l + rr) / 2;
     if (hi < lo) lo = hi = mid;   // a lane too narrow to drift in: the squad holds the middle (never spills past a wall)
     return [Math.round(lo), Math.round(hi)];
@@ -639,12 +692,12 @@ class Interaction implements Module {
    *  sector 9 on; never more than the lane's wing slots (narrow lanes fly a V of four). */
   private escortSize(): number {
     const idx = this.sectorIdx();
-    return Math.min(this.escGeo().slots.length, idx < 3 ? 4 : idx < 8 ? 4 + (this.boss && this.boss.phase > 0 ? 2 : 0) : 6);
+    return Math.min(this.escGeo().slots.length, idx < 3 ? 4 : idx < 8 ? 4 + (this.big && this.big.phase > 0 ? 2 : 0) : 6);
   }
   private sectorIdx() { const g = this.g; return Math.max(0, g.content.areas.findIndex(a => a.id === g.state.areaId)); }
   /** True when the squad is short enough to whistle up replacements: mid and late sectors keep 4-6 escorts on stage,
    *  the first sectors refill once only two are left. */
-  private escortsLow(n: number) { const size = this.escortSize(); return this.sectorIdx() >= 3 ? n < Math.min(4, size) || n <= size - 3 : n <= size - 2; }
+  private escortsLow(n: number) { const size = this.escortSize(); return this.sectorIdx() >= 3 ? n < Math.min(4, size) || n <= size - 3 : n < size; }
   /** The sector's own breeds (from its waves), minus capturers: escorts are regular cats. */
   private escortBreeds(): EnemyDef[] {
     const g = this.g; const area = g.mods.world.area(g.state.areaId); const ids: string[] = [];
@@ -656,14 +709,14 @@ class Interaction implements Module {
    *  same moment, each from its own side (left slots from the left edge, right slots from the right), so the squad
    *  refills symmetrically and never piles up on one side. */
   spawnEscorts() {
-    const b = this.boss; if (!b) return;
+    const b = this.big; if (!b) return;
     const n = this.escortSize(); const taken = new Set(this.cats.filter(c => c.eslot !== undefined && !c.dead).map(c => c.eslot!));
     const breeds = this.escortBreeds(); this.escSide = -this.escSide; let j = 0;
     const geo = this.escGeo();
     for (let i = 0; i < n; i++) {
       if (taken.has(i)) continue;
       const def = breeds[(i + (b.phase * 3)) % breeds.length]; const slot = this.escSlot(i);
-      const side = (geo.slots[i]?.[0] ?? 0) < 0 ? 1 : -1;
+      const side = (geo.slots[i]?.x ?? 0) < 0 ? 1 : -1;
       // a narrow hall has no gutter beside the boss: escorts rise straight up from under the field into their slots
       const pts: Pt[] = geo.wide ? this.inLane(entryPath('swirl-left', side, slot, slot[1] + 36), slot[1] + 36)
         : [[slot[0] - side * 10, H + 30], [slot[0] - side * 4, slot[1] + 90], [slot[0], slot[1] + 30], slot];
@@ -676,18 +729,103 @@ class Interaction implements Module {
     }
     if (j) this.g.mods.audio?.sfx('blip');
   }
+  /** Each wing keeps its escorts in its innermost slots: when an inner escort is booped, a parked cat further out on
+   *  the same wing glides in to take its place (so the squad always reads as a symmetric V / flanks, never a hole
+   *  beside the Big Cat with a straggler out on the wing tip). */
+  private compactEscorts(esc: Cat[]) {
+    const n = this.escGeo().slots.length; const has = new Set(esc.map(c => c.eslot!));
+    for (let side = 0; side < 2; side++) {
+      for (let i = side; i < n; i += 2) {
+        if (has.has(i)) continue;
+        const c = esc.find(o => o.eslot! > i && o.eslot! % 2 === side && o.st === 'form');
+        if (!c) continue;
+        has.delete(c.eslot!); c.eslot = i; c.u = i; has.add(i); c.st = 'home'; c.speed = 2;
+      }
+    }
+  }
   /** Knock-out: the air clears (every hairball pops into a sparkle), the escorts and kittens scatter, a hard beat of
    *  hit-stop and a white flash; the Big Cat then staggers for a moment before the finale (Boss 'ko'). */
   bossKO(x: number, y: number) {
     const fx = this.g.mods.effects;
     for (const s of this.spits) fx?.burst(s.x, s.y, 'sparkle');
-    this.spits = []; for (const c of this.cats) { if (c.st === 'wait') c.dead = true; c.st = 'leave'; c.tell = 0; }
+    this.spits = []; this.scatter();
+    this.koBoss = this.big; this.ko = true; this.koHold = 0;
     // (the flash is the Big Cat's own solid radial wipe, Boss.render: never the dithered screen flash)
     fx?.hitStop(10); fx?.shake(5, 20); fx?.burst(x, y, 'boom');
     this.clearNumbers(x, y);
     this.shocks.push({ x, y, t: 0, big: true }, { x, y, t: -6, big: true });
-    this.bossDown = this.boss?.def.id ?? null;
+    this.bossDown = this.big?.def.id ?? null;
     this.g.mods.audio?.sfx('bark');
+  }
+  /** Every cat still around a knocked-out Big Cat stops being a hostile: it joins `flee` and climbs out through the top. */
+  private scatter() {
+    for (const c of this.cats) { if (c.st === 'wait' || c.dead) continue; c.st = 'leave'; c.tell = 0; c.beam = 0; c.t = 0; c.pup = false; this.flee.push(c); }
+    this.cats = [];
+  }
+  /** Fleeing escorts: a short hop outward, then straight up and out through the top of the lane (never into the wall
+   *  gutters or under the side HUD), speeding up as they go. */
+  private updateFlee() {
+    if (!this.flee.length) return;
+    const [l, r] = laneOf(this.g.state.areaId);
+    for (const c of this.flee) {
+      c.t++; const k = Math.min(1, c.t / 30);
+      const out = c.x < this.escAx ? -1 : 1;
+      c.x = Math.max(l + 18, Math.min(r - 18, c.x + out * 1.4 * (1 - k)));
+      c.vy = -(1 + 2.6 * k); c.y += c.vy; c.vx = 0; c.up = true;
+      if (c.y < -40) c.dead = true;
+    }
+    this.flee = this.flee.filter(c => !c.dead);
+  }
+  /** Arena dressing for this Big Cat (cheap, drawn under the cats and bullets): the nebula's drifting catnip clouds, a
+   *  translucent green haze that halves the speed of any bullet passing through it (a cozy breather: a slowed orb
+   *  trails lime motes, so the effect reads). (The backyard keeps the world's own clothesline: no second one.) */
+  private setupProps(bossId: string) {
+    this.props = []; this.propT = 0;
+    const [l, r] = laneOf(this.g.state.areaId);
+    if (bossId === 'boss_kingpin') {
+      this.props.push({ kind: 'catnip', x: l + 70, y: 176, vx: 0.22, vy: 0, t: 0, v: 0 }, { kind: 'catnip', x: r - 70, y: 236, vx: -0.18, vy: 0, t: 40, v: 1 });
+    }
+  }
+  private updateProps() {
+    if (!this.props.length) return;
+    const [l, r] = laneOf(this.g.state.areaId); this.propT++;
+    for (const p of this.props) {
+      p.t++;
+      if (p.kind === 'catnip') {
+        p.x += p.vx; if (p.x < l + CATNIP_RX + 4 || p.x > r - CATNIP_RX - 4) p.vx = -p.vx;
+        p.y += Math.sin(p.t / 70) * 0.08;
+      }
+    }
+  }
+  /** Catnip haze: a soft wisp, never terrain. A 50% lime dither core thinning to a sparse 25% green fringe whose edge
+   *  ripples slowly, a few loose leaf motes drifting through; no ink outline, so the starfield shows through. */
+  private renderProps(r: any) {
+    const t = this.propT;
+    for (const p of this.props) if (p.kind === 'catnip') r.push(1, -980, (ctx: CanvasRenderingContext2D) => {
+      const x = Math.round(p.x), y = Math.round(p.y + Math.sin(t / 50 + p.v) * 1.5);
+      const RY = CATNIP_RY + 2;
+      for (let dy = -RY; dy <= RY; dy++) {
+        const k = 1 - (dy / (RY + 0.5)) ** 2; if (k <= 0) continue;
+        // a wisp: wider and lower on one side, the edge rippling row by row
+        const w = Math.round((CATNIP_RX + 4) * Math.sqrt(k) + Math.sin(dy * 0.8 + t / 18 + p.v * 2) * 3);
+        const off = Math.round(Math.sin(dy * 0.35 + p.v) * 4);
+        const wi = Math.round(w * 0.62);
+        // core: a 50% green dither with a sparse lime sheen; fringe: a 25% dark-green dither (fades into the stars)
+        ditherRect(ctx, x + off - wi, y + dy, wi * 2 + 1, 1, 'j', p.v);
+        ctx.fillStyle = col('i');
+        for (let dx = -wi + ((dy * 3 + p.v) & 7); dx <= wi; dx += 8) if (((x + off + dx + y + dy + p.v) & 1) === 0 && Math.abs(dy) < RY - 4) ctx.fillRect(x + off + dx, y + dy, 1, 1);
+        ctx.fillStyle = col('k');
+        for (let dx = -w; dx <= w; dx++) {
+          if (Math.abs(dx) <= wi) continue;
+          const px = x + off + dx, py = y + dy;
+          if (((px + 2 * py) & 3) === 0) ctx.fillRect(px, py, 1, 1);
+        }
+      }
+      for (let i = 0; i < 5; i++) { // loose catnip leaves drifting through the haze
+        const a = t / 60 + i * 1.3 + p.v; const lx = Math.round(x + Math.cos(a) * (CATNIP_RX - 6)), ly = Math.round(y + Math.sin(a * 1.7) * (CATNIP_RY - 5));
+        ctx.fillStyle = col('i'); ctx.fillRect(lx, ly, 2, 1); ctx.fillStyle = col('k'); ctx.fillRect(lx + (i & 1 ? 1 : 0), ly + 1, 1, 1);
+      }
+    });
   }
   /** Phase change: a shockwave rolls off the Big Cat and fresh escorts fill the squad. */
   bossPhase(x: number, y: number) {
@@ -742,9 +880,17 @@ class Interaction implements Module {
     // turds
     for (const s of this.turds) { s.x += s.vx; s.y += s.vy; s.t++; }
     this.turds = this.turds.filter(s => s.y > -16 && s.x > -10 && s.x < WORLD_W + 10);
-    // spits
-    for (const s of this.spits) { s.x += s.vx; s.y += s.vy; s.t++; }
-    this.spits = this.spits.filter(s => s.y < H + 10 && s.y > -20 && s.x > -10 && s.x < WORLD_W + 10);
+    // spits (a catnip cloud halves the speed of any bullet drifting through it)
+    const slow = this.props.length ? this.props.filter(p => p.kind === 'catnip') : null;
+    for (const s of this.spits) {
+      const k = slow && slow.some(p => Math.abs(s.x - p.x) < CATNIP_RX && Math.abs(s.y - p.y) < CATNIP_RY) ? 0.5 : 1;
+      s.x += s.vx * k; s.y += s.vy * k; s.t++;
+      s.slow = k < 1 ? 12 : Math.max(0, (s.slow ?? 0) - 1);
+    }
+    // enemy bullets never leave the lane: one reaching a lane wall pops there (never drawn over the wall, the gutters
+    // beyond it or the side HUD)
+    const [ll, lr] = laneOf(g.state.areaId);
+    this.spits = this.spits.filter(s => s.y < H + 10 && s.y > -20 && s.x > ll + SPIT_WALL && s.x < lr - SPIT_WALL);
     if (this.active) this.waveT++;
     if (this.sigT >= 0 && this.mode === 'wave') { if (++this.sigT > SIG_LEAD + 160) { this.sigT = -1; this.sigTracks = []; } }
 
@@ -762,12 +908,15 @@ class Interaction implements Module {
     if (!this.entryDone && this.mode === 'wave' && !this.cats.some(o => (o.st === 'wait' && !o.res) || o.st === 'enter' || o.st === 'home')) this.entryDone = true;
     if (this.mode === 'wave' && w && !this.stageReq) this.reinforce(timedOut);
     if (this.mode === 'wave' && !this.stageReq) this.closeRanks();
-    if (this.boss) { // the escort squad's anchor rides with the Big Cat, inside its range
-      const [lo, hi] = this.bossRange(); this.escAx = Math.max(lo, Math.min(hi, this.boss.x));
+    if (this.big) { // the escort squad's anchor rides with the Big Cat, inside its range
+      const [lo, hi] = this.bossRange(); this.escAx = Math.max(lo, Math.min(hi, this.big.x));
       // bobs with the boss, stays up when it pounces; during the entrance the squad descends with it
-      this.escAy = this.boss.entering ? this.boss.y : Math.max(60, Math.min(84, this.boss.y));
-      const b = this.boss; const charging = b.atk === 'charge' && (b.st === 'tell' || b.st === 'attack');
+      this.escAy = this.big.entering ? this.big.y : Math.max(60, Math.min(84, this.big.y));
+      const b = this.big; const charging = b.atk === 'charge' && (b.st === 'tell' || b.st === 'attack');
       this.escSpread += ((charging ? 26 : 0) - this.escSpread) * 0.15;
+      // a curtain on its way: the squad closes into its tucked row above the curtain (and holds it while the rows clear)
+      const curtain = b.atk === 'curtain' && (b.st === 'tell' || b.st === 'attack' || (b.st === 'recover' && b.stT < 24));
+      this.escTuck += ((curtain ? 1 : 0) - this.escTuck) * 0.14; if (this.escTuck < 0.01) this.escTuck = 0;
     }
     for (const s of this.shocks) s.t++;
     for (const p of this.puffs) p.t++;
@@ -819,15 +968,21 @@ class Interaction implements Module {
     }
 
     // Big Cat escorts: a squad flanks the boss, peels off in Galaga dives, and is replaced a while after the last falls
-    const b0 = this.boss;
+    const b0 = this.big;
     if (this.mode === 'boss' && b0 && !b0.dead && b0.st !== 'ko') {
       // the squad is topped up as soon as it is down to one escort (never a lone Big Cat for long), also mid-entrance
       const esc = this.cats.filter(c => c.eslot !== undefined && !c.dead);
       // a broken wing pair (one of its two cats gone) also whistles up its partner, so the squad stays mirrored
+      this.compactEscorts(esc);
       const has = new Set(esc.map(c => c.eslot!)); const size = this.escortSize();
       let broken = false; for (let k = 0; k + 1 < size; k += 2) if (has.has(k) !== has.has(k + 1)) broken = true;
-      if (!this.escortsLow(esc.length) && !(broken && this.sectorIdx() >= 3)) this.escT = (this.sectorIdx() >= 3 ? ESC_GAP - 30 : ESC_GAP) - 20 * b0.phase;
-      else if (--this.escT <= 0 && b0.st !== 'phase') { this.spawnEscorts(); this.escT = ESC_GAP; }
+      // a lopsided squad (more cats on one wing) whistles up the missing partner quickly
+      const left = esc.filter(c => c.eslot! % 2 === 0).length; const lop = left * 2 !== esc.length;
+      if (!this.escortsLow(esc.length) && !broken && !lop) this.escT = (this.sectorIdx() >= 3 ? ESC_GAP - 30 : ESC_GAP) - 20 * b0.phase;
+      else {
+        if ((lop || broken) && this.escT > ESC_REPAIR) this.escT = ESC_REPAIR;
+        if (--this.escT <= 0 && b0.st !== 'phase') { this.spawnEscorts(); this.escT = ESC_GAP; }
+      }
       if (esc.length && !b0.entering && --this.diveT <= 0) {
         const rested = esc.filter(c => c.st === 'form' && c.rest >= 40);
         const room = (b0.phase >= 2 ? 2 : 1) - esc.filter(c => c.st === 'dive' || c.st === 'return').length;
@@ -963,35 +1118,42 @@ class Interaction implements Module {
       }
     }
     this.cats = this.cats.filter(c => !c.dead);
+    this.updateFlee();
+    if (this.koBoss && !this.big && --this.koHold <= 0) { this.koBoss = null; this.ko = false; }
+    this.updateProps();
 
     // boss
-    if (this.boss) {
-      this.boss.update();
-      const b = this.boss;
+    if (this.splatT > 0) this.splatT--;
+    if (this.big) {
+      this.big.update();
+      const b = this.big;
       for (const s of this.turds) if (Math.abs(s.x - b.x) < b.r && Math.abs(s.y - b.y) < b.r + 4) {
         const sx = s.x, sy = s.y; s.y = -999;
         if (b.vulnerable()) {
-          g.mods.effects?.burst(sx, sy, 'splat'); b.damage(1); g.state.stats.hits++; g.mods.audio?.sfx('thud');
+          // one splat at a time, dabbed on the body (never a pile of smears and stink lines stacking on the chin)
+          if (this.splatT <= 0) { this.splatT = 30; const j = ((b.t * 37) % 11) / 10 - 0.5; g.mods.effects?.burst(Math.round(b.x + j * b.r * 1.3), Math.round(b.y + (b.tier >= 2 ? 26 : 14) + Math.abs(j) * 6), 'splat'); }
+          b.damage(1); g.state.stats.hits++; g.mods.audio?.sfx('thud');
           // every hit on a Big Cat scores (more once it is grumpy, more for later bosses): the score climbs all fight
           // (the hit that sets off a phase beat or the knock-out pops no number over the flashing face)
           const pts = 10 + 10 * b.phase + 5 * b.tier; g.ops.addScore(pts);
           if (!b.beatPending()) g.mods.effects?.floatText(sx, sy - 8, String(pts)); else this.clearNumbers(b.x, b.y);
         }
-        else g.mods.effects?.burst(s.x, b.y + 20, 'sparkle');
+        else if (this.splatT <= 0) { this.splatT = 30; g.mods.effects?.burst(s.x, b.y + 20, 'sparkle'); }
       }
       if (b.dead) {
         g.ops.addScore(b.def.points); g.mods.effects?.burst(b.x, b.y, 'bigboop'); g.mods.effects?.shake(6, 30);
         g.mods.audio?.sfx('bossdown'); this.spawnPickup('pk_heart', b.x, b.y);
         for (const s of this.spits) g.mods.effects?.burst(s.x, s.y, 'sparkle');
-        this.spits = []; for (const c of this.cats) { if (c.st === 'wait') c.dead = true; c.st = 'leave'; c.tell = 0; }   // kittens and escorts scatter
+        this.spits = []; this.scatter();   // kittens and escorts scatter (they are no longer hostiles)
+        this.koBoss = b; this.ko = true; this.koHold = KO_HOLD;
         // the defeat outranks any phase banner still on screen; the bounty floats up over the explosion
         const ui = g.mods.ui; if (ui && Array.isArray(ui.toasts)) ui.toasts = ui.toasts.filter((t: { text: string }) => !/GRUMPY/.test(t.text));
         g.mods.effects?.floatText(b.x, b.y - 30, String(b.def.points));
         g.bus.emit('boss:defeat', { bossId: b.def.id, napped: b.napped });
-        this.boss = null; this.active = false; this.mode = 'none';
+        this.big = null; this.active = false; this.mode = 'none';
       } else if (pb && b.touches(pb)) {
         P.hit();
-        if (!this.boss) return;
+        if (!this.big) return;
       }
     }
 
@@ -1124,7 +1286,7 @@ class Interaction implements Module {
   }
 
   private spit(c: Cat, P: any) {
-    if (!P || this.mode === 'bonus' || this.spits.length >= this.T.spitCap + (this.boss ? 4 : 0)) return;
+    if (!P || this.mode === 'bonus' || this.spits.length >= this.T.spitCap + (this.big ? 4 : 0)) return;
     const yarn = c.def.behavior === 'capturer';
     const sp = this.T.spitSpeed * (yarn ? 0.85 : 1);
     const dx = P.x - c.x, dy = Math.max(40, P.y - c.y); const d = Math.hypot(dx, dy) || 1;
@@ -1135,7 +1297,16 @@ class Interaction implements Module {
     this.g.mods.audio?.sfx('hack');
   }
 
-  bossSpit(x: number, y: number, vx: number, vy: number, art = 'blt_paw', boost = 0) { if (this.spits.length < this.T.bossSpitCap + boost) this.spits.push({ x, y, vx, vy, kind: 'hairball', t: 0, art }); }
+  bossSpit(x: number, y: number, vx: number, vy: number, art = 'blt_paw', boost = 0) {
+    const [l, r] = laneOf(this.g.state.areaId); if (x <= l + SPIT_WALL || x >= r - SPIT_WALL) return;   // (never born past a wall)
+    if (this.spits.length < this.T.bossSpitCap + boost) this.spits.push({ x, y, vx, vy, kind: 'hairball', t: 0, art });
+  }
+  /** Draw `fn` clipped to the lane (whole-pixel rect: the clip never anti-aliases an edge). */
+  inLaneClip(ctx: CanvasRenderingContext2D, fn: () => void) {
+    const [l, r] = laneOf(this.g.state.areaId);
+    ctx.save(); ctx.beginPath(); ctx.rect(Math.round(l), -40, Math.round(r - l), H + 80); ctx.clip();
+    try { fn(); } finally { ctx.restore(); }
+  }
   /** This area's lane walls (world x). */
   lane(): [number, number] { return laneOf(this.g.state.areaId); }
 
@@ -1184,11 +1355,11 @@ class Interaction implements Module {
     const skipTaunt = () => { if (g.mods.quest) g.mods.quest.dlg = null; if (g.state.scene === 'dialogue') g.setScene('play'); g.mods.ui?.muteToasts?.(true); };
     if (name === 'entrance') { this.startBoss(bossId); skipTaunt(); return; }   // the WARNING bands and the descent, from tick 0
     if (name === 'tell' || name === 'boss' || name === 'phasebeat' || name === 'ko') {
-      this.startBoss(bossId); this.boss!.stageTell(this.stagePhase, this.stageAtk ?? undefined);
+      this.startBoss(bossId); this.big!.stageTell(this.stagePhase, this.stageAtk ?? undefined);
       skipTaunt();
-      if (name === 'phasebeat' || name === 'ko') { this.boss!.st = 'idle'; this.boss!.stT = 0; }
+      if (name === 'phasebeat' || name === 'ko') { this.big!.st = 'idle'; this.big!.stT = 0; }
       // the escort squad is already parked around the boss
-      this.escAx = this.boss!.x; this.escAy = this.boss!.y; this.spawnEscorts();
+      this.escAx = this.big!.x; this.escAy = this.big!.y; this.spawnEscorts();
       for (const c of this.cats) { const p = this.escSlot(c.eslot ?? 0); c.st = 'form'; c.x = p[0]; c.y = p[1]; c.rest = 0; }
       return;
     }
@@ -1205,7 +1376,7 @@ class Interaction implements Module {
       bullets: [['tabby', [0, 1, 2, 3, 4, 5, 6, 7]], ['siamese', [0, 1, 2, 3, 4, 5, 6, 7]]],
     };
     const rows = F[name] ?? F.capturer;
-    this.cats = []; this.spits = []; this.turds = []; this.pickups = []; this.boss = null;
+    this.cats = []; this.spits = []; this.turds = []; this.pickups = []; this.big = null;
     this.mode = 'wave'; this.active = true; this.entryDone = true; this.breathMix = 1; this.waveT = 100; this.fireT = 1e9; this.diveT = 1e9;
     this.rowSp = 36; this.colSp = COL_SP; const x0 = WORLD_W / 2 - (7 * COL_SP) / 2; this.hurry = 0;
     const top = this.formTop = FORM_TOP + (rows.some(([b]) => this.enemy(b).behavior === 'capturer') ? PUP_LIFT : 0);
@@ -1242,14 +1413,14 @@ class Interaction implements Module {
         if (t >= (at || 96)) return freeze();
         break;
       }
-      case 'tell': { const b = this.boss; if (!b || (at ? t >= at : b.st === 'tell' && b.stT >= 24 && b.flash === 0)) return freeze(); break; }
+      case 'tell': { const b = this.big; if (!b || (at ? t >= at : b.st === 'tell' && b.stT >= 24 && b.flash === 0)) return freeze(); break; }
       case 'entrance': if (t >= (at || 80)) return freeze(); break;
-      case 'phasebeat': { const b = this.boss; if (b && t === 2) b.hp = Math.floor(b.maxHp * (this.stagePhase >= 1 ? 0.3 : 0.6)); if (t >= (at || 20)) return freeze(); break; }
-      case 'ko': { const b = this.boss; if (b && t === 2) b.damage(b.hp); if (t >= (at || 20)) return freeze(); break; }
-      case 'boss': { const b = this.boss; if (!b || (at ? t >= at : b.st === 'attack' && b.stT >= 36)) return freeze(); break; }
+      case 'phasebeat': { const b = this.big; if (b && t === 2) b.hp = Math.floor(b.maxHp * (this.stagePhase >= 1 ? 0.3 : 0.6)); if (t >= (at || 20)) return freeze(); break; }
+      case 'ko': { const b = this.big; if (b && t === 2) b.damage(b.hp); if (t >= (at || 20)) return freeze(); break; }
+      case 'boss': { const b = this.big; if (!b || (at ? t >= at : b.st === 'attack' && b.stT >= 36)) return freeze(); break; }
       case 'bullets': {
-        const arts = ['blt_fur', 'blt_yarn', 'blt_paw', 'blt_bone', 'blt_yarnbig', 'blt_star'];
-        arts.forEach((a, i) => { for (let k = 0; k < 3; k++) this.spits.push({ x: 104 + i * 48, y: 150 + k * 34, vx: 0, vy: 0, kind: 'hairball', t: k * 8, art: a }); });
+        const arts = ['blt_fur', 'blt_yarn', 'blt_paw', 'blt_ember', 'blt_bone', 'blt_yarnbig', 'blt_star'];
+        arts.forEach((a, i) => { for (let k = 0; k < 3; k++) this.spits.push({ x: 96 + i * 42, y: 150 + k * 34, vx: 0, vy: 0, kind: 'hairball', t: k * 8, art: a }); });
         return freeze();
       }
       case 'lineup': if (t >= (at || 4)) return freeze(); break;
@@ -1359,7 +1530,8 @@ class Interaction implements Module {
     if (this.sigT >= 0 && this.mode === 'wave') this.renderSigTell(r);
     if (this.sigWave && this.mode === 'wave' && !this.entryDone) this.renderSigCells(r);
     if (this.puffs.length) this.renderPuffs(r);
-    for (const c of this.cats) {
+    if (this.props.length) this.renderProps(r);
+    for (const c of this.flee.length ? [...this.cats, ...this.flee] : this.cats) {
       if (c.st === 'wait' || c.y < -30 || c.dead) continue;
       const frame = Math.floor((c.t + c.id * 7) / 12) % 2;
       const sz = c.def.size ?? 32;
@@ -1389,7 +1561,6 @@ class Interaction implements Module {
         const sil = c.flash > 3 && (c.flash & 2) !== 0, hurt = c.flash > 0 && c.flash <= 3;
         const rk = hurt ? 'r' : (c.glow ? undefined : rim);
         drawCombat(ctx, c.def.sprite, x, y, { frame, flipY: c.up, sil: sil ? '6' : undefined, rim: rk, recolor: tint, tintKey: g.state.tod });
-        if (sil) { pxSpark(ctx, x - 10, y - 9, '6', 2); pxSpark(ctx, x + 11, y - 5, 'f', 1); }
         // a tank that has been hit wears a plaster (and sweats) so players learn it takes several turds
         if (!sil && c.hp < c.def.hp && c.def.hp > 1) {
           plaster(ctx, x + 8, y + (c.up ? 6 : -6));
@@ -1398,7 +1569,6 @@ class Interaction implements Module {
         if (c.tell > 0) { // wind-up tell: a hairball glints at the mouth, growing before the cough
           const my = Math.round(y + (c.up ? -12 : 12)); const big = c.tell < this.T.tell / 2;
           pxDisc(ctx, x, my, big ? 3 : 2, '0'); pxDisc(ctx, x, my, big ? 2 : 1, 'd'); ctx.fillStyle = col('6'); ctx.fillRect(Math.round(x) - 1, my - 1, 1, 1);
-          if ((c.tell >> 2) & 1) pxSpark(ctx, x + 6, my - 4, '6');
         }
       });
       if (c.pup) { // the captive pup in its throbbing bubble, held by a short stepped tractor beam from its carrier
@@ -1415,18 +1585,30 @@ class Interaction implements Module {
       const c = this.cats.find(o => o.st === 'dive' && o.id === o.group);
       if (c?.track) { const tr = c.track; r.push(1, 0, (ctx: CanvasRenderingContext2D) => { for (let s = 0; s < tr.len; s += 6) { tr.at(s, tp); ctx.fillStyle = col(s < c.s ? '5' : 'f'); ctx.fillRect(Math.round(tp.x), Math.round(tp.y), 2, 2); } }); }
     }
-    if (this.boss) this.boss.render(r);
+    if (this.big) this.big.render(r);
     for (const s of this.shocks) if (s.t > 0) { // shockwave: a 3px pixel band rolling off the Big Cat, inked on both sides
       // so it reads on any floor, with a white inner highlight (the knock-out's rolls faster and further)
       const rad = Math.round(14 + s.t * (s.big ? 8 : 5)); const k = s.t < 10 ? 'f' : s.t < 20 ? 'd' : 'r';
-      r.push(4, -1, (ctx: CanvasRenderingContext2D) => {
+      // (clipped to the lane: a ring never sweeps over the walls, the gutters beyond them or the side HUD)
+      r.push(4, -1, (ctx: CanvasRenderingContext2D) => this.inLaneClip(ctx, () => {
         ringC(ctx, s.x, s.y, rad + 2, '0'); ringC(ctx, s.x, s.y, rad + 1, k); ringC(ctx, s.x, s.y, rad, k);
         if (s.t < 22) ringC(ctx, s.x, s.y, rad - 1, '6'); ringC(ctx, s.x, s.y, rad - (s.t < 22 ? 2 : 1), '0');
-      });
+      }));
     }
     for (const s of this.turds) r.push(3, s.y, (ctx: CanvasRenderingContext2D) => drawSprite(ctx, 'turd', s.x, s.y, { frame: 0 }));
     // enemy bullets sit above everything else in the air layer: fixed high-contrast art, never blinking
-    for (const s of this.spits) r.push(4, s.y, (ctx: CanvasRenderingContext2D) => drawBullet(ctx, s.art ?? (s.kind === 'yarn' ? 'blt_yarn' : 'blt_fur'), s.x, s.y, s.t));
+    for (const s of this.spits) r.push(4, s.y, (ctx: CanvasRenderingContext2D) => {
+      if (s.slow) { // slowed by catnip: a short lime mote trail behind the orb (the haze visibly drags on it)
+        const d = Math.hypot(s.vx, s.vy) || 1;
+        for (let k = 1; k <= 3; k++) {
+          const tx = Math.round(s.x - s.vx / d * (6 + k * 4)), ty = Math.round(s.y - s.vy / d * (6 + k * 4));
+          ctx.fillStyle = col('0'); ctx.fillRect(tx - 1, ty - 1, k === 1 ? 4 : 3, k === 1 ? 4 : 3);
+          ctx.fillStyle = col(k === 1 ? 'i' : 'j'); ctx.fillRect(tx, ty, k === 1 ? 2 : 1, k === 1 ? 2 : 1);
+        }
+      }
+      drawBullet(ctx, s.art ?? (s.kind === 'yarn' ? 'blt_yarn' : 'blt_fur'), s.x, s.y, s.t);
+      if (s.slow) { ringC(ctx, s.x, s.y, 8, '0'); ringC(ctx, s.x, s.y, 9, 'i', 6, s.t / 6); }   // a turning lime haze ring: slowed
+    });
     for (const k of this.pickups) r.push(3, k.y, (ctx: CanvasRenderingContext2D) => {
       const pup = k.kind === 'pup';
       const name = pup ? 'pup' : k.kind.startsWith('memory:') ? 'pk_memory' : (g.content.items.find(i => i.id === k.kind)?.sprite ?? k.kind);

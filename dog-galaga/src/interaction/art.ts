@@ -49,43 +49,53 @@ const fur = (spin: number): Paint => (dx, dy) => {
 };
 /** Capturer yarn: an ice-cyan wound ball with teal stripes (cool family, distinct from the pink hairball). */
 const yarn = (spin: number): Paint => (dx, dy) => !disc(3, dx, dy) ? null : (dx === -1 && dy === -2) ? '6' : (((dx + dy * 2 + spin) % 3 + 3) % 3 === 0 ? 'n' : ((dx - dy) & 1 ? 'm' : 'l'));
-/** Boss sweep: a purple paw print (toe beans and a pad), the hairball's colour family. */
-const paw: Paint = (dx, dy) => {
-  if (disc(2.2, dx, dy - 1.5)) return dx < 0 && dy < 1 ? 't' : 'u';
-  for (const [tx, ty] of [[-3, -2.5], [0, -3.8], [3, -2.5]]) if ((dx - tx) ** 2 + (dy - ty) ** 2 <= 1.6) return 't';
-  return null;
+/**
+ * Boss bullets share one danger language, unlike anything else in the air: a SOLID round orb (or capsule) with a hot
+ * white core, a lit upper-left and a shaded lower-right, a 1px ink outline and an outer ring pulsing white / red. Nothing
+ * friendly is ever a filled disc with a red ring (sparkle fx are thin 4-point stars, pickups are framed squares), and
+ * each Big Cat keeps its own colour and a small silhouette cue (paw toes, a bone's knobs, a yarn strand, a crown).
+ */
+const orb = (body: string, hi: string, lo: string, r = 3.6): Paint => (dx, dy) => {
+  if (!disc(r, dx, dy)) return null;
+  if (Math.abs(dx + 0.5) <= 1 && Math.abs(dy + 0.5) <= 1) return '6';   // hot 2x2 core, a hair up-left of centre
+  if (dx + dy <= -3) return hi;
+  if (dx + dy >= 3) return lo;
+  return body;
 };
-/** Boss charge: a fish bone dropping head first (spine, ribs, cyan head, forked tail). */
+/** Boss sweep: a purple orb (the hairball's colour family). */
+const paw: Paint = orb('u', 't', 'v');
+/** Boss sweep on the dark space arenas (nebula, station): an ember-orange orb, a warm core that reads on navy without
+ *  leaning on its white ring. */
+const ember: Paint = orb('g', 'f', 'h');
+/** Boss charge: a fish-bone capsule dropping head first (a solid cyan capsule with a hot core). */
 const bone: Paint = (dx, dy) => {
-  if (dy >= 2.5 && (dx * dx) / 5 + ((dy - 4) * (dy - 4)) / 3 <= 1) return dx === 1 && dy === 4 ? '0' : 'l';
-  if (Math.abs(dx) < 0.6 && dy > -4 && dy < 3) return '6';
-  if ((dy === -3 || dy === -1 || dy === 1) && Math.abs(dx) <= 2.5) return Math.abs(dx) > 1.6 ? 's' : '6';
-  if (dy <= -4 && dy >= -6 && Math.abs(dx) <= -dy - 3.5 && Math.abs(dx) >= -dy - 5.5) return 'l';
-  return null;
+  if (Math.abs(dx) > 2 || Math.abs(dy) > 5 || (Math.abs(dx) === 2 && Math.abs(dy) >= 4)) return null;
+  return Math.abs(dx) === 0 && Math.abs(dy) <= 2 ? '6' : dx <= -1 && dy < 3 ? 's' : dx >= 1 || dy >= 3 ? 'm' : 'l';
 };
-/** Boss summon: a big candy yarn ball with a loose strand. */
+/** Boss summon: a big candy yarn orb (cyan / teal stripes around a hot core). */
 const yarnBig: Paint = (dx, dy) => {
-  if (disc(3.6, dx, dy)) return dx === -2 && dy === -2 ? '6' : ((Math.round(dx + dy) & 1) ? 'l' : 'm');
-  if (dy >= 3 && dy <= 4.5 && dx >= 2 && dx <= 4 && Math.round(dx - dy) === 0) return 'l';
-  return null;
+  if (!disc(3.6, dx, dy)) return null;
+  return Math.abs(dx + 0.5) <= 1 && Math.abs(dy + 0.5) <= 1 ? '6' : ((Math.round(dx + dy) & 1) ? 'l' : 'm');
 };
-/** Boss spiral: a 4-point catnip star in yellow with a white heart. Two frames: + and x. */
-const star = (diag: boolean): Paint => (dx, dy) => {
-  const a = diag ? (dx + dy) / Math.SQRT2 : dx, b = diag ? (dx - dy) / Math.SQRT2 : dy;
-  if (Math.abs(dx) + Math.abs(dy) <= 1.2) return '6';
-  if (Math.abs(a) + Math.abs(b) <= 2.2) return 'f';
-  if ((Math.abs(a) <= 0.75 && Math.abs(b) <= 4) || (Math.abs(b) <= 0.75 && Math.abs(a) <= 4)) return 'f';
-  return null;
+/** Boss spiral (the Empress, Madame Mau, Foreman Fold, Commodore Blue): a hot-pink royal orb (never the old 4-point
+ *  catnip star: that read as a hit sparkle). */
+const star = (_spin: boolean): Paint => orb('d', 'c', 'e');
+/** Band-aid on a hurt cat: a short diagonal tan strip with a pad (never a white '+', which reads as a sparkle). */
+const bandaid: Paint = (dx, dy) => {
+  if (Math.abs(dx - dy) > 1 || Math.abs(dx + dy) > 4) return null;
+  return Math.abs(dx + dy) <= 1 ? '9' : dx - dy === -1 ? '7' : '8';
 };
 
-// Every enemy bullet has 2 frames: the halo alternates white / a second bright colour (pulse) and the body spins.
+// Every enemy bullet has 2 frames: the halo alternates white / a second colour (cats: their own pulse, Big Cats: red)
 defineSprites({
   blt_fur: { rows: bullet(9, 9, fur(0), '6'), frames: [bullet(9, 9, fur(1), 't'), bullet(9, 9, fur(2), '6'), bullet(9, 9, fur(3), 't')] },
   blt_yarn: { rows: bullet(7, 7, yarn(0), '6'), frames: [bullet(7, 7, yarn(1), 's')] },
-  blt_paw: { rows: bullet(9, 9, paw, '6'), frames: [bullet(9, 9, paw, 't')] },
-  blt_bone: { rows: bullet(7, 13, bone, '6'), frames: [bullet(7, 13, bone, 'l')] },
-  blt_yarnbig: { rows: bullet(9, 9, yarnBig, '6'), frames: [bullet(9, 9, yarnBig, 's')] },
-  blt_star: { rows: bullet(9, 9, star(false), 'u'), frames: [bullet(9, 9, star(true), 't')] },
+  blt_paw: { rows: bullet(9, 9, paw, '6'), frames: [bullet(9, 9, paw, 'r')] },
+  blt_ember: { rows: bullet(9, 9, ember, '6'), frames: [bullet(9, 9, ember, 'r')] },
+  blt_bone: { rows: bullet(7, 13, bone, '6'), frames: [bullet(7, 13, bone, 'r')] },
+  blt_yarnbig: { rows: bullet(9, 9, yarnBig, '6'), frames: [bullet(9, 9, yarnBig, 'r')] },
+  blt_star: { rows: bullet(9, 9, star(false), '6'), frames: [bullet(9, 9, star(true), 'r')] },
+  fx_bandaid: { rows: bullet(9, 9, bandaid, '.') },
 });
 
 /** Bullet art per boss pattern: each Big Cat throws its own thing. */
@@ -192,13 +202,8 @@ export function ditherShadow(ctx: Ctx, cx: number, cy: number, w: number, h = 4)
   }
 }
 
-/** A small first-aid plaster: a tank cat that has taken a hit wears it until it is booped. */
-export function plaster(ctx: Ctx, x: number, y: number) {
-  const X = Math.round(x), Y = Math.round(y);
-  ctx.fillStyle = col('0'); ctx.fillRect(X - 4, Y - 2, 9, 5); ctx.fillRect(X - 2, Y - 4, 5, 9);
-  ctx.fillStyle = col('7'); ctx.fillRect(X - 3, Y - 1, 7, 3); ctx.fillRect(X - 1, Y - 3, 3, 7);
-  ctx.fillStyle = col('8'); ctx.fillRect(X, Y, 1, 1);
-}
+/** A small band-aid: a tank cat that has taken a hit wears it until it is booped (a diagonal tan strip, not a '+'). */
+export function plaster(ctx: Ctx, x: number, y: number) { drawSprite(ctx, 'fx_bandaid', Math.round(x), Math.round(y)); }
 
 /** Rectangle filled with a 50% checkerboard of one palette color (one pattern fill, not a fillRect per pixel). */
 const patCache = new Map<string, CanvasPattern | null>();
@@ -386,17 +391,12 @@ export function bossRig(ctx: Ctx, tier: number, x: number, y: number, t: number,
   }
 }
 
-/** Damage marks on the cat itself as hp drops: a bandage at phase 1, a second bandage and a sweat drop at phase 2. */
+/** Damage marks on the cat itself as hp drops: one band-aid at phase 1, a sweat drop added at phase 2 (kept quiet: a
+ *  diagonal tan strip, never a white '+' that reads as a sparkle on the boss's face). */
 export function bossBruises(ctx: Ctx, x: number, y: number, t: number, phase: number) {
   const X = Math.round(x), Y = Math.round(y);
-  const plaster = (px: number, py: number) => {
-    ctx.fillStyle = col('0'); ctx.fillRect(X + px - 5, Y + py - 2, 11, 5); ctx.fillRect(X + px - 2, Y + py - 5, 5, 11);
-    ctx.fillStyle = col('7'); ctx.fillRect(X + px - 4, Y + py - 1, 9, 3); ctx.fillRect(X + px - 1, Y + py - 4, 3, 9);
-    ctx.fillStyle = col('8'); ctx.fillRect(X + px - 1, Y + py - 1, 3, 3);
-  };
-  if (phase >= 1) plaster(17, -19);
+  if (phase >= 1) plaster(ctx, X + 17, Y - 19);
   if (phase >= 2) {
-    plaster(-22, 9);
-    const d = (t >> 3) % 6; ctx.fillStyle = col('0'); ctx.fillRect(X + 20, Y - 22 + d, 4, 6); ctx.fillStyle = col('s'); ctx.fillRect(X + 21, Y - 21 + d, 2, 4); ctx.fillStyle = col('6'); ctx.fillRect(X + 21, Y - 21 + d, 1, 1);
+    const d = (t >> 3) % 6; ctx.fillStyle = col('0'); ctx.fillRect(X - 24, Y - 20 + d, 4, 6); ctx.fillStyle = col('s'); ctx.fillRect(X - 23, Y - 19 + d, 2, 4); ctx.fillStyle = col('6'); ctx.fillRect(X - 23, Y - 19 + d, 1, 1);
   }
 }
