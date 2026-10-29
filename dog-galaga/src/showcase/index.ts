@@ -56,7 +56,7 @@ export function runShowcase(g: Game, which: string, p: URLSearchParams) {
     // bonus: minigames pins `phase=intro|fly|results|perfect`, `at=<tick>`, `hits=N` itself
     case 'minigames': case 'bonus': { const a = g.content.areas.find(a => a.bonus) ?? W_.area(area); W_.enterArea(a.id, 0); quiet(); g.mods.quest.dlg = null; g.setScene('play'); g.mods.minigames.startBonus(a.bonus); for (let i = 0; i < 260; i++) g.step(); break; }
     case 'save': if (g.mods.save?.stage) g.mods.save.stage(p.get('stage') ?? 'recovery'); else g.setScene('recovery'); break;
-    case 'memories': { const m = g.content.memories[0]; W_.enterArea(m?.area ?? area, m?.wave ?? 0); g.mods.quest.dlg = null; g.setScene('play'); W_.titleCard = 0; for (let i = 0; i < 400; i++) g.step();
+    case 'memories': { const ask = p.get('area'); const m = (ask && g.content.memories.find(q => q.area === ask)) || g.content.memories[0]; W_.enterArea(m?.area ?? area, m?.wave ?? 0); g.mods.quest.dlg = null; g.setScene('play'); W_.titleCard = 0; for (let i = 0; i < 400; i++) g.step();
       // stage=carrier|drop|boop|reveal|lost|bundle[:N] (memory #N, or phase=N), at=T ticks into the moment; frozen
       const [k, n] = (p.get('stage') ?? 'carrier').split(':');
       g.mods.memories.stage(k || 'carrier', +(n ?? p.get('phase') ?? 0) || 0, p.get('at') !== null ? +p.get('at')! : -1);
