@@ -159,3 +159,9 @@ night with day-coloured pendant pools); sky and space tilesets keep their own ba
   checkerboard at any hour; dither is only allowed for small local light falloff (lamp pool rings, beam edges).
   `src/world/tools/checker-share.mjs` measures the strict 1px checker share for all 13 areas x 4 times of day
   against a running preview (target < 5%)." Also: "shadows cast onto a lower parallax layer are one solid deep tone".
+- Round 2 (ARCHITECTURE.md section 2, time-of-day paragraph, optional wording update): "Lamp pools are one solid lit
+  colour per material with a 2px falloff ring (1px solid, 1px 50%), never clipped to a path or tile edge. Low-light
+  lawns keep one index per pixel: the ground remaps to one colour per hour and, at dawn/dusk only, a carpet of short
+  vertical grass blades (remapping to dark green) sits on it, so lawns read teal-green at dawn and olive at dusk.
+  Space tilesets have their own milder remaps (metal never turns brown); sky gradients are stepped solid bands." No
+  code changes are needed outside src/world/.

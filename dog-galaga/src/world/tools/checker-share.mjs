@@ -14,6 +14,7 @@ const TODS = (args.tods ?? 'dawn,day,dusk,night').split(',');
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 640, height: 360 }, deviceScaleFactor: 1 });
 const rows = [];
+const crops = {}; const tops = [];
 for (const area of AREAS) {
   const row = [area];
   for (const tod of TODS) {
@@ -31,13 +32,29 @@ for (const area of AREAS) {
         const p = d[y * 640 + xx]; n++;
         if (p !== d[y * 640 + xx + 1] && p === d[y * 640 + xx + 2] && p !== d[(y + 1) * 640 + xx] && p === d[(y + 2) * 640 + xx]) hit++;
       }
-      return hit / n;
-    });
+      const cnt = new Map(); for (let y = 0; y < 360; y++) for (let xx = 128; xx < 512; xx++) { const v = d[y * 640 + xx]; cnt.set(v, (cnt.get(v) ?? 0) + 1); }
+      const hex = v => '#' + [v & 255, (v >> 8) & 255, (v >> 16) & 255].map(c => c.toString(16).padStart(2, '0')).join('');
+      const top = [...cnt].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([v, c]) => hex(v) + ' ' + Math.round(c / 1382.4) + '%').join(', ');
+      const o = document.createElement('canvas'); o.width = 384; o.height = 360; o.getContext('2d').drawImage(c, 128, 0, 384, 360, 0, 0, 384, 360);
+      return { share: hit / n, top, url: o.toDataURL() };
+    }).then(r => { crops[area + '-' + tod] = r.url; tops.push(`${area} ${tod}: ${r.top}`); return r.share; });
     if (args.shots) { fs.mkdirSync(args.shots, { recursive: true }); await page.screenshot({ path: `${args.shots}/${area}-${tod}.png` }); }
     row.push((share * 100).toFixed(1) + '%');
   }
   rows.push(row);
 }
+if (args.montage) {
+  fs.mkdirSync(args.montage, { recursive: true });
+  for (const area of AREAS) {
+    const url = await page.evaluate(async ({ urls }) => {
+      const c = document.createElement('canvas'); c.width = 386 * urls.length; c.height = 360; const x = c.getContext('2d'); x.fillStyle = '#f0f'; x.fillRect(0, 0, c.width, 360);
+      for (let i = 0; i < urls.length; i++) { const im = new Image(); im.src = urls[i]; await im.decode(); x.drawImage(im, i * 386, 0); }
+      return c.toDataURL();
+    }, { urls: TODS.map(t => crops[area + '-' + t]) });
+    fs.writeFileSync(`${args.montage}/${area}.png`, Buffer.from(url.split(',')[1], 'base64'));
+  }
+}
+if (args.colors) for (const t of tops) console.log(t);
 await browser.close();
 const pad = (s, n) => String(s).padEnd(n);
 console.log(pad('area', 12) + TODS.map(t => pad(t, 8)).join(''));
