@@ -7,7 +7,7 @@
 import { Rng } from '../core/rng';
 import { col, KEY } from '../core/palette';
 import type { Tod } from '../core/types';
-import { Painter, spans, bayer, ramp, TOD_RAMP, type Ramp } from './paint';
+import { Painter, spans, bayer, ramp, remap, TOD_RAMP, type Ramp } from './paint';
 import type { Background } from './bg';
 
 export const SEG = 256;
@@ -808,14 +808,42 @@ function scooter(p: Painter, x: number, y: number, k: string) {
 function drainpipe(p: Painter, x: number, y0: number, y1: number) {
   p.obj(() => { p.r('0', x - 1, y0, 5, y1 - y0); p.r('p', x, y0, 3, y1 - y0); p.r('o', x, y0, 1, y1 - y0); for (let y = y0 + 10; y < y1; y += 40) { p.r('0', x - 2, y, 7, 3); p.r('q', x - 1, y + 1, 5, 1); } });
 }
-const alley: LayerDef = { speed: 1, opaque: true, paint(p, z) {
+/** a cheap stable per-pixel hash (0..1023) for hand-placed grain: never an ordered pattern */
+const grain = (x: number, y: number) => (Math.imul(x * 73856093 ^ y * 19349663, 0x27d4eb2d) >>> 22) & 1023;
+/**
+ * Alley floor: patched grey asphalt with aggregate grain and tar-sealed cracks, and a strip of granite
+ * setts (cobbles) along each wall where the old street shows through. World-spaced, so rows run on across segments.
+ */
+function alleyFloor(p: Painter, z: Seg) {
   const r = z.r;
   p.r('q', 96, 0, 256, SEG);
-  // concrete slab seams (very quiet) + sealed cracks
-  every(z, 48, 0, y => { if (y >= 0 && y < SEG) p.r('1', 100, y, 248, 1); });
-  for (let i = 0; i < 3; i++) cracked(p, r.int(130, 280), r.int(4, SEG - 20), r);
-  // centre drain gutter + grates
-  p.r('1', 222, 0, 3, SEG); for (let y = 0; y < SEG; y += 64) { p.r('0', 216, y + 20, 16, 12); for (let i = 0; i < 4; i++) p.r('q', 218 + i * 4, y + 21, 2, 10); }
+  // tar patches: darker rectangles with a sealed seam (a city that keeps digging this alley up)
+  for (let i = 0; i < 2; i++) { const w = r.int(26, 60), h = r.int(14, 30), x = r.int(140, 300 - w), y = r.int(0, SEG - h); p.r('v', x, y, w, h); p.frame('1', x, y, w, h); p.r('p', x + 1, y + 1, w - 2, 1); }
+  // aggregate grain: sparse single stones, light and dark, hashed in world space
+  p.pixels(set => {
+    for (let y = 0; y < SEG; y++) { const wy = z.wy(y); for (let x = 130; x < 318; x++) { const g = grain(x, wy); if (g < 12) set('p', x, y); else if (g < 34) set('v', x, y); } }
+  });
+  // granite setts along both walls: 6x4 stones in staggered rows, lit top-left, mortar between
+  for (const [x0, x1] of [[104, 130], [318, 344]]) {
+    p.r('v', x0, 0, x1 - x0, SEG);
+    for (let y = -6; y < SEG + 6; y++) {
+      const wy = z.wy(y); if (((wy % 5) + 5) % 5 !== 0) continue; // a row starts every 5 world px
+      const row = Math.floor(wy / 5), sy = y - 3; // stone occupies rows sy..sy+3
+      for (let x = x0 - ((row & 1) ? 3 : 0); x < x1; x += 7) {
+        const sx = Math.max(x0, x), sw = Math.min(x + 6, x1) - sx; if (sw <= 1) continue;
+        const dark = grain(x, row) < 260;
+        p.r(dark ? 'q' : 'p', sx, sy, sw, 4); p.r('q', sx, sy + 3, sw, 1); p.r(dark ? 'p' : 'o', sx, sy, 1, 1);
+      }
+    }
+  }
+  // sealed cracks wandering across the asphalt
+  for (let i = 0; i < 3; i++) cracked(p, r.int(140, 270), r.int(4, SEG - 20), r);
+  // drain grates down the middle (stand-alone iron grates, no channel)
+  every(z, 96, 20, y => { if (y < -14 || y > SEG + 2) return; p.r('0', 216, y, 16, 12); for (let i = 0; i < 4; i++) p.r('p', 218 + i * 4, y + 1, 2, 10); p.r('1', 216, y + 11, 16, 1); });
+}
+const alley: LayerDef = { speed: 1, opaque: true, paint(p, z) {
+  const r = z.r;
+  alleyFloor(p, z);
   puddle(p, r.int(150, 200), r.int(30, 110), r);
   puddle(p, r.int(250, 300), r.int(140, 220), r);
   if (z.s % 2 === 1) puddle(p, r.int(140, 300), r.int(200, 236), r);
@@ -1528,8 +1556,8 @@ function cloudBank(p: Painter, cx: number, cy: number, r: number, rng: Rng, keys
 /**
  * Stratosphere backdrop (screen-fixed): banded altitude light, darkest at the top
  * behind the formation, warmest low on the horizon. Bands are [colour, until-y]. Every
- * seam sits below the formation's lane (y > 180) and is a 48-row ordered-dither gradient
- * (one Bayer level per 3 rows), so there is no hard edge and no scanline stripe.
+ * seam sits below the formation's lane (y > 180) and is a 48-row gradient of horizontal streaks
+ * (runs of the next band growing row by row), so there is no hard edge and no scanline stripe.
  * Day is one calm blue with thin haze streaks.
  */
 const SKY_BANDS: Record<Tod, [string, number][]> = {
@@ -1546,7 +1574,14 @@ function skyBackdrop(p: Painter, tod: Tod) {
   bands.forEach(([k, y1], i) => {
     const next = bands[i + 1]; if (!next) return;
     // each row of the seam: this colour, with the next one ordered-dithered in at a rising level
-    for (let j = 0; j < SEAM_H; j++) { const yy = y1 - SEAM_H / 2 + j; p.r(k, 0, yy, SW, 1); p.dith(next[0], 0, yy, SW, 1, Math.round(((j + 0.5) / SEAM_H) * 16)); }
+    // each row of the seam: this colour, with long horizontal streaks of the next one whose length grows down the
+    // seam (cirrus-like runs at per-row offsets: never a 1px checker, never a full scanline)
+    for (let j = 0; j < SEAM_H; j++) {
+      const yy = y1 - SEAM_H / 2 + j, f = (j + 0.5) / SEAM_H, per = 40, run = Math.round(f * per);
+      p.r(k, 0, yy, SW, 1); if (run <= 0) continue;
+      const off = (j * 23 + (j >> 1) * 11) % per;
+      for (let x = -per + off; x < SW; x += per) p.r(next[0], x, yy, run, 1);
+    }
   });
   const r = new Rng(77);
   // day: long thin haze streaks low down; night: a sprinkle of stars up high
@@ -1597,19 +1632,34 @@ function catnipLeaf(p: Painter, x: number, y: number, rng: Rng) {
   for (let t = -len; t <= len; t++) { const w = Math.round(Math.sqrt(1 - (t / len) ** 2) * 4); for (let s = -w; s <= w; s++) p.r(Math.abs(s) === w ? '0' : s < 0 ? 'j' : 'k', x + Math.cos(a) * t - Math.sin(a) * s, y + Math.sin(a) * t + Math.cos(a) * s); }
   p.line('i', x - Math.cos(a) * (len - 2), y - Math.sin(a) * (len - 2), x + Math.cos(a) * (len - 2), y + Math.sin(a) * (len - 2));
 }
-/** catnip gas: domain-warped filaments in 4 value steps; thin parts are clear so the stars show through */
+/** catnip gas density in 0..1: domain-warped ridged filaments (thin bright strands, wispy edges) inside a few soft
+ * envelopes, so the gas comes in clouds with clear space between */
+function gas(z: Seg, x: number, y: number, ph: number, env: [number, number, number][], sc = 1) {
+  const w = z.wy(y) * sc, xs = x * sc;
+  const wx = xs + Math.sin(w / 37 + ph) * 26 + Math.sin(w / 13) * 4, ww = w + Math.sin(xs / 43 + ph) * 20;
+  const n1 = Math.sin(wx / 29 + Math.sin(ww / 53) * 2.4) * 0.6 + Math.sin(ww / 21 + Math.sin(wx / 67 + ph) * 1.9) * 0.4;
+  const ridge = 1 - Math.abs(n1);                                         // 1 on the filament spines
+  const body = Math.sin(wx / 61 + ph) * 0.5 + Math.sin(ww / 47) * 0.5;     // broad billows
+  let e = 0; for (const [ex, ey, er] of env) { const dx = (x - ex) / er, dy = (y - ey) / (er * 0.75); e = Math.max(e, 1 - dx * dx - dy * dy); }
+  if (e <= 0) return 0;
+  return (ridge * ridge * ridge * 0.6 + (body * 0.5 + 0.5) * 0.5) * Math.sqrt(e);
+}
+/**
+ * The catnip nebula: wisps of catnip gas in greens and teals (navy veils, dark-green bodies, deep-blue and teal
+ * strands) with a magenta bloom, on deep space with stars. Hard value bands (no dither), all dark-to-mid tones
+ * with thin teal spines only, so the formation stays calm and readable over it.
+ */
 const nebulaMain: LayerDef = { speed: 1, paint(p, z) {
   const r = z.r;
-  const ph = r.range(0, 6.28);
-  const env: [number, number, number][] = []; for (let i = 0; i < 3; i++) env.push([r.int(0, SW), r.int(-40, SEG + 40), r.int(90, 160)]);
-  field(p, ['1', 'v', 'v', '2', '2', 'u'], (x, y) => {
-    const w = z.wy(y);
-    const wx = x + Math.sin(w / 41 + ph) * 22, ww = w + Math.sin(x / 47) * 18;
-    let a = Math.sin(wx / 33 + Math.sin(ww / 57) * 2.2) * 0.45 + Math.sin(ww / 23 + Math.sin(wx / 71 + ph) * 1.8) * 0.3 + Math.sin((wx + ww) / 11 + Math.sin(wx / 19)) * 0.17 + Math.sin((wx - ww) / 7) * 0.08;
-    let e = 0; for (const [ex, ey, er] of env) { const dx = (x - ex) / er, dy = (y - ey) / (er * 0.7); e = Math.max(e, 1 - dx * dx - dy * dy); }
-    a = a * 0.5 + 0.5; return a * a * Math.max(0, e) * 1.25;
-  }, 0.14, 0.45);
-  stars(p, r, 16, ['3', '4', 't']);
+  const ph = r.range(0, 6.28), ph2 = r.range(0, 6.28);
+  const env: [number, number, number][] = []; for (let i = 0; i < 2; i++) env.push([r.int(0, SW), r.int(0, SEG), r.int(110, 170)]);
+  const envM: [number, number, number][] = [[r.int(40, SW - 40), r.int(30, SEG - 30), r.int(70, 110)]];
+  field(p, ['1', '1', 'k', 'k', 'k', 'n', 'n', 'm'], (x, y) => gas(z, x, y, ph, env), 0.16, 0.02);
+  // magenta bloom woven through the green
+  field(p, ['v', 'v', 'v', 'e', 'e', 'e'], (x, y) => gas(z, x, y, ph2, envM, 1.25), 0.24, 0.02);
+  // stars: mostly faint, a few bright ones with a 4-point glint
+  stars(p, r, 26, ['3', '4', '5', 't', 's']);
+  for (let i = 0; i < 4; i++) { const x = r.int(4, SW - 4), y = r.int(4, SEG - 4); p.r('6', x, y, 1, 1); p.r('s', x - 1, y, 1, 1); p.r('s', x + 1, y, 1, 1); p.r('s', x, y - 1, 1, 1); p.r('s', x, y + 1, 1, 1); p.r('4', x - 2, y, 1, 1); p.r('4', x + 2, y, 1, 1); }
   if (r.chance(0.7)) catnipLeaf(p, r.int(20, SW - 20), r.int(20, SEG - 20), r);
 } };
 const streaksFg: LayerDef = { speed: 1.9, paint(p, z) {
@@ -1617,23 +1667,29 @@ const streaksFg: LayerDef = { speed: 1.9, paint(p, z) {
 } };
 
 // ---------------------------------------------------------------- MOON
-/** a litter clump: a small lumpy pellet cluster, lit top-left (2-4px pellets, no speckle) */
+/** a litter clump: a lumpy cluster of 2-4px pellets with a contact shadow, lit top-left (the litter box's signature) */
 function clump(p: Painter, x: number, y: number, r: number, rng: Rng) {
-  const n = Math.max(3, Math.round(r * 1.2));
+  const n = Math.max(3, Math.round(r * 1.4));
   const pts: [number, number, number][] = [];
-  for (let i = 0; i < n; i++) pts.push([x + rng.int(-r, r), y + rng.int(-r, r) * 0.7, rng.int(1, 2)]);
-  for (const [px, py, s] of pts) p.r('q', px - 1, py, s + 3, s + 2);
-  for (const [px, py, s] of pts) { p.r('9', px, py, s + 1, s + 1); p.r('8', px, py, s, 1); }
+  for (let i = 0; i < n; i++) pts.push([x + rng.int(-r, r), y + Math.round(rng.int(-r, r) * 0.7), rng.int(1, 2)]);
+  for (const [px, py, s] of pts) p.r('v', px, py + 1, s + 3, s + 2);
+  for (const [px, py, s] of pts) { p.r('a', px, py, s + 2, s + 1); p.r('9', px, py, s + 1, s); p.r('8', px, py, s, 1); }
 }
-/** crater: hard light rim on the upper edge, dark inner lip below it, a flat calm floor */
+/** crater: a raised rim (bright sunlit crest on the upper-left, shaded outer slope lower-right), a dark inner wall
+ * under the lit lip, a shadowed floor with a sunlit far side; big ones get an ejecta skirt and litter clumps */
 function crater(p: Painter, cx: number, cy: number, rr: number, rng: Rng, litter: boolean) {
   const ry = Math.round(rr * 0.75);
-  p.ell('o', cx, cy - 1, rr + 1, ry + 1);   // outer lit rim (shows on top)
-  p.ell('q', cx, cy + 1, rr + 1, ry);       // rim shade (bottom)
-  p.ell('v', cx, cy, rr, ry);               // dark inner lip
-  p.ell('q', cx, cy + Math.max(1, Math.round(ry * 0.25)), rr - 1, ry - Math.max(1, Math.round(ry * 0.25))); // floor in shadow
-  p.ell('p', cx + 1, cy + Math.max(2, Math.round(ry * 0.4)), rr * 0.7, ry * 0.5); // sunlit floor
-  if (litter) { const n = Math.max(1, Math.round(rr / 10)); for (let i = 0; i < n; i++) clump(p, cx + rng.int(-rr / 2, rr / 3), cy + rng.int(0, ry / 3), rng.int(3, 4), rng); }
+  if (rr >= 10) { // ejecta skirt: a ring of scattered pebbles just outside the rim
+    for (let i = 0; i < rr; i++) { const a = rng.range(0, 6.28), d = rng.range(rr + 3, rr * 1.45 + 3); const x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d * 0.75; p.r('q', x, y + 1, 2, 1); p.r('o', x, y, 2, 1); }
+  }
+  p.ell('q', cx + 1, cy + 2, rr + 2, ry + 2);   // outer slope in shade (lower right)
+  p.ell('o', cx, cy, rr + 2, ry + 2);           // rim crest
+  p.ell('7', cx - 1, cy - 1, rr + 1, ry + 1);   // sunlit crest highlight (shows on the upper-left)
+  p.ell('o', cx, cy, rr + 1, ry + 1);
+  p.ell('v', cx, cy, rr, ry);                   // dark inner wall below the lit lip
+  p.ell('q', cx, cy + Math.max(1, Math.round(ry * 0.3)), rr - 1, ry - Math.max(1, Math.round(ry * 0.3))); // floor in shadow
+  p.ell('p', cx + 1, cy + Math.max(2, Math.round(ry * 0.45)), rr * 0.7, ry * 0.45); // sunlit far floor
+  if (litter) { const n = Math.max(1, Math.round(rr / 8)); for (let i = 0; i < n; i++) clump(p, cx + rng.int(-rr / 2, rr / 3), cy + rng.int(0, ry / 3), rng.int(3, 4), rng); }
 }
 /** scoop marks: a fan of parallel curved grooves raked through the litter (each groove: dark line + lit lip) */
 function scoopMarks(p: Painter, x: number, y: number, w: number, rng: Rng) {
@@ -1744,7 +1800,7 @@ function moonLimb(p: Painter, z: Seg) {
     // dusk: the low sun grazes the limb, an amber rim with a magenta afterglow fading into space (emissive, final colours)
     if (p.tod === 'dusk') for (let y = 0; y < SEG; y++) { const x = limbX(z, y); emit(p, 'g', x - 1, y, 1, 1); emit(p, 'h', x, y, 2, 1); emit(p, 'e', x + 2, y, 3, 1); emit(p, (x + y) & 1 ? 'e' : 'v', x + 5, y, 2, 1); emit(p, (x + y) % 4 === 0 ? 'e' : 'v', x + 7, y, 3, 1); }
     // the Earth, rising beyond the limb (clipped by the horizon row by row); at dusk it is up more often (earthrise)
-    every(z, p.tod === 'dusk' ? 450 : 900, 300, y => {
+    every(z, p.tod === 'dusk' ? 420 : 560, 300, y => {
       if (y < -40 || y > SEG + 40) return;
       const ex = 438, R = 24;
       const disc = (k: string, cx: number, cy: number, rr: number, ry = rr) => spans(cx, cy, rr, ry, (sx, sy, w) => { const x0 = Math.max(sx, limbX(z, sy) + 1); if (sx + w > x0) p.r(k, x0, sy, sx + w - x0, 1); });
@@ -1782,13 +1838,14 @@ function pomFlag(p: Painter, fx: number, fy: number) {
 const moon: LayerDef = { speed: 1, opaque: true, paint(p, z) {
   const r = z.r;
   regolith(p, z);
-  for (let i = 0; i < 3; i++) crater(p, r.int(60, SW - 60), r.int(10, SEG - 10), r.int(4, 8), r, false);
+  for (let i = 0; i < 3; i++) crater(p, r.int(60, SW - 60), r.int(10, SEG - 10), r.int(4, 9), r, false);
+  if (r.chance(0.6)) crater(p, r.int(80, SW - 80), r.int(20, SEG - 20), r.int(10, 14), r, false);
   if (r.chance(0.7)) rayCrater(p, r.chance(0.5) ? r.int(70, 120) : r.int(320, 370), r.int(30, SEG - 30), r.int(5, 8), r);
   const kind = z.s % 4; // 0 litter crater, 1 lander, 2 rover, 3 flag + boulders
-  crater(p, r.int(150, SW - 150), r.int(30, SEG - 30), r.int(12, 18), r, true);
+  crater(p, r.int(150, SW - 150), r.int(30, SEG - 30), r.int(16, 24), r, true);
   if (kind === 0) crater(p, r.chance(0.5) ? r.int(84, 120) : r.int(320, 356), r.int(50, SEG - 50), r.int(26, 32), r, true);
   if (z.s % 2 === 0) scoopMarks(p, r.int(90, 300), r.int(10, 120), r.int(26, 40), r);
-  for (let i = 0; i < 3; i++) clump(p, r.int(60, SW - 60), r.int(10, SEG - 10), r.int(3, 5), r);
+  for (let i = 0; i < 6; i++) clump(p, r.int(60, SW - 60), r.int(10, SEG - 10), r.int(3, 6), r);
   // a paw-print trail wandering up the tray (Pom was here first)
   pawTrail(p, r.int(250, 330), 0, SEG, r.range(-0.15, 0.15));
   if (r.chance(0.6)) buriedToy(p, r.int(70, 380), r.int(20, SEG - 20), r.int(0, 1));
@@ -2046,34 +2103,35 @@ const navLights = (xs: number[], period: number, keys: string[]) => (px: Px, scr
 };
 const both = (...fs: ((px: Px, scroll: number, t: number, seed: number, tod: Tod) => void)[]) => (px: Px, scroll: number, t: number, seed: number, tod: Tod) => { for (const f of fs) f(px, scroll, t, seed, tod); };
 
-/** rooftops: at dawn the roof decks go rose-plum (never the periwinkle of night); at dusk the tar takes the warm taupe */
-const ROOF_RAMPS: Partial<Record<Tod, Ramp>> = { dawn: ramp('q:v p:q o:p', TOD_RAMP.dawn) };
-/** docks: dawn water takes the sunrise (deep blue with a rose cast, pink crests); the dusk harbour mirrors the
- * sunset (plum-magenta water, amber crests); by night the water is dark blue and the planks stay a moonlit step above it */
-const DOCK_RAMPS: Partial<Record<Tod, Ramp>> = {
-  dawn: ramp('n:3n/8 2:e m:c s:c 5:c', TOD_RAMP.dawn),
-  dusk: ramp('n:nv/8 2:h m:g s:f 5:d 4:e', TOD_RAMP.dusk),
-  night: ramp('n:2 2:1 m:n p:qp/8 o:p', TOD_RAMP.night),
+/** rooftops: a real daylight (tar decks a step up, pale parapets, the streets below catching blue sky); a rose-plum
+ * dawn (never the periwinkle of night); a warm dusk; a navy night with lit windows */
+const ROOF_RAMPS: Partial<Record<Tod, Ramp>> = {
+  day: remap('q:p p:o v:q 1:n 2:3 b:a'),
+  dawn: remap('q:v p:q o:p 1:2', TOD_RAMP.dawn),
 };
-/** alley: a pale concrete day; a cool lavender-grey dawn (peach on the top edges); a warm taupe dusk (amber rims, plum
- * shadows); a slate night under the lamps */
+/** docks: the water stays water at every hour. Dawn: deep blue with pink crests; dusk: blue water mirroring the
+ * sunset in amber glints; night: dark blue water with the planks a moonlit step above it */
+const DOCK_RAMPS: Partial<Record<Tod, Ramp>> = {
+  dawn: remap('n:n 2:e m:c s:c 5:c', TOD_RAMP.dawn),
+  dusk: remap('n:n m:m l:m 2:h s:f 5:g 4:3 p:a o:9 q:b', TOD_RAMP.dusk),
+  night: remap('n:2 2:1 m:n p:q o:p', TOD_RAMP.night),
+};
+/** alley: grey asphalt and granite setts by day; a cool lavender dawn (peach on the top edges); a dusk of plum
+ * asphalt and warm brown setts under amber rims and the first lamps; a slate-navy night under the lamps */
 const ALLEY_RAMPS: Partial<Record<Tod, Ramp>> = {
-  day: ramp('q:p p:o v:q'),
-  dawn: ramp('p:4p/8 q:3q/8 v:q 1:v o:8 7:c 5:c', TOD_RAMP.dawn),
-  dusk: ramp('p:pa/8 q:qb/8 v:vb/8 1:v', TOD_RAMP.dusk),
+  day: remap('q:p p:o v:q'),
+  dawn: remap('q:3 p:4 v:2 o:5 1:v 7:c', TOD_RAMP.dawn),
+  dusk: remap('q:v p:a v:1 o:9 1:0', TOD_RAMP.dusk),
+  night: remap('q:2 p:3 v:1 o:4', TOD_RAMP.night),
 };
 /** park: by night the path stays a step above the dark lawn */
-const PARK_RAMPS: Partial<Record<Tod, Ramp>> = { night: ramp('q:3q/8 p:3', TOD_RAMP.night) };
+const PARK_RAMPS: Partial<Record<Tod, Ramp>> = { night: remap('q:2 p:3', TOD_RAMP.night) };
 /** the litter moon: each hour its own dust colour (grey day, cool indigo dawn, warm umber dusk, navy night) */
 const MOON_RAMPS: Partial<Record<Tod, Ramp>> = {
-  // harsh sunlight: the litter sits a step below mid-grey so grey cats keep their contrast
-  day: ramp('p:q o:p q:v v:1 8:9 7:8'),
-  // sunrise over the tray: cool indigo-grey dust, pink-lit crests and clumps
-  dawn: ramp('p:2 o:3 q:v v:1 1:1 8:c 7:c 9:a 6:7 5:c'),
-  // low amber sun: warm umber dust, orange crests, long plum shadows cast east and an earthrise glow on the limb
-  dusk: ramp('p:b o:h q:v v:1 1:0 8:g 9:h 7:g 6:f 5:t 4:u 3:2 2:v'),
-  // earthshine: navy dust with periwinkle crests, lights on
-  night: ramp('o:2 p:2v/8 q:1 v:0 9:a 8:9 7:8 6:5 5:4 4:3 3:2 2:1'),
+  day: remap('p:q o:p q:v v:1 8:9 7:8'),
+  dawn: remap('p:3 o:c q:2 v:1 8:c 7:5 9:a a:b 6:5 5:c'),
+  dusk: remap('p:b o:h q:v v:1 1:0 8:g 9:h 7:g 6:f 5:t 4:u 3:2 2:v'),
+  night: remap('o:3 p:2 q:1 v:0 9:a 8:9 7:8 6:5 5:4 4:3 3:2 2:1'),
 };
 /** street: a sunlit day (pale sidewalks and roofs a step up from the asphalt) */
 const STREET_RAMPS: Partial<Record<Tod, Ramp>> = { day: ramp('q:p p:o') };
