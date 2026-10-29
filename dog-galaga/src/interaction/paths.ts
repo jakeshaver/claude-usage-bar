@@ -54,6 +54,15 @@ function cr(pts: Pt[], i: number, t: number): Pt {
  * The path ends at `slot` (the cat's formation home); the cat then homes onto the live, swaying slot.
  */
 export function entryPath(kind: string, side: number, slot: Pt): Pt[] {
+  const pts = entryCurve(kind, side, slot);
+  if (pts.length <= 2) return pts;
+  // finish every stream by swinging under the cat's own column and rising straight into its cell: the formation fills
+  // top row first, so the climb only passes empty cells and never cuts through cats already parked
+  const last = pts[pts.length - 2];
+  const under: Pt = [slot[0], Math.max(slot[1] + 44, Math.min(236, last[1]))];
+  return [...pts.slice(0, -1), [(last[0] + slot[0]) / 2, under[1] + 6], under, slot];
+}
+function entryCurve(kind: string, side: number, slot: Pt): Pt[] {
   const m = mir(side);
   switch (kind) {
     case 'swirl-left': case 'swirl-right': {

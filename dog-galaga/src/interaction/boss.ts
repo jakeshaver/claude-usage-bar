@@ -1,9 +1,10 @@
 import type { Game } from '../core/game';
 import { WORLD_W } from '../core/game';
 import type { EnemyDef } from '../core/types';
-import { drawSprite } from '../art/sprite';
+import { frameCount } from '../art/sprite';
 import { col } from '../core/palette';
-import { pxShadow, pxDash, pxRing, pxSpark } from '../core/pixel';
+import { pxDash, pxRing, pxSpark } from '../core/pixel';
+import { BOSS_BULLET, bossRig, bossBruises, ditherShadow, ditherRect, bossGlow, drawCombat } from './art';
 
 const BOSS_LIMIT = 150 * 60; // a boss that isn't beaten in 150s dozes off (counts as cleared): no softlocks
 const HOME_Y = 76;
@@ -22,14 +23,21 @@ export class Boss {
   dead = false; napped = false; entering = true;
   st: BState = 'enter'; stT = 0; phase = 0; atk: Atk = 'fan'; seq = 0;
   tx = WORLD_W / 2; ty = HOME_Y; ox = 0; oy = 0; aim = 0; jit = 0; enterFrom = -1;
-  pattern: string;
+  pattern: string; art: string;
+  /** 0 none, 1 hover jets, 2 saucer, 3 the Empress's throne: later Big Cats are bigger, wider silhouettes. */
+  tier: number; hitT = 0;
   constructor(public g: Game, public ix: any, public def: EnemyDef) {
     this.hp = this.maxHp = def.hp; this.pattern = def.bossPattern ?? 'sweep';
+    this.art = BOSS_BULLET[this.pattern] ?? 'blt_paw';
     this.enterFrom = g.rng.chance(0.5) ? -1 : 1;
+    const areas = g.content.areas; const ai = areas.findIndex(a => a.boss === def.id);
+    this.tier = ai < 0 ? 0 : ai >= areas.length - 1 ? 3 : ai >= 8 ? 2 : ai >= 3 ? 1 : 0;
+    this.r = [26, 28, 32, 36][this.tier];
   }
+  private spit(x: number, y: number, vx: number, vy: number) { this.ix.bossSpit(x, y, vx, vy, this.art); }
 
   damage(n: number) {
-    this.hp -= n; this.flash = 4; if (this.hp <= 0) this.dead = true;
+    this.hp -= n; this.flash = 4; this.hitT = 6; if (this.hp <= 0) this.dead = true;
     this.g.bus.emit('boss:hp', { hp: this.hp, max: this.maxHp });
   }
   vulnerable() { return this.st !== 'enter' && this.st !== 'phase'; }
@@ -43,6 +51,13 @@ export class Boss {
     if (this.st === 'attack' && this.atk === 'charge') { const vy = this.oy; return [-18, 0, 18].map(dx => ({ x: this.x + dx, y: this.y + 16, vx: 0, vy: Math.max(2, vy), st: 'charge' })); }
     if (this.st === 'tell' && this.atk === 'charge') return [-16, 0, 16].map(dx => ({ x: this.tx + dx, y: 250, vx: 0, vy: 2, st: 'lane' }));
     return [];
+  }
+
+  /** Showcase staging: skip the entrance and start winding up the signature attack (optionally at a later phase). */
+  stageTell(phase = 0) {
+    this.entering = false; this.x = WORLD_W / 2; this.y = HOME_Y; this.phase = Math.max(0, Math.min(2, phase));
+    if (this.phase) this.hp = Math.ceil(this.maxHp * (this.phase === 1 ? 0.5 : 0.2));
+    this.atk = this.nextAttack(); this.beginTell(WORLD_W / 2);
   }
 
   private speed() { return this.ix.T.spitSpeed * (0.95 + this.phase * 0.08); }
@@ -59,7 +74,7 @@ export class Boss {
   }
 
   update() {
-    const g = this.g; this.t++; this.stT++; if (this.flash > 0) this.flash--;
+    const g = this.g; this.t++; this.stT++; if (this.flash > 0) this.flash--; if (this.hitT > 0) this.hitT--;
     if (this.t > BOSS_LIMIT && this.st !== 'enter') { this.dead = true; this.napped = true; return; }
     const P = g.mods.player; const px = P?.x ?? WORLD_W / 2, py = P?.y ?? 316;
     const lastX = this.x, lastY = this.y;
@@ -71,7 +86,7 @@ export class Boss {
       this.phase = want; this.go('phase');
       for (const s of this.ix.spits) g.mods.effects?.burst(s.x, s.y, 'sparkle');
       this.ix.spits = [];
-      g.mods.effects?.shake(5, 24); g.mods.effects?.flash('#ffd166', 6); g.mods.audio?.sfx('bark');
+      g.mods.effects?.shake(5, 24); g.mods.effects?.flash(col('f'), 6); g.mods.audio?.sfx('bark');
       g.mods.ui?.toast(`${this.def.name.toUpperCase()} GETS GRUMPY!`);
       g.bus.emit('boss:phase', { bossId: this.def.id, phase: this.phase });
     }
@@ -128,7 +143,7 @@ export class Boss {
         if (T % every === 0 && T / every < n) {
           const i = T / every; const spread = 1.5; const dir = (this.seq & 1) ? 1 : -1;
           const a = Math.PI / 2 + dir * (-spread / 2 + spread * (i / (n - 1)));
-          ix.bossSpit(this.x, this.y + 18, Math.cos(a) * sp, Math.sin(a) * sp);
+          this.spit(this.x, this.y + 18, Math.cos(a) * sp, Math.sin(a) * sp);
         }
         this.x += Math.sin(this.t / 30) * 0.6;
         if (T > n * every + 10) this.go('recover');
@@ -137,7 +152,7 @@ export class Boss {
       case 'volley': { // three aimed bursts of three
         if (T % 22 === 1 && T < 66) {
           const a0 = Math.atan2(py - this.y, px - this.x);
-          for (let i = -1; i <= 1; i++) { const a = a0 + i * 0.24; ix.bossSpit(this.x, this.y + 18, Math.cos(a) * sp, Math.max(0.8, Math.sin(a) * sp)); }
+          for (let i = -1; i <= 1; i++) { const a = a0 + i * 0.24; this.spit(this.x, this.y + 18, Math.cos(a) * sp, Math.max(0.8, Math.sin(a) * sp)); }
         }
         if (T > 80) this.go('recover');
         break;
@@ -149,7 +164,7 @@ export class Boss {
           this.y = 300;
           if (T === down + 1) {
             this.g.mods.effects?.shake(4, 14);
-            if (ph >= 1) for (const s of [-1, 1]) for (let k = 0; k < ph; k++) ix.bossSpit(this.x + s * 20, this.y - 10, s * (1.1 + k * 0.5) * sp * 0.6, -0.7 - k * 0.3);
+            if (ph >= 1) for (const s of [-1, 1]) for (let k = 0; k < ph; k++) this.spit(this.x + s * 20, this.y - 10, s * (1.1 + k * 0.5) * sp * 0.6, -0.7 - k * 0.3);
           }
         } else if (T <= down + hold + back) { const k = (T - down - hold) / back; this.y = 300 + (HOME_Y - 300) * (1 - (1 - k) * (1 - k)); }
         else if (ph === 2 && this.seq % 2 === 1 && T < 200) { this.seq++; this.beginTell(px); } // double pounce when grumpiest
@@ -162,7 +177,7 @@ export class Boss {
           for (let k = 0; k < arms; k++) {
             const a = T * rot + (k / arms) * Math.PI * 2;
             const s = Math.sin(a); if (s < -0.15) continue;
-            ix.bossSpit(this.x + Math.cos(a) * 16, this.y + 10 + s * 10, Math.cos(a) * sp * 0.8, Math.max(0.5, s * sp * 0.8 + 0.3));
+            this.spit(this.x + Math.cos(a) * 16, this.y + 10 + s * 10, Math.cos(a) * sp * 0.8, Math.max(0.5, s * sp * 0.8 + 0.3));
           }
         }
         if (T > dur + 10) this.go('recover');
@@ -170,7 +185,7 @@ export class Boss {
       }
       case 'summon': { // kittens pop from the boss's sides in a little arc
         const pairs = 1 + ph;
-        if (T % 16 === 1 && T < pairs * 16 && ix.cats.length < 8) for (const s of [-1, 1]) ix.spawnKitten(this.x + s * 38, this.y + 6, s * (1.1 + (T >> 4) * 0.4), -1.4);
+        if (T % 16 === 1 && T < pairs * 16 && ix.cats.length < 8) for (const s of [-1, 1]) ix.spawnKitten(this.x + s * (38 + this.tier * 6), this.y + 6, s * (1.1 + (T >> 4) * 0.4), -1.4);
         if (T > pairs * 16 + 30) this.go('recover');
         break;
       }
@@ -178,16 +193,18 @@ export class Boss {
   }
 
   render(r: any) {
-    const x = this.x + this.jit, y = this.y;
-    r.push(1, y, (ctx: CanvasRenderingContext2D) => pxShadow(ctx, x + 4, y + 40, 44, 0.3));
+    const x = this.x + this.jit, y = this.y - (this.hitT > 3 ? 1 : 0);   // a 1px recoil on every hit
+    const tier = this.tier, t = this.t, ph = this.phase;
+    // one small drop shadow, offset down-right like every cat's, only where there is ground below
+    if (this.ix.grounded()) r.push(1, y, (ctx: CanvasRenderingContext2D) => ditherShadow(ctx, x + 8, y + 30 + tier * 3, 44 + tier * 10, 10));
     // telegraphs (drawn under the boss)
     if (this.st === 'tell') {
       const k = this.stT / this.tellLen(); const blink = (this.stT >> 2) & 1; const c = blink ? 'r' : '6';
       const over = this.atk === 'summon' || this.atk === 'spiral';
       r.push(over ? 3 : 1, y + 1, (ctx: CanvasRenderingContext2D) => {
         switch (this.atk) {
-          case 'charge': // the danger lane: two dashed rails marching down, plus warning chevrons
-            ctx.globalAlpha = blink ? 0.22 : 0.14; ctx.fillStyle = col('r'); ctx.fillRect(Math.round(this.tx) - 19, Math.round(y + 30), 39, Math.round(330 - y - 30)); ctx.globalAlpha = 1;
+          case 'charge': // the danger lane: a 50% red dither, two dashed rails marching down, plus warning chevrons
+            ditherRect(ctx, this.tx - 19, y + 30, 39, Math.round(330 - y - 30), 'r', blink);
             for (const dx of [-20, 20]) pxDash(ctx, this.tx + dx, y + 30, this.tx + dx, 330, c, 4, 4, -this.stT, 2);
             for (let i = 0; i < 3; i++) { // chevrons marching down the lane
               const cx = Math.round(this.tx), cy = 140 + i * 60 + ((this.stT * 2) % 60);
@@ -203,22 +220,35 @@ export class Boss {
             pxDash(ctx, x, y + 20, x + Math.cos(this.aim) * 120 * k, y + 20 + Math.sin(this.aim) * 120 * k, c, 4, 3, -this.stT, 2);
             break;
           case 'spiral': // a ring contracting onto the boss
-            pxRing(ctx, x, y + 6, Math.round(52 - 22 * k), c, 6, this.stT / 10);
+            pxRing(ctx, x, y + 6, Math.round(60 + tier * 4 - 26 * k), '0', 6, this.stT / 10);
+            pxRing(ctx, x, y + 6, Math.round(59 + tier * 4 - 26 * k), c, 6, this.stT / 10);
             break;
-          case 'summon': // sparkles where the kittens will pop out
-            for (const s of [-1, 1]) { pxRing(ctx, x + s * 38, y + 6, Math.round(18 - 12 * k), blink ? 'd' : '6', 4, this.stT / 8); pxRing(ctx, x + s * 38, y + 6, Math.round(19 - 12 * k), '0', 4, this.stT / 8); pxSpark(ctx, x + s * 38, y + 6, blink ? '6' : 'f', 2); pxSpark(ctx, x + s * (46 + 6 * k), y - 10, 'f', 1); }
+          case 'summon': { // sparkles where the kittens will pop out
+            const sx = 38 + tier * 6;
+            for (const s of [-1, 1]) { pxRing(ctx, x + s * sx, y + 6, Math.round(18 - 12 * k), blink ? 'd' : '6', 4, this.stT / 8); pxRing(ctx, x + s * sx, y + 6, Math.round(19 - 12 * k), '0', 4, this.stT / 8); pxSpark(ctx, x + s * sx, y + 6, blink ? '6' : 'f', 2); pxSpark(ctx, x + s * (sx + 8 + 6 * k), y - 10, 'f', 1); }
             break;
+          }
         }
       });
     }
     r.push(2, y, (ctx: CanvasRenderingContext2D) => {
-      const blinkIn = (this.st === 'enter' || this.st === 'phase') && ((this.t >> 2) & 1);
-      drawSprite(ctx, this.def.sprite, x, y, { frame: Math.floor(this.t / (this.st === 'tell' ? 6 : 14)) % 2, flash: this.flash > 0 || !!blinkIn && this.st === 'phase' });
+      const blinkIn = (this.st === 'enter' || this.st === 'phase') && ((t >> 2) & 1);
+      const flash = this.flash > 0 || !!blinkIn && this.st === 'phase';
+      // idle: cycle every frame the sheet has (2-3), faster while winding up; bob a pixel on the slow beat
+      const nf = frameCount(this.def.sprite); const frame = Math.floor(t / (this.st === 'tell' ? 6 : 12)) % nf;
+      const bob = this.st === 'idle' ? (t >> 4) & 1 : 0;
+      bossRig(ctx, tier, x, y, t, ph, true);
+      // a warm orange rim glow hugs the Big Cat (white-hot yellow while it winds up: a second tell)
+      if (!flash) bossGlow(ctx, this.def.sprite, frame, x, y + bob, this.st === 'tell' && ((this.stT >> 2) & 1) === 1);
+      drawCombat(ctx, this.def.sprite, x, y + bob, { frame, rim: flash ? undefined : this.ix.rimKey(), sil: flash ? '6' : undefined });
+      if (!flash) bossBruises(ctx, x, y + bob, t, ph);
+      bossRig(ctx, tier, x, y, t, ph, false);
       if (this.st === 'tell') { // "!" over the head
-        const bx = Math.round(x), by = Math.round(y - 42) + ((this.stT >> 3) & 1);
+        const bx = Math.round(x), by = Math.round(y - 42 - (tier >= 3 ? 10 : 0)) + ((this.stT >> 3) & 1);
         ctx.fillStyle = col('0'); ctx.fillRect(bx - 2, by - 1, 5, 12);
         ctx.fillStyle = col((this.stT >> 2) & 1 ? 'r' : 'f'); ctx.fillRect(bx - 1, by, 3, 6); ctx.fillRect(bx - 1, by + 8, 3, 2);
       }
     });
+    // no on-field HP bar: the HUD's BIG CAT bar owns it (it stays clear of the body and the charge lane)
   }
 }
