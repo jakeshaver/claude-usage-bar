@@ -29,7 +29,7 @@
   "name": "Maple Street",
   "subtitle": "Mailboxes, sprinklers, and trouble",
   "tileset": "street",
-  "music": "yard",
+  "music": "street",
   "ambience": "city",
   "tod": "day",
   "waves": [
@@ -59,7 +59,7 @@
   "name": "Barkwood Dog Park",
   "subtitle": "The Duchess has claimed the lawn",
   "tileset": "park",
-  "music": "yard",
+  "music": "park",
   "ambience": "birds",
   "tod": "day",
   "waves": [
@@ -142,7 +142,7 @@
   "name": "The Purrfect Cup Cafe",
   "subtitle": "Lattes and lap cats",
   "tileset": "cafe",
-  "music": "city",
+  "music": "cafe",
   "ambience": "cafe",
   "tod": "dusk",
   "waves": [
@@ -169,7 +169,7 @@
   "name": "Fish Market Docks",
   "subtitle": "It smells like tuna for a reason",
   "tileset": "docks",
-  "music": "night",
+  "music": "docks",
   "ambience": "water",
   "tod": "dawn",
   "waves": [
@@ -196,7 +196,7 @@
   "name": "The Yarn Factory",
   "subtitle": "Where the Armada gets its ammo",
   "tileset": "factory",
-  "music": "city",
+  "music": "factory",
   "ambience": "factory",
   "tod": "night",
   "waves": [
@@ -258,7 +258,7 @@
   "name": "The Litter Moon",
   "subtitle": "One small step for dog-kind",
   "tileset": "moon",
-  "music": "space",
+  "music": "moon",
   "ambience": "space",
   "tod": "night",
   "waves": [
@@ -285,7 +285,7 @@
   "name": "Catnip Nebula",
   "subtitle": "A secret route, very groovy",
   "tileset": "nebula",
-  "music": "space",
+  "music": "nebula",
   "ambience": "space",
   "tod": "night",
   "waves": [
@@ -312,7 +312,7 @@
   "name": "Scratching-Post Station",
   "subtitle": "The Armada's last outpost",
   "tileset": "station",
-  "music": "night",
+  "music": "station",
   "ambience": "space",
   "tod": "night",
   "waves": [
@@ -339,7 +339,7 @@
   "name": "The Meowthership",
   "subtitle": "Bring every pup home",
   "tileset": "mothership",
-  "music": "boss",
+  "music": "mothership",
   "ambience": "space",
   "tod": "night",
   "waves": [

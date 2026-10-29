@@ -128,7 +128,7 @@
   "id": "intro-rooftops-1",
   "speaker": "Commander Biscuit",
   "portrait": "portrait_biscuit",
-  "text": "The Manhattan skyline at night. Madame Mau is singing from a water tower and the whole block is awake.",
+  "text": "The Manhattan skyline. Madame Mau is singing from a water tower and the whole block is awake.",
   "next": "intro-rooftops-2"
  },
  {
@@ -180,7 +180,7 @@
   "id": "intro-docks-1",
   "speaker": "Commander Biscuit",
   "portrait": "portrait_biscuit",
-  "text": "Fish Market Docks at dawn. Captain Mainsail's crew is loading stolen squeaky toys onto a boat.",
+  "text": "Fish Market Docks. Captain Mainsail's crew is loading stolen squeaky toys onto a boat.",
   "next": "intro-docks-2"
  },
  {
