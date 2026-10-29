@@ -23,3 +23,26 @@ export function memdrop(g: Game) {
     tone(k, out, t + 0.52, mtof(107), 0.5, 0.05, { wave: 'sine', vib: 9, attack: 0.01, sustain: 0.4, decay: 0.2, release: 0.25 });
   } catch { /* sound is optional */ }
 }
+
+/**
+ * The LOST MEMORY chime (a recovered photo, or a bundle of them): a warmer, lower variant of the music box,
+ * two soft "found it" bell pairs falling then rising (B5 G#5 / E6 B6) over a held glassy fifth. Returns false
+ * when audio is unavailable so the caller can fall back to the generic memory sfx.
+ */
+export function memfound(g: Game, n = 1): boolean {
+  const A: any = g.mods.audio;
+  try {
+    const k = A?.kit, out = A?.mix?.sfx, c: AudioContext | undefined = A?.ctx;
+    if (!k || !out || !c || c.state !== 'running') return false;
+    const t = c.currentTime + 0.005;
+    const notes = [83, 80, 88, 95, ...(n > 2 ? [100] : [])];
+    notes.forEach((m, i) => {
+      const at = t + i * 0.11 + (i >= 2 ? 0.06 : 0);
+      tone(k, out, at, mtof(m), 0.42, 0.16, { wave: 'sine', attack: 0.003, sustain: 0.22, decay: 0.16, release: 0.2 });
+      tone(k, out, at, mtof(m + 19), 0.14, 0.035, { wave: 'tri', attack: 0.001, sustain: 0.1, decay: 0.06, release: 0.06 });
+    });
+    tone(k, out, t + 0.1, mtof(64), 0.9, 0.05, { wave: 'tri', attack: 0.08, sustain: 0.6, decay: 0.3, release: 0.4 });
+    tone(k, out, t + 0.1, mtof(71), 0.9, 0.04, { wave: 'sine', vib: 5, attack: 0.08, sustain: 0.6, decay: 0.3, release: 0.4 });
+    return true;
+  } catch { return false; }
+}

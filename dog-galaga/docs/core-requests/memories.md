@@ -75,3 +75,21 @@ Art helpers in `src/memories/art.ts`: `photo(id, blink?)` (56x44 canvas),
     glow with a heart pin, drawn on render layer 5 (above projectiles). Catching it starts a ~2.2 s cozy beat: memories holds
     `g.paused`, the playfield dims one palette step through 25%/50% dither frames (50% max at night), the card slides in, and
     a fresh FIRE skips once the photo has mostly developed. Toasts and Pom's hearts burst wait until the card leaves."
+
+
+## Round 4 additions
+
+12. **ARCHITECTURE.md, memories line (replaces #11)**: "The memory carrier wears a 2px gold silhouette rim (drawn right
+    after the cat, replacing interaction's dusk/night readability rim; solid gold at night) with walking shimmer, plus a
+    pixel crown and the polaroid in its mouth drawn above all cats. Booping it is a beat: 4-tick hit-stop
+    (`effects.hitStop`), a 2-frame white silhouette flash, then a 2px 8-ray star. The photo (14x16 card, 10x8 window with
+    Maya in her pink shirt) sways down to Pom inside a 1px gold outline and a sparse dither glint (teal for a recovered
+    photo). Catching it starts a ~2.2 s cozy beat (g.paused held, playfield dimmed one palette step, grass kept green);
+    3+ photos at once (the final-sector backlog) become one 'N LOST MEMORIES' card with a fanned stack (~3 s,
+    'TOOT TO CONTINUE'). Recovered photos get a periwinkle frame, a RECOVERED stamp, teal card trim and their own chime."
+
+13. **showcase (optional)**: memories now also stages `stage=boop` (the carrier flash + star, tick 1) and
+    `stage=bundle:N` (5 lost photos from #N caught at once) through the same `?showcase=memories&stage=` self-staging.
+
+14. **interaction (repeat of #10)**: the legacy `if (c.glow) { pxDither(...); pxRing(...) }` disc is still drawn; memories
+    keeps lowering `c.glow` for the carrier's own draw call. Removing it would let memories drop that render-time toggle.

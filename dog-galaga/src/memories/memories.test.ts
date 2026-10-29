@@ -76,7 +76,7 @@ describe('memories: lost-memory recovery', () => {
   it('nothing is offered twice while its photo is still in the air', () => {
     const { g, M } = fresh();
     g.state.memories = [];
-    M.drops.push({ id: 'mem_01', x: 0, y: 0, vx: 0, vy: 0, t: 0, lost: false, swoop: false });
+    M.drops.push({ id: 'mem_01', x: 0, y: 0, vx: 0, vy: 0, t: 0, lost: false, swoop: false, more: [] });
     expect(M.offer('backyard', 1)).toBeNull();
     expect(M.offer('backyard', 3)).toBeNull();                      // mem_01 is the only missed one, and it is flying
   });
@@ -128,5 +128,31 @@ describe('memories: reveal freeze', () => {
     const r = runPath(['street', 'alley', 'rooftops', 'docks', 'factory', 'sky', 'nebula', 'station', 'mothership']);
     expect(r.softlock).toBeNull();
     expect(r.memories).toBe(18);
+  });
+});
+
+describe('memories: bundle collapse', () => {
+  it('three or more photos caught at once make one bundle card, not a long queue of freezes', () => {
+    const { g, M } = fresh();
+    playing(g);
+    g.state.memories = [];
+    const six = g.content.memories.slice(0, 6).map((m: any) => m.id);
+    M.collectMany(six);
+    expect(g.state.memories.length).toBe(6);
+    expect(M.reveals.length).toBe(1);
+    expect(M.reveals[0].ids).toEqual(six);
+    // ~3 s in all, then play resumes on its own
+    for (let i = 0; i < 200; i++) g.step();
+    expect(M.revealing()).toBe(false);
+    expect(g.paused).toBe(false);
+  });
+  it('a third single card joining a queue of two collapses the waiting ones', () => {
+    const { g, M } = fresh();
+    playing(g);
+    g.state.memories = [];
+    const [a, b, c] = g.content.memories.slice(0, 3).map((m: any) => m.id);
+    M.collect(a); g.step(); M.collect(b); M.collect(c);
+    expect(M.reveals.length).toBe(2);
+    expect(M.reveals[1].ids).toEqual([b, c]);
   });
 });

@@ -256,14 +256,16 @@ export function photo(id: string, blink = false): HTMLCanvasElement {
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 /**
  * Polaroid card (frame 64x62: 4px borders, 14px chin) with its photo at top-left (x, y).
+ * lost = a recovered photo: periwinkle-weathered frame instead of fresh white.
  * dev 0..1 "develops" the photo: a milky cream ordered-dither veil lifts pixel by pixel, like an instant photo. scale is an integer.
  */
-export function polaroid(ctx: Ctx, id: string, x: number, y: number, dev = 1, scale = 1, blink = false) {
+export function polaroid(ctx: Ctx, id: string, x: number, y: number, dev = 1, scale = 1, blink = false, lost = false) {
   const s = Math.max(1, Math.round(scale)); x = Math.round(x); y = Math.round(y);
   const fw = 64 * s, fh = 62 * s;
   R(ctx, x + 1, y + fh + 1, fw + 1, 1, '1'); R(ctx, x + fw + 1, y + 1, 1, fh + 1, '1');   // solid 1px drop shadow
   R(ctx, x - 1, y - 1, fw + 2, fh + 2, '0');
-  R(ctx, x, y, fw, fh, '6'); R(ctx, x, y + fh - s, fw, s, '7'); R(ctx, x + fw - s, y, s, fh, '7');
+  R(ctx, x, y, fw, fh, lost ? '5' : '6'); R(ctx, x, y + fh - s, fw, s, lost ? '4' : '7'); R(ctx, x + fw - s, y, s, fh, lost ? '4' : '7');
+  if (lost) D(ctx, x + s, y + (PHOTO_H + 6) * s, fw - 2 * s, fh - (PHOTO_H + 7) * s, '4', 1);   // a weathered periwinkle chin: it has been somewhere
   const px = x + 4 * s, py = y + 4 * s;
   R(ctx, px - 1, py - 1, PHOTO_W * s + 2, PHOTO_H * s + 2, 'o');
   ctx.drawImage(photo(id, blink && dev >= 1), px, py, PHOTO_W * s, PHOTO_H * s);
@@ -372,11 +374,14 @@ export function spriteHeadTop(rows: string[] | null, key: string) {
  * (gold 'f' inside, orange 'g' outside), closed by 1px of ink so it reads on pale floors too. It stays within
  * the 4px of air between formation neighbours, so it never crosses another cat. White shimmer pixels walk
  * round the gold band (three heads with short cream tails): unmistakable at 1x, never a blink.
+ * It is drawn right AFTER the cat, so its inner pixel row covers the light readability rim interaction gives every
+ * cat at dusk and night (the carrier swaps that rim for gold instead of stacking outside it). solid = both rows
+ * gold (night: out-shines the lavender rims of its neighbours).
  */
 interface Rim { img: HTMLCanvasElement; perim: [number, number][] }
 const rimCache = new Map<string, Rim | null>();
-export function carrierRim(ctx: Ctx, rows: string[] | null, cacheKey: string, flipY: boolean, cx: number, cy: number, t: number) {
-  const ck = `${cacheKey}|${flipY ? 1 : 0}`;
+export function carrierRim(ctx: Ctx, rows: string[] | null, cacheKey: string, flipY: boolean, cx: number, cy: number, t: number, solid = false) {
+  const ck = `${cacheKey}|${flipY ? 1 : 0}|${solid ? 1 : 0}`;
   let rim = rimCache.get(ck);
   if (rim === undefined) {
     rim = null;
@@ -395,7 +400,7 @@ export function carrierRim(ctx: Ctx, rows: string[] | null, cacheKey: string, fl
       const c = img.getContext('2d')!; const perim: [number, number][] = [];
       for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
         const d = dist[y * W2 + x]; if (d < 1 || d > M) continue;
-        c.fillStyle = col(d === 1 ? 'f' : d === 2 ? 'g' : '0'); c.fillRect(x, y, 1, 1);
+        c.fillStyle = col(d === 1 ? 'f' : d === 2 ? (solid ? 'f' : 'g') : '0'); c.fillRect(x, y, 1, 1);
         if (d === 1) perim.push([x, y]);
       }
       const ox = W2 / 2, oy = H2 / 2;
@@ -435,23 +440,6 @@ export function carrierCrown(ctx: Ctx, cx: number, baseY: number, flipY: boolean
   if (g < 9) { ctx.fillStyle = col('6'); ctx.fillRect(x + 1 + g, y + (flipY ? s.height - 1 - 4 : 4), 1, 1); }
 }
 
-/**
- * The warm glow behind a drifting polaroid: a soft dithered disc (gold core, orange edge, sparse outer pixels),
- * deliberately NOT a ring (rings are the power-up language). r breathes by a pixel.
- */
-export function warmGlow(ctx: Ctx, cx: number, cy: number, r: number) {
-  cx = Math.round(cx); cy = Math.round(cy);
-  for (let yy = -r; yy <= r; yy++) for (let xx = -r; xx <= r; xx++) {
-    const d = Math.sqrt(xx * xx + yy * yy); if (d > r + 0.4) continue;
-    const X = cx + xx, Y = cy + yy;
-    let k: string | null = null;
-    if (d > r - 3) k = (X & 1) === 0 && (Y & 1) === 0 ? 'h' : null;   // sparse burnt-orange edge
-    else if (d > r - 7) k = ((X + Y) & 1) === 0 ? 'g' : null;        // 50% orange
-    else k = ((X + Y) & 1) === 0 ? 'f' : 'g';                         // gold/orange checker core
-    if (k) { ctx.fillStyle = col(k); ctx.fillRect(X, Y, 1, 1); }
-  }
-}
-
 /** A red heart pin (with ink outline and a white glint) pushed through the top of a polaroid. */
 const PIN = ['.rr.rr.', 'r6rrrrr', 'rrrrrre', '.rrrre.', '..rre..', '...e...'];
 export function heartPin(ctx: Ctx, cx: number, cy: number) { fig(ctx, 'pin', PIN, Math.round(cx) - 4, Math.round(cy) - 4); }
@@ -467,22 +455,94 @@ export function groundShadow(ctx: Ctx, cx: number, cy: number, w: number, h: num
 }
 
 /**
- * A falling polaroid (14x16) that flips over as it drifts, like a leaf: drawn by integer-width column scaling
- * (cos of the flip -> 14, 12, 8, 4, 2 px wide), front shows a 12x10 thumbnail of the photo, back is plain cream.
+ * A falling polaroid (14x16 incl. its 1px ink line) that flips over as it drifts, like a leaf. The flip is drawn by
+ * integer-width column scaling that sways 14 -> 12 -> 8 px and never goes edge-on or shows its
+ * back, so the card always reads as a photo. The front's 10x8 photo window is the memory's own picture boiled down, with a tiny Maya (brown hair, pink
+ * shirt) and Pom standing in it so it reads as "a photo of her" at a glance; the back is plain cream with a pen note.
  */
+export const DROP_W = 14, DROP_H = 16;
+const MINI_MAYA = ['.bbb.', 'b999b', '9ddd9', '.ddd.', '.ddd.', '.n.n.'];
+const MINI_POM = ['6.6', '666', '6.6'];
 const flipCache = new Map<string, HTMLCanvasElement>();
-function flipFace(id: string, back: boolean): HTMLCanvasElement {
-  const k = id + (back ? ':b' : ':f'); let c = flipCache.get(k); if (c) return c;
-  c = document.createElement('canvas'); c.width = 16; c.height = 18;
+function flipFace(id: string, back: boolean, lost = false): HTMLCanvasElement {
+  const k = id + (back ? ':b' : ':f') + (lost ? 'L' : ''); let c = flipCache.get(k); if (c) return c;
+  c = document.createElement('canvas'); c.width = DROP_W; c.height = DROP_H;
   const x = c.getContext('2d')!;
-  R(x, 0, 0, 16, 18, '0'); R(x, 1, 1, 14, 16, back ? '7' : '6');
-  if (back) { R(x, 1, 16, 14, 1, '8'); R(x, 5, 1, 6, 2, 'o'); R(x, 4, 8, 8, 1, '8'); R(x, 4, 11, 6, 1, '8'); }
-  else { R(x, 14, 1, 1, 16, '7'); R(x, 1, 16, 14, 1, '7'); x.drawImage(micro(id, 12, 10), 2, 2); }
+  const paper = lost ? '5' : '6', edge = lost ? '4' : '7';
+  R(x, 0, 0, DROP_W, DROP_H, '0'); R(x, 1, 1, DROP_W - 2, DROP_H - 2, back ? '7' : paper);
+  if (back) { R(x, 1, DROP_H - 2, DROP_W - 2, 1, '8'); R(x, 4, 1, 6, 2, 'o'); R(x, 3, 7, 8, 1, '8'); R(x, 3, 10, 5, 1, '8'); }
+  else {
+    R(x, DROP_W - 2, 1, 1, DROP_H - 2, edge); R(x, 1, DROP_H - 2, DROP_W - 2, 1, edge);
+    x.drawImage(micro(id, 10, 8), 2, 2);
+    // Maya (pink shirt) and a little white Pom stand in the picture, feet on its bottom edge
+    MINI_MAYA.forEach((row, yy) => { for (let xx = 0; xx < row.length; xx++) if (row[xx] !== '.') P(x, 2 + xx, 4 + yy, row[xx]); });
+    MINI_POM.forEach((row, yy) => { for (let xx = 0; xx < row.length; xx++) if (row[xx] !== '.') P(x, 8 + xx, 7 + yy, row[xx]); });
+    P(x, 9, 7, '0');
+  }
   flipCache.set(k, c); return c;
 }
-export function fallingPolaroid(ctx: Ctx, id: string, cx: number, cy: number, t: number, flip = true) {
-  const a = flip ? Math.cos(t / 14) : 1;
-  const w = Math.max(2, Math.round(Math.abs(a) * 8) * 2);
-  const img = flipFace(id, a < 0);
-  ctx.drawImage(img, Math.round(cx - w / 2), Math.round(cy - 9), w, 18);
+/** current on-screen width of the flipping card (14, 12, 8 or 4: never a 1-2px sliver) */
+export function dropWidth(t: number, flip = true) {
+  if (!flip) return DROP_W;
+  // a leaf's sway, not a coin spin: the card turns at most ~70 degrees each way, so the photo side always faces Pom
+  const a = Math.cos(Math.sin(t / 24) * 0.98);
+  return a > 0.88 ? 14 : a > 0.7 ? 12 : 8;
+}
+/**
+ * Draw the drifting polaroid centred on (cx, cy). extra > 0 = a bundle: up to two more cards peek out behind it.
+ */
+export function fallingPolaroid(ctx: Ctx, id: string, cx: number, cy: number, t: number, flip = true, extra = 0, lost = false) {
+  const w = dropWidth(t, flip), back = false;
+  const x = Math.round(cx - w / 2), y = Math.round(cy - DROP_H / 2);
+  for (let e = Math.min(2, extra); e > 0; e--) { R(ctx, x + e * 3, y - e * 2, w, DROP_H, '0'); R(ctx, x + e * 3 + 1, y - e * 2 + 1, w - 2, DROP_H - 2, e === 1 ? '7' : '8'); }
+  ctx.drawImage(flipFace(id, back, lost), x, y, w, DROP_H);
+}
+/**
+ * The drop's halo: a crisp 1px gold outline right around the card (outside its ink line) plus a sparse 25% dither
+ * of gold, then orange, no wider than 5px beyond it: a glint, not a fireball. Hugs the card's current flip width.
+ */
+export function dropHalo(ctx: Ctx, cx: number, cy: number, w: number, t: number, rimKey = 'f') {
+  const x0 = Math.round(cx - w / 2) - 1, y0 = Math.round(cy - DROP_H / 2) - 1, x1 = x0 + w + 1, y1 = y0 + DROP_H + 1;
+  R(ctx, x0, y0, w + 2, 1, rimKey); R(ctx, x0, y1, w + 2, 1, rimKey); R(ctx, x0, y0, 1, DROP_H + 2, rimKey); R(ctx, x1, y0, 1, DROP_H + 2, rimKey);
+  const ph = (t >> 4) & 1;
+  for (let yy = y0 - 5; yy <= y1 + 5; yy++) for (let xx = x0 - 5; xx <= x1 + 5; xx++) {
+    const dx = xx < x0 ? x0 - xx : xx > x1 ? xx - x1 : 0, dy = yy < y0 ? y0 - yy : yy > y1 ? yy - y1 : 0;
+    const d = Math.max(dx, dy) + (dx && dy ? 1 : 0); if (d < 2 || d > 5) continue;
+    if (((xx + ph) & 1) || ((yy + (xx >> 1)) & 1)) continue;   // 25% ordered dither, shimmering by a pixel
+    if (d === 5 && ((xx + yy) & 2)) continue;                   // the outer edge thins out
+    ctx.fillStyle = col(d <= 3 ? rimKey : rimKey === 'f' ? 'g' : 'm'); ctx.fillRect(xx, yy, 1, 1);
+  }
+}
+
+/** Solid white silhouette (with a 1px ink ring) of a sprite: the carrier's 2-frame flash on the boop. */
+const silCache = new Map<string, HTMLCanvasElement | null>();
+export function whiteSilhouette(ctx: Ctx, rows: string[] | null, cacheKey: string, flipY: boolean, cx: number, cy: number) {
+  const ck = `${cacheKey}|${flipY ? 1 : 0}`;
+  let img = silCache.get(ck);
+  if (img === undefined) {
+    img = null;
+    if (rows && typeof document !== 'undefined') {
+      const h = rows.length, w = Math.max(...rows.map(r => r.length));
+      const on = (x: number, y: number) => { const ch = rows[flipY ? h - 1 - y : y]?.[x]; return !!ch && ch !== '.' && ch !== ' '; };
+      img = document.createElement('canvas'); img.width = w + 2; img.height = h + 2;
+      const c = img.getContext('2d')!;
+      for (let y = -1; y <= h; y++) for (let x = -1; x <= w; x++) {
+        if (on(x, y)) { c.fillStyle = col('6'); c.fillRect(x + 1, y + 1, 1, 1); }
+        else if (on(x + 1, y) || on(x - 1, y) || on(x, y + 1) || on(x, y - 1)) { c.fillStyle = col('f'); c.fillRect(x + 1, y + 1, 1, 1); }
+      }
+    }
+    silCache.set(ck, img);
+  }
+  if (img) ctx.drawImage(img, Math.round(cx - img.width / 2), Math.round(cy - img.height / 2));
+}
+
+/** A small "RECOVERED" rubber stamp (teal ink, 1px border, slightly uneven) for a lost memory's photo corner. */
+export function recoveredStamp(ctx: Ctx, x: number, y: number, label: (c: Ctx, s: string, x: number, y: number) => void) {
+  x = Math.round(x); y = Math.round(y);
+  const w = 58, h = 11;
+  R(ctx, x - 1, y - 1, w + 2, h + 2, '0');
+  R(ctx, x, y, w, h, '7'); R(ctx, x, y, w, 1, 'm'); R(ctx, x, y + h - 1, w, 1, 'm'); R(ctx, x, y, 1, h, 'm'); R(ctx, x + w - 1, y, 1, h, 'm');
+  R(ctx, x + 2, y + 2, w - 4, h - 4, 'l'); D(ctx, x + 2, y + 2, w - 4, h - 4, 'm');
+  label(ctx, 'RECOVERED', x + 3, y + 2);
+  P(ctx, x + 1, y + 1, '7'); P(ctx, x + w - 2, y + h - 2, '7');   // worn corners of the ink
 }
