@@ -218,3 +218,13 @@ ui's polish 5 requests 2 and 5 were applied in `src/memories/index.ts` by the in
 y 119..230; album chip and memory strip anchors from ui; fallbacks when `hudSlots` is missing), the filing route is
 rebuilt from those anchors (`buildRoute()`), and the strip pulse / album repaint are skipped in touch. Comments now say
 "memory strip (y 239..256)". Please review the touch filing flight (it hops to the card's top-right corner).
+
+## Polish 6
+
+1. ui (touch only): `hudSlots()` has one card slot (y 245, h 111), which in touch is the ACTION deck, so memories
+   still puts the touch card at y 119..230 over the HOSTILES block (keyboard is now strictly inside `hudSlots().card`).
+   Please add `cardTouch: { x, y, h }` (or make `hudSlots(touch)` return a touch-aware `card`) naming the rows the
+   touch layout can give up while `memories.panelCard()` is true (e.g. hide HOSTILES then); memories will read it.
+   The touch filing flight now ends inside the card's top-right corner (never over QUEST).
+2. ui: memories no longer repaints the RESCUED album count every frame (ui already draws `albumShown()`); it only
+   recolours the number inside the chip during the landing flash.

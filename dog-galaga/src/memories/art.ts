@@ -274,11 +274,44 @@ export function photo(id: string, blink = false): HTMLCanvasElement {
   photoCache.set(key, c); return c;
 }
 
-const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+/**
+ * Developing: each palette key one step lighter along its own ramp (toward cream / white), so a photo can come up
+ * through a few flat palette steps (a pale ghost, a washed print, the full photo) instead of a dither veil.
+ */
+const UP: Record<string, string> = {
+  '0': '1', '1': '2', '2': '3', '3': '4', '4': '5', '5': '7', '6': '6', '7': '7', '8': '7', '9': '8', a: '9', b: 'a',
+  c: '7', d: 'c', e: 'd', f: '7', g: 'f', h: 'g', i: '7', j: 'i', k: 'j', l: 's', m: 'l', n: 'm', o: '7', p: 'o', q: 'p',
+  r: 'c', s: '7', t: '5', u: 't', v: '3',
+};
+const fadeCache = new Map<string, HTMLCanvasElement>();
+/** The photo washed `steps` palette steps toward cream (cached). Every pixel stays an exact palette colour. */
+export function photoFaded(id: string, steps: number): HTMLCanvasElement {
+  const src = photo(id); if (steps <= 0) return src;
+  const key = `${id}|${steps}`; let c = fadeCache.get(key); if (c) return c;
+  c = document.createElement('canvas'); c.width = PHOTO_W; c.height = PHOTO_H;
+  const out = c.getContext('2d')!;
+  let data: ImageData | null = null;
+  try { data = src.getContext('2d')!.getImageData(0, 0, PHOTO_W, PHOTO_H); } catch { data = null; }
+  if (!data) { R(out, 0, 0, PHOTO_W, PHOTO_H, '7'); fadeCache.set(key, c); return c; }
+  const map = new Map<number, string>();
+  for (let i = 0; i < KEYS.length; i++) {
+    let k = KEYS[i]; for (let n = 0; n < steps; n++) k = UP[k] ?? '7';
+    const n = parseInt(col(KEYS[i]).slice(1), 16); map.set(n, col(k));
+  }
+  const d = data.data;
+  for (let yy = 0; yy < PHOTO_H; yy++) for (let xx = 0; xx < PHOTO_W; xx++) {
+    const i = (yy * PHOTO_W + xx) * 4; if (d[i + 3] < 128) continue;
+    out.fillStyle = map.get((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]) ?? col('7'); out.fillRect(xx, yy, 1, 1);
+  }
+  fadeCache.set(key, c); return c;
+}
+const KEYS = '0123456789abcdefghijklmnopqrstuv';
+/** dev 0..1 to the developing step: a pale ghost (4 steps washed), a washed print (2 steps), then the photo */
+export function devSteps(dev: number) { return dev >= 1 ? 0 : dev >= 0.5 ? 2 : 4; }
 /**
  * Polaroid card (frame 64x62: 4px borders, 14px chin) with its photo at top-left (x, y).
  * lost = a recovered photo: periwinkle-weathered frame instead of fresh white.
- * dev 0..1 "develops" the photo: a milky cream ordered-dither veil lifts pixel by pixel, like an instant photo. scale is an integer.
+ * dev 0..1 "develops" the photo in three flat palette steps (ghost, washed, full), like an instant photo. scale is an integer.
  */
 export function polaroid(ctx: Ctx, id: string, x: number, y: number, dev = 1, scale = 1, blink = false, lost = false) {
   const s = Math.max(1, Math.round(scale)); x = Math.round(x); y = Math.round(y);
@@ -289,17 +322,8 @@ export function polaroid(ctx: Ctx, id: string, x: number, y: number, dev = 1, sc
   if (lost) D(ctx, x + s, y + (PHOTO_H + 6) * s, fw - 2 * s, fh - (PHOTO_H + 7) * s, '4', 1);   // a weathered periwinkle chin: it has been somewhere
   const px = x + 4 * s, py = y + 4 * s;
   R(ctx, px - 1, py - 1, PHOTO_W * s + 2, PHOTO_H * s + 2, 'o');
-  ctx.drawImage(photo(id, blink && dev >= 1), px, py, PHOTO_W * s, PHOTO_H * s);
-  if (dev < 1) {
-    const th = Math.floor(dev * 17);
-    for (let yy = 0; yy < PHOTO_H; yy++) for (let xx = 0; xx < PHOTO_W; xx++) {
-      const b = BAYER[(yy & 3) * 4 + (xx & 3)];
-      if (b < th) continue;
-      // milky cream emulsion first (cream / light grey dither), warming to tan right before a pixel develops
-      const k = b >= th + 5 ? (((xx + yy) & 1) ? '7' : (b & 1 ? 'o' : '7')) : '8';
-      ctx.fillStyle = col(k); ctx.fillRect(px + xx * s, py + yy * s, s, s);
-    }
-  }
+  const st = devSteps(dev);
+  ctx.drawImage(st ? photoFaded(id, st) : photo(id, blink && dev >= 1), px, py, PHOTO_W * s, PHOTO_H * s);
   // a strip of tape across the top edge
   const tx = x + fw / 2 - 9 * s, ty = y - 3 * s;
   R(ctx, tx, ty, 18 * s, 6 * s, '7'); D(ctx, tx, ty, 18 * s, 6 * s, 'o', 1);
@@ -572,13 +596,15 @@ export function recoveredStamp(ctx: Ctx, x: number, y: number, label: (c: Ctx, s
  * The polaroid at exactly half size (32x31 card + 1px ink, photo 28x22): the 56x44 photo drawn at an exact 2:1
  * nearest-neighbour step, so it stays crisp. Used mid-flight when a card files its photo into the album.
  */
-export function halfPolaroid(ctx: Ctx, id: string, x: number, y: number, lost = false) {
+export function halfPolaroid(ctx: Ctx, id: string, x: number, y: number, lost = false, dev = 1) {
   x = Math.round(x); y = Math.round(y);
   R(ctx, x + 1, y + 32, 33, 1, '1'); R(ctx, x + 33, y + 1, 1, 32, '1');
   R(ctx, x - 1, y - 1, 34, 33, '0');
   R(ctx, x, y, 32, 31, lost ? '5' : '6'); R(ctx, x, y + 30, 32, 1, lost ? '4' : '7'); R(ctx, x + 31, y, 1, 31, lost ? '4' : '7');
   R(ctx, x + 1, y + 1, 30, 24, 'o');
-  ctx.drawImage(photo(id), 0, 0, PHOTO_W, PHOTO_H, x + 2, y + 2, PHOTO_W / 2, PHOTO_H / 2);
+  const st = devSteps(dev); const prev = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(st ? photoFaded(id, st) : photo(id), 0, 0, PHOTO_W, PHOTO_H, x + 2, y + 2, PHOTO_W / 2, PHOTO_H / 2);
+  ctx.imageSmoothingEnabled = prev;
 }
 /** The 9x10 thumbnail polaroid (+1px ink) centred on (cx, cy): the last step before it lands in the album. */
 export function tinyPolaroid(ctx: Ctx, id: string, cx: number, cy: number) {
