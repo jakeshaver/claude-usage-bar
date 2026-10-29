@@ -567,3 +567,20 @@ export function recoveredStamp(ctx: Ctx, x: number, y: number, label: (c: Ctx, s
   label(ctx, 'RECOVERED', x + 3, y + 2);
   P(ctx, x + 1, y + 1, '7'); P(ctx, x + w - 2, y + h - 2, '7');   // worn corners of the ink
 }
+
+/**
+ * The polaroid at exactly half size (32x31 card + 1px ink, photo 28x22): the 56x44 photo drawn at an exact 2:1
+ * nearest-neighbour step, so it stays crisp. Used mid-flight when a card files its photo into the album.
+ */
+export function halfPolaroid(ctx: Ctx, id: string, x: number, y: number, lost = false) {
+  x = Math.round(x); y = Math.round(y);
+  R(ctx, x + 1, y + 32, 33, 1, '1'); R(ctx, x + 33, y + 1, 1, 32, '1');
+  R(ctx, x - 1, y - 1, 34, 33, '0');
+  R(ctx, x, y, 32, 31, lost ? '5' : '6'); R(ctx, x, y + 30, 32, 1, lost ? '4' : '7'); R(ctx, x + 31, y, 1, 31, lost ? '4' : '7');
+  R(ctx, x + 1, y + 1, 30, 24, 'o');
+  ctx.drawImage(photo(id), 0, 0, PHOTO_W, PHOTO_H, x + 2, y + 2, PHOTO_W / 2, PHOTO_H / 2);
+}
+/** The 9x10 thumbnail polaroid (+1px ink) centred on (cx, cy): the last step before it lands in the album. */
+export function tinyPolaroid(ctx: Ctx, id: string, cx: number, cy: number) {
+  ctx.drawImage(carryCard(id, false), Math.round(cx) - 5, Math.round(cy) - 6);
+}

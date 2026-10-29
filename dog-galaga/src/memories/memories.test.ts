@@ -1,5 +1,5 @@
-// Memories: lost-memory recovery (missed / offer) across branch skips, the final-sector bundle, and the cozy
-// reveal freeze never leaving the game paused. Lives next to the module; see docs/core-requests/memories.md
+// Memories: lost-memory recovery (missed / offer) across branch skips, the final-sector bundle, and the
+// side-panel memory card never pausing the game. Lives next to the module; see docs/core-requests/memories.md
 // (the vitest include needs 'src/**/*.test.ts' for `npm test` to pick it up).
 import { describe, it, expect } from 'vitest';
 import { createGame } from '../core/boot';
@@ -82,74 +82,72 @@ describe('memories: lost-memory recovery', () => {
   });
 });
 
-describe('memories: reveal freeze', () => {
-  it('collect() holds the game for the card and always hands the pause back', () => {
+describe('memories: side-panel card (no freeze)', () => {
+  it('collect() never pauses the game: the card plays on the HUD panel and leaves after ~3 s', () => {
     const { g, M } = fresh();
     playing(g);
     expect(g.state.scene).toBe('play');
     M.collect('mem_03');
     g.step();
-    expect(g.paused).toBe(true);
-    expect(M.revealing()).toBe(true);
-    for (let i = 0; i < 400; i++) g.step();
-    expect(M.revealing()).toBe(false);
     expect(g.paused).toBe(false);
+    expect(M.panelCard()).toBe(true);
+    expect(M.revealing()).toBe(false);              // nothing covers the playfield, so nobody needs to wait
+    expect(M.showing()).toBe(false);
+    expect(M.frozen()).toBe(false);
     expect(g.state.memories).toContain('mem_03');
+    for (let i = 0; i < 175; i++) { g.step(); expect(g.paused).toBe(false); }
+    expect(M.panelCard()).toBe(true);
+    for (let i = 0; i < 20; i++) g.step();
+    expect(M.panelCard()).toBe(false);
   });
 
-  it('toasts wait for the card, and Pom\'s hearts burst only after it leaves', () => {
+  it('toasts are not held for the card, and the catch leaves a +1 MEMORY cue at the pickup point', () => {
     const { g, M } = fresh();
     playing(g);
-    const ui = g.mods.ui; const bursts: string[] = [];
-    const fx = g.mods.effects; const orig = fx.burst.bind(fx);
-    fx.burst = (x: number, y: number, k: string) => { bursts.push(k); return orig(x, y, k); };
-    ui.toasts = [];
-    M.collect('mem_03');
+    const ui = g.mods.ui; ui.toasts = [];
+    M.collectMany(['mem_03'], { x: 200, y: 250 });
     ui.toast('NEW QUEST: TEST');
     g.step();
-    expect(ui.toasts.map((t: any) => t.text)).not.toContain('NEW QUEST: TEST');
-    expect(bursts).not.toContain('hearts');
-    for (let i = 0; i < 400 && M.revealing(); i++) g.step();
-    g.step();
     expect(ui.toasts.map((t: any) => t.text)).toContain('NEW QUEST: TEST');
-    expect(bursts).toContain('hearts');
+    expect(M.cues.length).toBe(1);
+    expect(M.cues[0]).toMatchObject({ x: 200, y: 250, label: '+1 MEMORY' });
+    for (let i = 0; i < 60; i++) g.step();
+    expect(M.cues.length).toBe(0);
   });
 
-  it('the card never goes up right as a wave starts: it waits (play goes on), then holds the game', () => {
+  it('the card parks while the pause menu is open and resumes where it was', () => {
     const { g, M } = fresh();
     playing(g);
-    g.bus.emit('wave:start', { areaId: 'street', waveIndex: 1, count: 0 });
-    M.collect('mem_03');
-    expect(g.state.memories).toContain('mem_03');                 // safe in the album straight away
-    g.step();
-    expect(g.paused).toBe(false);
-    expect(M.showing()).toBe(false);
-    for (let i = 0; i < 400 && !M.showing(); i++) g.step();   // (the director starts the real wave meanwhile)
-    expect(M.showing()).toBe(true);
-    expect(g.paused).toBe(true);
-  });
-
-  it('the card waits out a boss telegraph or attack', () => {
-    const { g, M } = fresh();
-    playing(g);
-    const boss: any = { st: 'tell' };
-    g.mods.interaction.boss = boss;
     M.collect('mem_04');
-    for (let i = 0; i < 10; i++) g.step();
-    expect(M.showing()).toBe(false);
-    expect(g.paused).toBe(false);
-    g.mods.interaction.boss = null;
+    for (let i = 0; i < 20; i++) g.step();
+    const t0 = M.reveals[0].t;
+    g.mods.ui.menuOpen = 'pause'; g.paused = true;
+    for (let i = 0; i < 50; i++) g.step();
+    expect(M.reveals[0].t).toBe(t0);
+    g.mods.ui.menuOpen = 'none'; g.paused = false;
     g.step();
-    expect(M.showing()).toBe(true);
+    expect(M.reveals[0].t).toBe(t0 + 1);
   });
 
-  it('a scene change mid-reveal (dialogue) releases the pause instead of softlocking', () => {
+  it('the card is not drawn at all while a menu is open (ESC mid-slide hides it)', () => {
+    const { g, M } = fresh();
+    playing(g);
+    M.collect('mem_04');
+    for (let i = 0; i < 6; i++) g.step();                // mid-slide
+    let calls = 0;
+    const ctx: any = new Proxy({}, { get: (_t, k) => k === 'canvas' ? null : () => { calls++; return { data: new Uint8ClampedArray(4) }; }, set: () => true });
+    g.mods.ui.menuOpen = 'pause';
+    M.overlay(g, ctx); expect(calls).toBe(0);
+    g.mods.ui.menuOpen = 'none';
+  });
+
+  it('a dialogue mid-card never pauses anything either; the card waits and finishes afterwards', () => {
     const { g, M } = fresh();
     playing(g);
     M.collect('mem_04'); g.step();
-    expect(g.paused).toBe(true);
     g.setScene('dialogue');
     expect(g.paused).toBe(false);
+    const t0 = M.reveals[0].t; g.step(); expect(M.reveals[0].t).toBe(t0);
   });
 
   it('the bot still finds all 18 memories on a route that skips park, cafe and moon', () => {
@@ -169,10 +167,9 @@ describe('memories: bundle collapse', () => {
     expect(g.state.memories.length).toBe(6);
     expect(M.reveals.length).toBe(1);
     expect(M.reveals[0].ids).toEqual(six);
-    // ~3 s in all, then play resumes on its own
-    for (let i = 0; i < 200; i++) g.step();
-    expect(M.revealing()).toBe(false);
-    expect(g.paused).toBe(false);
+    // pages through all six by itself, never pausing play
+    for (let i = 0; i < 400; i++) { g.step(); expect(g.paused).toBe(false); }
+    expect(M.panelCard()).toBe(false);
   });
   it('a backlog bundle never lists a photo that is already in the album', () => {
     const { g, M } = fresh();
