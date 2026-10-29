@@ -232,3 +232,24 @@ describe('memories: bundle collapse', () => {
     expect(M.reveals[1].ids).toEqual([b, c]);
   });
 });
+
+describe('memories: card text pages', () => {
+  it('pages hold whole lines, never exceed the window, and break at sentence ends when a sentence fits', async () => {
+    const { bodyPages } = await import('./index');
+    const { wrap } = await import('../art/font');
+    const g = createGame({ headless: true, seed: 7 });
+    for (const m of g.content.memories) {
+      const body = m.text.toUpperCase();
+      for (const room of [5, 6]) {
+        const pages = bodyPages(body, 18, room);
+        for (const p of pages) expect(p.length).toBeLessThanOrEqual(room);
+        expect(pages.flat().join(' ')).toBe(wrap(body, 18).join(' ').split(/\s+/).join(' '));   // nothing lost or reordered
+        // a page ends on a sentence end unless its sentence alone is longer than a page
+        pages.slice(0, -1).forEach(p => { const last = p[p.length - 1]; if (!/[.!?]["')]*$/.test(last)) expect(p.length).toBe(room); });
+      }
+    }
+    const gotcha = bodyPages('THE DAY MAYA PICKED ME OUT OF A CRATE OF SIX PUPPIES. I WAS THE ONE CHEWING HER SHOELACE. SHE SAID THAT IS HOW SHE KNEW.', 18, 5);
+    expect(gotcha[0][gotcha[0].length - 1]).toMatch(/PUPPIES\.$/);
+    expect(gotcha[1][0]).toMatch(/^I WAS THE ONE/);
+  });
+});
