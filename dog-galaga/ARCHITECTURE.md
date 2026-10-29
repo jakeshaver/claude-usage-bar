@@ -53,10 +53,21 @@ and applied by the integrator.
 - **Depth**: everything in the playfield is drawn in one list sorted by
   `(layer, y)`: Y-sorted depth. Layers: ground(0) shadows(1) actors(2) air(3) fx(4).
 - **Palette**: one fixed 32-color palette (`core/palette.ts`). Sprites reference
-  palette indices only. Time-of-day is a palette-safe overlay tint.
+  palette indices only. Shared integer-only pixel helpers (`pxRing`, `pxDisc`, `pxDither`, `pxShadow`,
+  `pxDash`, `pxSpark`) live in `core/pixel.ts`; no `ctx.arc`/strokes/globalAlpha next to pixel art.
 - **Determinism**: fixed 60 Hz timestep. All randomness goes through
   `core/rng.ts` (mulberry32), seeded from `hash(saveSeed, areaId, waveIndex)`.
   `Math.random` is banned in src/ (lint check). Same seed + same inputs = same run.
+- **Time of day is lighting, not a tint**: segments are painted into a palette-index buffer in day
+  colours, then remapped one palette entry to one palette entry per material (no dither on large areas,
+  `src/world/paint.ts`). Day is the brightest key; dawn is cool with pink sky reflections, long lavender
+  shadows cast down-left and peach rim light on top edges; dusk drops lights one step, with long plum
+  shadows to the east and amber rim light on west faces; night is navy/indigo about 30% darker, with warm
+  lit windows and small hard-edged sodium lamp cones. Backgrounds are far / main / fg layers of 448x256
+  segments painted once and cached; rare fast foreground flyers (birds, leaves, steam) are drawn per frame.
+- **Hit-stop**: `Game.step()` skips every module except effects, ui and audio while
+  `g.mods.effects.frozen()` is true (a few ticks on big impacts). `frozen()` is always false headless,
+  so the bot and tests never see it.
 
 ## 3. Shared game state (`core/state.ts`)
 
@@ -72,7 +83,8 @@ interface GameState {
   memories: string[];               // collected memory ids
   areasCleared: string[];
   stats: { shots: number; hits: number; naps: number; playTicks: number; catsBooped: number };
-  settings: { music: number; sfx: number; shake: boolean; touch: 'auto'|'on'|'off' };
+  settings: { music: number; sfx: number; amb: number; shake: boolean; flash: boolean;
+              reduceMotion: boolean; touch: 'auto'|'on'|'off' };
 }
 ```
 Only `core/state.ts` mutates state structurally; modules call `state.setFlag`,
@@ -87,7 +99,9 @@ caught (isolation). Core events:
 |---|---|---|
 | `area:enter` / `area:clear` | `{areaId}` | world |
 | `wave:start` / `wave:clear` | `{areaId, waveIndex}` | interaction |
-| `boss:start` / `boss:defeat` | `{bossId}` | interaction |
+| `boss:start` / `boss:defeat` | `{bossId}` (defeat also `napped`) | interaction |
+| `boss:hp` | `{hp, max}` | interaction |
+| `boss:phase` | `{bossId, phase}` (1 at 2/3 hp, 2 at 1/3 hp) | interaction |
 | `cat:boop` | `{breed, x, y, points}` | interaction |
 | `player:hit` / `player:nap` | `{hearts}` | player |
 | `item:get` | `{itemId, count}` | interaction / state |
@@ -115,9 +129,22 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
 - **player**: `pos()`, `respawn()`, `setInvuln(ticks)`, `camera: {x}`, `hitbox()`
 - **interaction**: `startWave(areaId, i)`, `startBoss(id)`, `liveCats()`, `clearAll()`, `spawnPickup(id,x,y)`
 - **save**: `save()`, `load(slot)`, `hasSave()`, `wipe()`, `exportString()`, `importString(s)`
-- **ui**: `toast(text)`, `openPause()`, `openMap()`, `showDialogue(nodeId)`
-- **audio**: `music(trackId)`, `ambience(id)`, `sfx(id)`, `setVolumes()`
-- **effects**: `burst(x,y,kind)`, `shake(px,ticks)`, `flash(color,ticks)`, `floatText(x,y,text)`
+- **ui**: `toast(text)`, `muteToasts(on)`, `openPause()`, `openMap()`, `showDialogue(nodeId)`.
+  Escape opens the pause menu in play, bonus, map and dialogue (the conversation is parked while it is open,
+  and `quest.update` idles while `g.paused`)
+- **audio**: `music(trackId)`, `ambience(id)`, `sfx(id)`, `setVolumes()`. Each area plays exactly its
+  `music` id from content (a key of `TRACKS`); sfx ids are linted against `SFX_IDS`. Window-free offline
+  renderers live in `audio/offline.ts` (lazy chunk, used by `?showcase=audio`)
+- **effects**: `burst(x,y,kind,tint?)` kinds boop|bigboop|poof|sparkle|shield|splat|hearts|confetti|fur|boom
+  (tint = palette key, used by boop and fur; unknown kinds report an error and fall back to boop),
+  `shake(px,ticks)` (integer px, honours settings.shake/reduceMotion), `flash(paletteKey,ticks)` (palette key or an
+  exact palette hex; honours settings.flash/reduceMotion; max 10 ticks, dithered), `floatText(x,y,text)` (numeric
+  labels within 24px merge into a combo total), `shakeOffset()` ({x,y} integer camera offset),
+  `hitStop(n)` / `frozen()` (presentational hit-stop; core skips sim updates while frozen), `step(n)` (advance the
+  effects timeline even while paused), `stage(mode,t)` (frozen showcase: grid|strip|boss, `-world` suffix keeps the
+  area backdrop), `clear()`, `liveCount()` (live particles, budget < 600).
+  Effects listens to `cat:boop` (fur puffs in coat colours + hit silhouette) and `boss:defeat` (dying-boss sprite).
+  The world director holds a boss defeat ~140 ticks before the outro dialogue so the finale plays out
 - **quest**: `check()`, `start(id)`, `dialogue(nodeId)`, `available()`
 - **memories**: `placed(areaId)`, `collect(id)`
 - **minigames**: `startBonus(id)`
@@ -169,7 +196,9 @@ headless sim along each to prove each reaches an ending.
 
 - Steady 60 fps on a mid-range laptop (<4 ms update+render per frame typical).
 - Load to interactive under 5 s (target <1 s: no assets to fetch).
-- Bundle: total `dist/` under **1 MB**, JS under 400 KB uncompressed.
+- Bundle: total `dist/` under **1 MB** (the hard budget). The main JS chunk is ~515 KB uncompressed
+  (~145 KB gzip), mostly palette-indexed sprite sheets and song data; vite warns above 600 KB
+  (`chunkSizeWarningLimit`). The offline audio renderer is a separate lazy chunk.
 - No allocations in hot loops where avoidable; sprite canvases cached once.
 
 ## 9. Verification loop
@@ -178,4 +207,8 @@ headless sim along each to prove each reaches an ending.
 - `npm run bot`: headless playthrough bot over every quest-graph path (Node, imports the sim).
 - `npm run shot -- --area=x --tod=night --state=...`: headless Chromium PNG + JSON log.
 - `npm test`: vitest (quest graph, save/resume, determinism).
-- `?showcase=<module>` stages a single module for screenshots.
+- `?showcase=<module>` stages a single module for screenshots. Useful params (forwarded by
+  `tools/screenshot.mjs`): interaction `--stage=lineup|capturer|rescue|splitter|tank|dive|tell|boss|bullets|play
+  --at=N --phase=1|2`; effects `--fx=grid|strip|boss[-world] --fxt=N`; ui `--menu=pause|settings --touch=on`;
+  audio (the tool waits for every offline render). `--skipDialogue` closes the intro dialogue of an `--area`
+  deep link before `--advance` runs.

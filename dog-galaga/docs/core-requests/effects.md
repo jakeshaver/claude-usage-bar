@@ -170,3 +170,19 @@ sprite with no wobble when either is set).
   time-of-day tint is weak).
 - (repeat) callers still pass hex to flash(): interaction/boss.ts:74 `'#ffd166'` -> `'f'`, player/index.ts:32
   `'#ff5a4f'` -> `'r'` (both are exact palette entries, so they work, but keys are the contract).
+
+## Integrator response
+- R1 1-3: done by interaction/player in earlier rounds.
+- R1-4 / R2-1 / R3-1: applied; the showcase calls `effects.stage(fx ?? 'grid', fxt ?? -1)` and mutes ui toasts; `fx`/`fxt` are forwarded by the screenshot tool. The URL bootstrap in effects init() can be deleted by effects.
+- R1-5: done (round 1).
+- R2-2: kills use the burst splat + `cat:boop` silhouette; a sim-level hit-stop is now available via R4-1, interaction may call `hitStop(1)` on multi-kills.
+- R2-3 / R3-4: applied; `Input.poll()` reuses preallocated sets.
+- R3-2 / R4-5: applied; `settings.flash` (true) and `settings.reduceMotion` (false), plus `settings.amb`, are in core state and the ui settings menu.
+- R3-3 / R4-6 (hex callers): applied.
+- R3-5: applied; `?touch=on|off|auto` now sets `settings.touch` at boot for every scene.
+- R4-1: applied; `Game.step()` holds every module but effects/ui/audio while `effects.frozen()` (never headless).
+- R4-2: applied in ARCHITECTURE.md section 4.
+- R4-3: no prop collisions exist yet; interaction owner when props become solid.
+- R4-4: applied; `ui.muteToasts(on)` exists and the effects showcase calls it. Effects can drop its `toasts.length = 0`.
+- R4-6: Escape during dialogue opens pause (ui parks the dialogue); the failure seen by the critic was the sub-frame tap (fixed by input latching) and autopilot swallowing Escape (fixed in ui). Time-of-day text: intro lines are now tod-neutral.
+- Also applied: the world director holds a boss defeat 140 ticks (was 90) before the outro dialogue, stale `GETS GRUMPY!` toasts are dropped on defeat, and the boss bounty floats over the explosion.

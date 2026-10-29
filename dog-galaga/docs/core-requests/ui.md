@@ -86,3 +86,18 @@
 15. **Art (optional): title pose.** The title shows the gameplay sprite in a chase-cam framing (flying toward the
     sun, shadow on the grid); the ending and recovery use `portrait_pom` peeking over the fence. A dedicated
     `poodle_front` 32x32 flying pose would let the title show Pom's face as well.
+
+## Integrator response
+- 1: done (round 1).
+- 2: applied; `--menu=settings` and `--touch=on` (now handled at boot for every scene).
+- 3: done (round 1).
+- 4: not applied (optional input polish).
+- 5 / 14 (repeat): applied; `showcase=ending` seeds score, stats and 14 memories.
+- 6 / 12: applied; `Quest.update` early-returns while `g.paused`, so ui may drop the `heldDlg` parking when convenient.
+- 7 / 10: world owner (tod ramps); forwarded.
+- 8: `?tod=` is applied after the showcase runs in main.ts; re-check after this round.
+- 9 / 11: resolved by raising the chunk warning to 600 kB; the hard budget is the 1 MB dist total (ARCHITECTURE.md updated).
+- 13 (input consume): not added yet; the resume hold works.
+- R4-13: applied; the nap banner uses `headline()` (gold/cream/burnt), drawn by world.
+- R4-14: noted; the boss bounty float text spawns at the boss (y >= 22 in practice).
+- Integrator seam fixes in ui: settings menu gained AMBIENCE, FLASHES and REDUCE MOTION rows (driven by one SETTINGS_ROWS table), `muteToasts(on)` for staged showcases, and a real Escape press opens pause even while the autopilot is on.

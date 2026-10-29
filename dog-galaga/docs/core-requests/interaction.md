@@ -107,3 +107,23 @@
    tapered Galaga block, chevron, split wings, diamond, staggered checker, arrow) at 32x31px cells, ~65% of the view
    wide. Content's row order still picks breeds (capturers lead), but the 10-column rows are no longer flown as-is;
    cats beyond a shape's capacity are left out.
+
+## Integrator response
+- R1-2/R2-7: `tell` is now played at `beginTell()` (boss.ts); there is no `beam` sfx id yet, audio owner to add one before the call site changes.
+- R1-3: applied; `boss:hp` and `boss:phase` are in the ARCHITECTURE.md events table.
+- R1-5: player owner, optional; not applied.
+- R2-1: applied; `pxShadow` is a palette-exact 50% ink checkerboard.
+- R2-2: done by effects (palette keys); callers updated (`boss.ts flash('f')`, `player flash('r')`).
+- R2-3, R3-4, R4-1, R4-2: art owner (redraws in progress); not core.
+- R2-4/R3-2: applied; the showcase sets `stageReq/stageAt/stagePhase` explicitly and the screenshot tool forwards `stage`, `at`, `phase`. Added stage `lineup`.
+- R2-5/R4-4: applied; the docks (and rooftops) intro lines no longer name a time of day.
+- R2-6/R4-8: declined; interaction lays out its own per-sector shapes, so content keeps row order as the breed priority and is not re-authored.
+- R3-1: applied; `core/input.ts` latches taps shorter than a frame and no longer allocates per tick.
+- R3-3: ui owner (HUD bar flash on `boss:hp`/`boss:phase`); not applied.
+- R3-5, R3-6, R4-6: world owner (prop recolour, lamp pools, stray cyan line); not core.
+- R3-7: shape `toasts: {text, t, age, y}[]` kept; `ui.muteToasts(on)` added, a merge option is ui's call.
+- R4-3: applied (seam fix in world overlay): title cards and wave/sector banners are hidden while a ui menu is open.
+- R4-5: ui owner; not applied.
+- R4-7: declined; nap/intro pacing is a world design call (the defeat hold was lengthened instead, see effects).
+- Integrator seam fixes in interaction: entry streams now never start two cats in the same lane within one stream step (stacked cats at stream joins), boss bullets spawn at the sprite's edge (~28 px from centre) instead of on top of the boss, and a boss defeat clears its GRUMPY toast and floats the bounty.
+- Formation slots measured headless across all 100 waves: settled homes are never closer than 31 px (no overlap); the remaining momentary overlaps are designed stream crossings (split/swirl), left as is.

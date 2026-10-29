@@ -50,3 +50,13 @@ breed/character name shows (POM, BISCUIT, EMPRESS, TABBY...).
 Cats keep full daylight colours at dawn/dusk/night and stick out. A cheap fix is a
 `drawSprite(..., { recolor })` map per time of day, or a multiply overlay over the play field
 after sprites are drawn (the art module already supports `recolor`).
+
+## Integrator response
+- 1: superseded; enemy shots now draw the `blt_*` bullet sprites (warm/hot palette), no violet ring left. Further hairball frames are interaction's call.
+- 2: interaction owner (Boss.render shadow); forwarded, not a core change.
+- 3: done; no `ctx.arc`/strokes remain in src (effects/ui/interaction use `core/pixel.ts` + `effects/shapes.ts`).
+- 4: applied as `?showcase=interaction&stage=lineup` (`--stage=lineup`): all 10 breeds in one formation, frozen.
+- 5: ui owner, optional; not applied.
+- 6: ui already ships a separate dusk icon (half sun); moon night tint is world's.
+- 8: applied; gallery prints the full name minus `cat_/boss_/pk_/hud_/portrait_/blt_` and wraps to a second line.
+- 9: declined for now (world/effects design decision; needs a per-tod recolor pass on every actor, perf to be measured).

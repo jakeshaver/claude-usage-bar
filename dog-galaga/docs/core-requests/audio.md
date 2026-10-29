@@ -259,3 +259,12 @@ is not installed. `src/audio` itself typechecks clean (no errors outside `tools/
   so callers can fire freely.
 - Pause ducking reads `g.paused` (music -9 dB and low-passed to 1.1 kHz, ambience to 40%).
 - The AudioContext is created on the first keydown/pointerdown/touchstart; suspended while the tab is hidden.
+
+## Integrator response
+- R4-1 (BLOCKING): applied; every area's `music` in content/areas.json is its own loop (backyard=yard ... mothership=mothership), lint clean.
+- R4-2: applied at both call sites (`boss.ts beginTell` -> `tell`, quest dialogue advance -> `talk`); `Audio.remap()` is now a no-op. A `toast` bus event is ui's call; polling stays for now.
+- R4-3: applied; the showcase imports `TRACKS`/`SFX_IDS`/`AMBIENCE_IDS` statically and lazy-loads only `audio/offline`; no mixed-import warning. `chunkSizeWarningLimit` raised to 600 (main chunk ~513 kB, dist ~516 kB, inside the 1 MB budget; ARCHITECTURE.md budget wording updated).
+- R4-4: applied; 3 columns x 18 rows (52 rows incl. mix + 3 game-flow sequences), envelope (pink) with envRms (cyan) under it, loops 48 s, stingers 6 s, renders run 4 at a time with a RENDERING n/N counter; the screenshot tool waits for `data-audio-done`.
+- R4-5: applied; `tools/screenshot.mjs --skipDialogue` closes the intro dialogue before `--advance`/`--freeze`.
+- R3-3: applied; `settings.amb` (default 0.8) is in core state and the settings menu has an AMBIENCE row.
+- R2-3 fire-hold row: not added (the 3-column grid is full); available via `renderFireHoldOffline` for a later row.

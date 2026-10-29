@@ -72,3 +72,11 @@ pink sky reflections, long lavender shadows cast down-left and peach rim light o
 lights one step, with long plum shadows to the east and amber rim light on west faces; night is navy/indigo about 30%
 darker, with warm lit windows and small hard-edged sodium lamp cones (solid core + 2-step dither falloff, clippable to a
 surface). Rare fast foreground flyers (birds, leaves, steam, cloud wisps, debris) are drawn per frame with the background."
+
+## Integrator response
+- 3 / 6 / 9: applied; ARCHITECTURE.md section 2 now describes time of day as lighting (round 4 wording).
+- 4: declined for now; transitions under the HUD look fine, an `overlayTop` hook can come with a concrete need.
+- 5: applied; `?touch=` is read at boot in main.ts.
+- 7: already handled by ui (two reserved name lines + clipped subtitle in the right panel); verified on the cafe capture.
+- 8: noted; intro lines were made tod-neutral anyway.
+- Integrator seam fixes in world: boss defeat holds 140 ticks before the outro, nap banner uses ui `headline()`, banners/title cards hide while a ui menu is open.
