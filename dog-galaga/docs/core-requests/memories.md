@@ -228,3 +228,17 @@ rebuilt from those anchors (`buildRoute()`), and the strip pulse / album repaint
    The touch filing flight now ends inside the card's top-right corner (never over QUEST).
 2. ui: memories no longer repaints the RESCUED album count every frame (ui already draws `albumShown()`); it only
    recolours the number inside the chip during the landing flash.
+
+### Polish 6, round 2
+
+3. ui (touch): memories now reads `hudSlots().cardTouch` (`{ y, h }`, x/w as `card`) when ui publishes it. Without it
+   the touch card is a 38px strip at y 197..235 (half polaroid, kicker, title; the text lives in the journal),
+   between the threat slot (ends by y 194 in touch, NEXT WAVE preview included) and the ACTION header (y 236), so it
+   never covers HOSTILES / CATS LEFT. A `cardTouch` with h >= 80 gets the full card layout automatically.
+4. ui (keyboard): there is a ~40px dead band between CATS LEFT and RESCUED while the card is squeezed into 111px.
+   Please move the RESCUED row (and the album chip / strip anchors with it) up ~16px and give `hudSlots().card`
+   ~y 229, h 127. memories takes whatever `card.h` says (125 px gives a 6th body line); no memories change needed.
+5. showcase (`src/showcase/index.ts`, case 'memories'): it always enters `content.memories[0].area`. memories'
+   `stage()` now honours `?area=` itself (it re-enters that sector at its first memory's wave, and `stage=reveal:N`
+   counts within the sector), but the clean fix is for the showcase to enter
+   `g.content.memories.find(m => m.area === area)` when `area` is given, so the 400 warm-up steps are not run twice.

@@ -596,17 +596,50 @@ export function recoveredStamp(ctx: Ctx, x: number, y: number, label: (c: Ctx, s
  * The polaroid at exactly half size (32x31 card + 1px ink, photo 28x22): the 56x44 photo drawn at an exact 2:1
  * nearest-neighbour step, so it stays crisp. Used mid-flight when a card files its photo into the album.
  */
-export function halfPolaroid(ctx: Ctx, id: string, x: number, y: number, lost = false, dev = 1) {
+export function halfPolaroid(ctx: Ctx, id: string, x: number, y: number, lost = false, dev = 1, crop = false) {
   x = Math.round(x); y = Math.round(y);
   R(ctx, x + 1, y + 32, 33, 1, '1'); R(ctx, x + 33, y + 1, 1, 32, '1');
   R(ctx, x - 1, y - 1, 34, 33, '0');
   R(ctx, x, y, 32, 31, lost ? '5' : '6'); R(ctx, x, y + 30, 32, 1, lost ? '4' : '7'); R(ctx, x + 31, y, 1, 31, lost ? '4' : '7');
   R(ctx, x + 1, y + 1, 30, 24, 'o');
   const st = devSteps(dev); const prev = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(st ? photoFaded(id, st) : photo(id), 0, 0, PHOTO_W, PHOTO_H, x + 2, y + 2, PHOTO_W / 2, PHOTO_H / 2);
+  // crop: a 1:1 window (28x22) on the photo's subject instead of the whole photo at half size (every pixel as drawn)
+  if (crop) { const [sx, sy] = smallCrop(id); ctx.drawImage(st ? photoFaded(id, st) : photo(id), sx, sy, PHOTO_W / 2, PHOTO_H / 2, x + 2, y + 2, PHOTO_W / 2, PHOTO_H / 2); }
+  else ctx.drawImage(st ? photoFaded(id, st) : photo(id), 0, 0, PHOTO_W, PHOTO_H, x + 2, y + 2, PHOTO_W / 2, PHOTO_H / 2);
   ctx.imageSmoothingEnabled = prev;
 }
 /** The 9x10 thumbnail polaroid (+1px ink) centred on (cx, cy): the last step before it lands in the album. */
 export function tinyPolaroid(ctx: Ctx, id: string, cx: number, cy: number) {
   ctx.drawImage(carryCard(id, false), Math.round(cx) - 5, Math.round(cy) - 6);
+}
+
+/** the mid polaroid: 40x38 frame (2px borders, 9px chin) around a 36x27 window of the photo at 1:1 (no scaling) */
+export const MID_W = 40, MID_H = 38;
+const MID_PW = 36, MID_PH = 27;
+/** per-photo crop of the 56x44 scene for the mid polaroid's 1:1 window (default: centred) */
+const MID_CROP: Record<string, [number, number]> = {
+  mem_01: [2, 12], mem_02: [4, 9], mem_03: [4, 8], mem_04: [2, 11], mem_05: [2, 12], mem_06: [2, 11], mem_09: [3, 9],
+  mem_10: [4, 16], mem_11: [6, 10], mem_12: [12, 6], mem_16: [5, 8], mem_18: [3, 8],
+};
+/**
+ * The card's polaroid: a native-pixel crop of the real photo (every pixel exactly as drawn, readable at zoom 1), with
+ * the same flat develop steps as the big polaroid (a pale ghost, a washed print, the photo). lost = periwinkle frame.
+ */
+export function midPolaroid(ctx: Ctx, id: string, x: number, y: number, lost = false, dev = 1) {
+  x = Math.round(x); y = Math.round(y);
+  R(ctx, x + 1, y + MID_H + 1, MID_W + 1, 1, '1'); R(ctx, x + MID_W + 1, y + 1, 1, MID_H + 1, '1');   // 1px drop shadow
+  R(ctx, x - 1, y - 1, MID_W + 2, MID_H + 2, '0');
+  R(ctx, x, y, MID_W, MID_H, lost ? '5' : '6'); R(ctx, x, y + MID_H - 1, MID_W, 1, lost ? '4' : '7'); R(ctx, x + MID_W - 1, y, 1, MID_H, lost ? '4' : '7');
+  if (lost) D(ctx, x + 1, y + MID_PH + 4, MID_W - 2, MID_H - MID_PH - 6, '4', 1);
+  R(ctx, x + 1, y + 1, MID_PW + 2, MID_PH + 2, 'o');
+  const [sx, sy] = MID_CROP[id] ?? [(PHOTO_W - MID_PW) >> 1, (PHOTO_H - MID_PH) >> 1];
+  const st = devSteps(dev); const prev = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(st ? photoFaded(id, st) : photo(id), sx, sy, MID_PW, MID_PH, x + 2, y + 2, MID_PW, MID_PH);
+  ctx.imageSmoothingEnabled = prev;
+}
+/** the half polaroid's 1:1 window: centred on the mid polaroid's crop (the photo's subject), kept inside the photo */
+function smallCrop(id: string): [number, number] {
+  const [mx, my] = MID_CROP[id] ?? [(PHOTO_W - MID_PW) >> 1, (PHOTO_H - MID_PH) >> 1];
+  const cx = mx + (MID_PW >> 1), cy = my + (MID_PH >> 1);
+  return [Math.max(0, Math.min(PHOTO_W / 2, cx - 14)), Math.max(0, Math.min(PHOTO_H / 2, cy - 11))];
 }

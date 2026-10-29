@@ -5,7 +5,7 @@ import { col } from '../core/palette';
 import { pxSpark } from '../core/pixel';
 import { spriteRows } from '../art/sprite';
 import { text, textWidth, wrap } from '../art/font';
-import { halfPolaroid, tinyPolaroid, carriedPolaroid, fallingPolaroid, dropHalo, dropWidth, DROP_W, carrierRim, carrierCrown, heartPin, groundShadow, spriteChin, spriteHeadTop, whiteSilhouette } from './art';
+import { halfPolaroid, midPolaroid, MID_W, MID_H, tinyPolaroid, carriedPolaroid, fallingPolaroid, dropHalo, dropWidth, DROP_W, carrierRim, carrierCrown, heartPin, groundShadow, spriteChin, spriteHeadTop, whiteSilhouette } from './art';
 import { memdrop, memfound } from './sound';
 
 type Ctx = CanvasRenderingContext2D;
@@ -26,9 +26,9 @@ interface Carry { id: string; lost: boolean }
 export interface Pending extends Carry { more: Carry[] }
 
 /**
- * The reveal card lives OUTSIDE the playfield: it slides in over the right HUD panel (below the RESCUED row, so
- * the album counter it files into stays in view), holds while the photo develops, then the polaroid lifts out and
- * flies, shrinking in exact steps (full, half, thumbnail), into the album counter, and the card slides away.
+ * The reveal card lives OUTSIDE the playfield: it unrolls down ui's card slot on the right HUD panel (below the
+ * RESCUED row, so the album counter it files into stays in view), holds while the photo develops, then the polaroid
+ * lifts out and flies, shrinking in exact steps (mid, half, thumbnail), into the album counter, and the card rolls up.
  * Play never stops for it: nothing on the field is covered. On the field itself the catch only leaves a small
  * sparkle and a rising '+1 MEMORY'. Timing in ticks:
  */
@@ -51,18 +51,28 @@ const DEV = 34, DEV_PAGE = 16;
 const POP = 40;
 /**
  * right HUD panel: the card is 120 wide at x RX+4 and lives strictly inside ui's card slot (ui.hudSlots().card, the
- * panel foot y 245..356, 111px) so QUEST, the threat slot, the album chip and the memory strip above it stay in view.
- * Touch keeps y 119..230 (the deck owns the panel foot there). The fallbacks below are used when ui has no hudSlots().
- * Compact layout for the 111px slot: kicker row, then the title (left, up to two lines) beside the half-size polaroid
- * (right column, so its filing route rises past the kicker's right end), then the memory's text in whole-line pages.
+ * panel foot under RESCUED) so QUEST, the threat slot, the album chip and the memory strip above it stay in view. It
+ * takes whatever height ui gives that slot. Keyboard layout: kicker row, then the title (left column, top-aligned to
+ * the photo, up to three lines) beside the 40x38 polaroid (a 1:1 crop of the photo, right column, so its filing route
+ * rises past the kicker's right end), then the memory's text in whole-line pages that break at sentence ends.
+ * Touch: the deck owns the panel foot, so the card takes ui's touch slot (hudSlots().cardTouch) or, without one, the
+ * band between the threat slot (it ends by y 194 in touch) and the ACTION deck header (y 236): a 38px strip with the
+ * half polaroid, the kicker and the title (the text lives in the journal). It never covers HOSTILES / CATS LEFT.
  */
 const RX = PF_X + PF_W;
-const CARD_X = RX + 4, CARD_W = 120, CARD_Y_TOUCH = 119, CARD_H_TOUCH = 111;
-let CARD_Y = 245, CARD_SLOT_H = 111;
-/** the half polaroid (32x31) in the card's right column, its top-left offset */
-const POL_DX = CARD_W - 6 - 32, POL_DY = 19;
-/** title column (left of the polaroid): 11 glyphs, at most two lines; body: 18 glyphs a line from BODY_DY */
-const TITLE_COLS = 11, BODY_COLS = 18, BODY_DY = 57;
+const CARD_X = RX + 4, CARD_W = 120;
+/** touch fallback slot (no hudSlots().cardTouch): between the threat block and the ACTION deck */
+const TOUCH_Y = 197, TOUCH_H = 38;
+let CARD_Y = 245, CARD_H = 111;
+/** a slot lower than this gets the strip layout (half polaroid, kicker, title) */
+const STRIP_BELOW = 80;
+let STRIP = false;
+/** the mid polaroid (40x38) in the card's right column, its top-left offset */
+const POL_DX = CARD_W - 6 - MID_W, POL_DY = 19;
+/** strip layout: the half polaroid (32x31) at the left, the words column right of it */
+const SPOL_DX = 4, SPOL_DY = 3, STRIP_TX = 40;
+/** title column (left of the polaroid): 11 glyphs, up to three lines; body: 18 glyphs a line from BODY_DY */
+const TITLE_COLS = 11, BODY_COLS = 18, BODY_DY = POL_DY + MID_H + 4;
 /** where the album counter's polaroid icon sits in the panel (the RESCUED row, just above the card): the photo files into it */
 let ALBUM_X = RX + 75, ALBUM_Y = 232;
 /** ui's album chip (RESCUED row): the counter text, and the chip box the landing flash may repaint (never outside it) */
@@ -73,19 +83,22 @@ let GOALS_X = RX + 10, GOALS_W = 108, GOALS_ROW = 259;
 let FLY_TOP = CARD_Y - 2;
 let ROUTE: [number, number, number][] = [];
 let TOUCH = false;
+interface Lay { touch: boolean; h: number; strip: boolean }
 /** Read ui's right-panel anchors (falls back to the constants above) and lay the card out for keyboard or touch. */
-function useSlots(g: Game): { touch: boolean; h: number } {
+function useSlots(g: Game): Lay {
   const touch = !!g.mods.ui?.touch?.visible?.(g);
   let sl: any = null; try { sl = g.mods.ui?.hudSlots?.() ?? null; } catch { sl = null; }
-  const card = sl?.card, album = sl?.album, strip = sl?.strip;
-  CARD_SLOT_H = typeof card?.h === 'number' ? Math.max(100, card.h) : 111;
-  CARD_Y = touch ? CARD_Y_TOUCH : typeof card?.y === 'number' ? card.y : 245;
+  const card = touch ? sl?.cardTouch : sl?.card, album = sl?.album, strip = sl?.strip;
+  const fy = touch ? TOUCH_Y : 245, fh = touch ? TOUCH_H : 111;
+  CARD_Y = typeof card?.y === 'number' ? card.y : fy;
+  CARD_H = typeof card?.h === 'number' ? Math.max(TOUCH_H, Math.min(H - 2 - CARD_Y, card.h)) : fh;
+  STRIP = CARD_H < STRIP_BELOW;
   if (album) { ALBUM_X = album.x; ALBUM_Y = album.y; ALBUM_TX = album.tx; ALBUM_TY = album.ty; }
   else { ALBUM_X = RX + 75; ALBUM_Y = 232; ALBUM_TX = RX + 86; ALBUM_TY = 228; }
   if (strip) { GOALS_X = strip.x; GOALS_W = strip.w; GOALS_ROW = strip.row; }
   TOUCH = touch;
   buildRoute();
-  return { touch, h: touch ? CARD_H_TOUCH : CARD_SLOT_H };
+  return { touch, h: CARD_H, strip: STRIP };
 }
 /** the playfield cue at the catch point */
 const CUE_LIFE = 48;
@@ -254,7 +267,21 @@ class Memories implements Module {
    * bundle 80 = first page developed, file = the polaroid mid-flight into the album).
    */
   stage(kind: string, index = 0, at = -1) {
-    const g = this.g; const m = g.content.memories[index] ?? g.content.memories[0]; if (!m) return;
+    const g = this.g;
+    // the showcase's --area picks that sector's memories (index counts within the sector), so per-sector checks of
+    // the card are reproducible; the scene re-enters that sector at the memory's wave first
+    const want = showcaseArea();
+    const inArea = want ? g.content.memories.filter(q => q.area === want) : [];
+    if (inArea.length) {
+      const pick = inArea[Math.min(inArea.length - 1, Math.max(0, index))];
+      index = g.content.memories.indexOf(pick);
+      if (g.state.areaId !== want) {
+        const Wd = g.mods.world;
+        Wd.enterArea(want, pick.wave); if (g.mods.quest) g.mods.quest.dlg = null; g.setScene('play'); Wd.titleCard = 0;
+        for (let i = 0; i < 400; i++) g.step();
+      }
+    }
+    const m = g.content.memories[index] ?? g.content.memories[0]; if (!m) return;
     g.mods.ui?.muteToasts?.(true);
     this.removeMemoryPickups();
     this.drops = []; this.reveals = []; this.motes = []; this.rings = []; this.cues = []; this.goalPulse = null;
@@ -440,7 +467,7 @@ class Memories implements Module {
       // a full 1px ink outline (8 neighbours), so it reads on bright day floors as well as dark grass
       for (const [ox, oy] of OUTLINE) text(ctx, c.label, x + ox, y + oy, col('0'));
       text(ctx, c.label, x, y, col(c.t < 6 ? '6' : c.lost ? 'l' : 'f'));
-      if (c.t < 14) { pxSpark(ctx, x - 5, y + 2, '6', c.t < 7 ? 2 : 1); pxSpark(ctx, x + w + 5, y + 2, c.lost ? 'l' : 'f', c.t < 7 ? 1 : 2); }
+      if (c.t < 14) { pxSpark(ctx, x - 9, y + 3, '6', c.t < 7 ? 2 : 1); pxSpark(ctx, x + w + 8, y + 3, c.lost ? 'l' : 'f', c.t < 7 ? 1 : 2); }
     });
     for (const d of this.drops) r.push(5, 1e6 + d.y, (ctx: Ctx) => {
       const bob = d.t < POP ? 0 : Math.round(Math.sin(d.t / 11) * 1.5);
@@ -480,27 +507,33 @@ class Memories implements Module {
     try { ctx.fillStyle = col('1'); ctx.fillRect(ALBUM_TX - 1, ALBUM_TY - 1, w, 9); text(ctx, s, ALBUM_TX, ALBUM_TY, k); } finally { ctx.restore(); }
   }
 
-  private panelIn(g: Game, ctx: Ctx, r: Reveal, lay: { touch: boolean; h: number }) {
+  private panelIn(g: Game, ctx: Ctx, r: Reveal, lay: Lay) {
     const reduce = !!g.state.settings.reduceMotion;
     const end = IN + r.hold, fileEnd = end + FILE + READ;   // READ: 'INTO THE ALBUM!' gets its moment before the card goes
     const { h } = lay;
-    // slide out from behind the panel's right frame (clipped to the panel's inner columns, so it never runs past
-    // the frame or the canvas edge), settle, file the photo, slide back in behind the frame
-    const HIDE = PANEL_R + 1;   // x at which even the card's 1px ink outline is behind the frame
-    let x = CARD_X;
+    // the card unrolls down its slot (rows revealed from the top, a rim-and-ink roller edge on the cut), holds, files
+    // the photo, then rolls back up. It never moves sideways, so the panel frame stays whole and nothing peeks out.
+    const full = h + 2; let vis = full;
     if (!reduce) {
-      if (r.t < IN) { const e = 1 - Math.pow(1 - r.t / IN, 3); x = Math.round(HIDE - (HIDE - CARD_X) * e); }
-      else if (r.t >= fileEnd) { const f = (r.t - fileEnd) / OUT; x = Math.round(CARD_X + (HIDE - CARD_X) * f * f); }
-    } else if (r.t >= fileEnd) x = HIDE;   // gone (the album flash below still plays)
+      if (r.t < IN) { const e = 1 - Math.pow(1 - r.t / IN, 3); vis = Math.round(full * e); }
+      else if (r.t >= fileEnd) { const f = (r.t - fileEnd) / OUT; vis = Math.round(full * (1 - f * f)); }
+    } else if (r.t >= fileEnd) vis = 0;   // gone (the album flash below still plays)
     const page = this.page(r);
     const m = g.content.memories.find(q => q.id === r.ids[page.i]) ?? g.content.memories.find(q => q.id === r.id);
     if (!m) return;
     const filing = r.t >= end;
-    if (x < HIDE) {
+    if (vis > 0) {
       // clipped to the panel's inner columns AND the card slot's rows (its 1px ink outline included): nothing above
       // or below the slot is ever drawn over
-      ctx.save(); ctx.beginPath(); ctx.rect(PANEL_L, CARD_Y - 1, PANEL_R - PANEL_L, h + 2); ctx.clip();
-      try { this.card(g, ctx, r, m, page, x, CARD_Y, h, filing); } finally { ctx.restore(); }
+      ctx.save(); ctx.beginPath(); ctx.rect(PANEL_L, CARD_Y - 1, PANEL_R - PANEL_L, vis); ctx.clip();
+      try {
+        this.card(g, ctx, r, m, page, CARD_X, CARD_Y, h, filing, lay.strip);
+        if (vis < full) {
+          const lost = r.lost || (r.ids.length > 1 && !page.summary && this.lostIds.has(m.id));
+          ctx.fillStyle = col('0'); ctx.fillRect(CARD_X - 1, CARD_Y - 2 + vis, CARD_W + 2, 1);
+          if (vis >= 2) { ctx.fillStyle = col(lost ? 'l' : 'f'); ctx.fillRect(CARD_X - 1, CARD_Y - 3 + vis, CARD_W + 2, 1); }
+        }
+      } finally { ctx.restore(); }
     }
     if (filing) this.fileFlight(g, ctx, r, m.id, reduce, lay.touch);
   }
@@ -520,7 +553,7 @@ class Memories implements Module {
     return { i: Math.min(n - 1, cur), at, dev: cur === 0 ? clamp01((k + 6) / DEV) : clamp01((r.t - at + 2) / DEV_PAGE), summary, pages, cur };
   }
 
-  private card(g: Game, ctx: Ctx, r: Reveal, m: MemoryDef, page: Page, x: number, y: number, h: number, filing: boolean) {
+  private card(g: Game, ctx: Ctx, r: Reveal, m: MemoryDef, page: Page, x: number, y: number, h: number, filing: boolean, strip: boolean) {
     const rect = (xx: number, yy: number, w: number, hh: number, k: string) => { ctx.fillStyle = col(k); ctx.fillRect(xx, yy, w, hh); };
     const n = r.ids.length, bundle = n > 1, w = CARD_W;
     // this page's photo: a bundle may mix fresh and recovered ones, each keeps its own trim
@@ -531,52 +564,66 @@ class Memories implements Module {
     rect(x, y, w, h, rimK); rect(x + 1, y + 1, w - 2, h - 2, rimK2);
     rect(x + 2, y + 2, w - 4, h - 4, 'v'); rect(x + 2, y + h - 4, w - 4, 2, '1');
     for (const [cx, cy] of [[x + 3, y + 3], [x + w - 5, y + 3], [x + 3, y + h - 5], [x + w - 5, y + h - 5]]) rect(cx, cy, 2, 2, studK);
-    // header: kicker (three calm blinks); a bundle's pager dots (3x3) sit right of it on the same row when they fit.
-    // No N/18 number here: the RESCUED counter right above is the one album count.
-    const head = bundle ? 'FOUND AT LAST' : lost ? 'FOUND AGAIN' : 'MEMORY FOUND';
+    // header: kicker (three calm blinks). No N/18 number here: the RESCUED counter is the one album count.
+    const head = bundle && !strip ? 'FOUND AT LAST' : lost ? 'FOUND AGAIN' : 'MEMORY FOUND';
     const hb = r.t - IN; const flash = hb >= 0 && hb < 48 && ((hb >> 3) & 1) === 1;
-    text(ctx, head, x + 6, y + 5, col(flash ? '6' : rimK), { shadow: col('0') });
-    if (bundle && !filing) {   // the dots step aside while the photo files (its route rises past the header's right end)
-      const plus = page.pages > bundlePages(n).shown; const dw = pagerWidth(page.pages); const dx0 = x + w - 6 - dw;
-      if (dx0 >= x + 6 + textWidth(head) + 3) {
-        for (let i = 0; i < page.pages; i++) {
-          const k = i === page.cur ? '6' : i < page.cur ? rimK : '4';
-          const dx = dx0 + i * 5;
-          if (plus && i === page.pages - 1) { rect(dx, y + 8, 3, 1, k); rect(dx + 1, y + 7, 1, 3, k); }   // '+' for the MORE page
-          else { rect(dx - 1, y + 6, 5, 5, '0'); rect(dx, y + 7, 3, 3, k); }
-        }
+    const tx = strip ? x + STRIP_TX : x + 6;
+    text(ctx, head, tx, y + 5, col(flash ? '6' : rimK), { shadow: col('0') });
+    // pager dots (3x3, ink-rimmed) on the header row, right-aligned: a bundle's photos, or a single card's text pages
+    const dots = (count: number, cur: number, plus: boolean) => {
+      const dx0 = x + w - 6 - pagerWidth(count);
+      if (filing || count < 2 || dx0 < tx + textWidth(head) + 3) return;   // they step aside while the photo files
+      for (let i = 0; i < count; i++) {
+        const k = i === cur ? '6' : i < cur ? rimK : '4'; const dx = dx0 + i * 5;
+        if (plus && i === count - 1) { rect(dx - 1, y + 7, 5, 3, '0'); rect(dx + 1, y + 6, 1, 5, '0'); rect(dx, y + 8, 3, 1, k); rect(dx + 1, y + 7, 1, 3, k); }   // '+' for the MORE page
+        else { rect(dx - 1, y + 6, 5, 5, '0'); rect(dx, y + 7, 3, 3, k); }
       }
-    }
-    rect(x + 6, y + 14, w - 12, 1, rimK2); for (let xx = x + 6; xx < x + w - 6; xx += 2) rect(xx, y + 15, 1, 1, '1');
-    // the half polaroid (32x31) in the right column. A bundle shows the rest of the stack peeking out behind it.
-    const px = x + POL_DX, py = y + POL_DY;
+    };
+    if (bundle && !strip) dots(page.pages, page.cur, page.pages > bundlePages(n).shown);
+    if (strip) { rect(tx, y + 13, x + w - 6 - tx, 1, rimK2); }
+    else { rect(x + 6, y + 14, w - 12, 1, rimK2); for (let xx = x + 6; xx < x + w - 6; xx += 2) rect(xx, y + 15, 1, 1, '1'); }
+    // the polaroid: the mid one (40x38, a 1:1 crop of the photo) in the right column, or the half one at the strip's
+    // left. A bundle shows the rest of the stack peeking out behind it.
+    const pw = strip ? 32 : MID_W, ph = strip ? 31 : MID_H;
+    const px = x + (strip ? SPOL_DX : POL_DX), py = y + (strip ? SPOL_DY : POL_DY);
     const left = bundle && !page.summary ? n - 1 - page.i : 0;
     for (const [ox, oy, k, need] of [[-4, -2, '4', 2], [-2, 0, '5', 1]] as [number, number, string, number][]) {
-      if (left < need || filing) continue;
-      rect(px + ox - 1, py + oy - 1, 34, 33, '0'); rect(px + ox, py + oy, 32, 31, k); rect(px + ox, py + oy + 30, 32, 1, '3');
+      if (left < need || filing || strip) continue;
+      rect(px + ox - 1, py + oy - 1, pw + 2, ph + 2, '0'); rect(px + ox, py + oy, pw, ph, k); rect(px + ox, py + oy + ph - 1, pw, 1, '3');
     }
+    const pol = (id: string, xx: number, yy: number, lo: boolean, dev = 1) => strip ? halfPolaroid(ctx, id, xx, yy, lo, dev, true) : midPolaroid(ctx, id, xx, yy, lo, dev);
     if (filing) {
       // the photo has lifted out: four photo corners mark the empty slot
-      for (const [cx, cy, dx, dy] of [[px, py, 1, 1], [px + 31, py, -1, 1], [px, py + 30, 1, -1], [px + 31, py + 30, -1, -1]]) {
+      for (const [cx, cy, dx, dy] of [[px, py, 1, 1], [px + pw - 1, py, -1, 1], [px, py + ph - 1, 1, -1], [px + pw - 1, py + ph - 1, -1, -1]]) {
         rect(dx > 0 ? cx : cx - 3, cy, 4, 1, '4'); rect(cx, dy > 0 ? cy : cy - 3, 1, 4, '4');
       }
     } else if (page.summary) {
-      // the rest of the backlog: a fanned little stack of half polaroids dropping onto the slot, one after another
+      // the rest of the backlog: a fanned little stack of polaroids dropping onto the slot, one after another
       const rest = r.ids.slice(page.i, page.i + 3); const k0 = r.t - page.at;
       rest.forEach((id, j) => {
         const fx = px - 4 + j * 2, fy = py - 2 + j * 2 - Math.max(0, 4 - (k0 - j * 4));
-        if (k0 >= j * 4) halfPolaroid(ctx, id, fx, fy, this.lostIds.has(id));
+        if (k0 >= j * 4) pol(id, fx, fy, this.lostIds.has(id));
       });
     } else {
       const drop = bundle && page.cur > 0 ? Math.max(0, 3 - (r.t - page.at)) : 0;   // each new page drops into place
-      halfPolaroid(ctx, m.id, px, py - drop, lost, page.dev);
+      pol(m.id, px, py - drop, lost, page.dev);
     }
-    // title: the 1x font in the left column, beside the photo (one or two lines, vertically centred on it)
     const more = n - page.i;
     const title = page.summary ? `+${more} MORE PHOTOS` : m.title.toUpperCase();
-    const tl = clampLines(wrap(title, TITLE_COLS), 2);
-    const ty = py + 12 - (tl.length - 1) * 5;
-    tl.forEach((ln, i) => text(ctx, ln, x + 6, ty + i * 9, col('6'), { shadow: col('0') }));
+    if (strip) {
+      // strip: the title under the kicker (two lines), or the album line while the photo files
+      if (filing) {
+        const s = r.t - (IN + r.hold);
+        if (s >= 0) text(ctx, 'INTO THE', tx, y + 16, col(['2', '3', '4'][Math.min(2, s >> 1)]));
+        if (s >= 2) { const st = Math.min(2, (s - 2) >> 1); text(ctx, 'ALBUM!', tx, y + 25, col((lost ? ['n', 'm', 'l'] : ['a', 'h', 'f'])[st]), st >= 2 ? { shadow: col('0') } : {}); }
+        return;
+      }
+      clampLines(wrap(title, Math.floor((x + w - 6 - tx + 1) / 6)), 2).forEach((ln, i) => text(ctx, ln, tx, y + 16 + i * 9, col('6'), { shadow: col('0') }));
+      return;
+    }
+    // title: the 1x font in the left column, top-aligned with the photo (up to three lines)
+    const tl = clampLines(wrap(title, TITLE_COLS), 3);
+    tl.forEach((ln, i) => text(ctx, ln, x + 6, py + 2 + i * 9, col('6'), { shadow: col('0') }));
     // body window: whole lines from BODY_DY down to the foot bevel
     const by = y + BODY_DY, bottom = y + h - 7;   // bottom: the last pixel row a glyph may use
     const room = Math.max(1, Math.floor((bottom - by - 6) / 9) + 1);
@@ -595,22 +642,23 @@ class Memories implements Module {
       return;
     }
     const body = page.summary ? `ALL ${n} ARE SAFE IN THE ALBUM. READ EVERY ONE IN THE JOURNAL.` : m.text.toUpperCase();
-    const lines = wrap(body, BODY_COLS);
-    // a body longer than the window pages by whole lines (never a half-cut glyph): its pages share the time this
-    // card (or bundle page) is up, and a small blinking chevron at the foot says another page follows
-    // balanced pages (6 lines read 3 + 3, never 5 + a lonely 1)
-    const np = Math.ceil(lines.length / room); const per = Math.ceil(lines.length / np);
+    // a body longer than the window pages by whole lines (never a half-cut glyph), breaking at sentence ends where it
+    // can; its pages share the time this card (or bundle page) is up, each in proportion to its lines
+    const pages = bodyPages(body, BODY_COLS, room);
+    const total = pages.reduce((a, p) => a + p.length, 0);
     const dur = bundle ? (page.summary ? SUMMARY : page.cur === 0 ? PAGE0 : PAGE) : r.hold;
-    // each page holds for a share of that time in proportion to its lines (a full page reads longer than a 2-line tail)
     let bp = 0;
-    if (np > 1) {
-      const el = (r.t - page.at) / Math.max(1, dur) * lines.length;
-      while (bp < np - 1 && el >= (bp + 1) * per) bp++;
+    if (pages.length > 1) {
+      const el = (r.t - page.at) / Math.max(1, dur) * total;
+      let acc = pages[0].length; while (bp < pages.length - 1 && el >= acc) { bp++; acc += pages[bp].length; }
     }
-    lines.slice(bp * per, bp * per + per).forEach((ln, i) => text(ctx, ln, x + 6, by + i * 9, col('7')));
-    if (bp < np - 1 && ((r.t >> 4) & 1) === 0) {
-      const cx = x + w - 10, cy = y + h - 10;
-      rect(cx - 2, cy, 5, 1, rimK); rect(cx - 1, cy + 1, 3, 1, rimK); rect(cx, cy + 2, 1, 1, rimK);
+    pages[bp].forEach((ln, i) => text(ctx, ln, x + 6, by + i * 9, col('7')));
+    if (!bundle) dots(pages.length, bp, false);
+    if (bp < pages.length - 1) {
+      // 'more follows': a steady gold chevron in a notch on the card's foot (below the last text row), bobbing 1px
+      const cx = x + w / 2, cy = y + h - 4 + ((r.t >> 4) & 1);
+      rect(cx - 4, y + h - 5, 9, 5, '0');
+      rect(cx - 3, cy - 1, 7, 1, rimK); rect(cx - 2, cy, 5, 1, rimK); rect(cx - 1, cy + 1, 3, 1, rimK); rect(cx, cy + 2, 1, 1, rimK);
     }
   }
 
@@ -624,7 +672,8 @@ class Memories implements Module {
     const lost = r.lost;
     if (!reduce && f < 1) {
       const sp = flightSprite(f);
-      if (sp.kind === 'half') halfPolaroid(ctx, id, sp.x, sp.y, lost);
+      if (sp.kind === 'mid') midPolaroid(ctx, id, sp.x, sp.y, lost);
+      else if (sp.kind === 'half') halfPolaroid(ctx, id, sp.x, sp.y, lost, 1, STRIP);
       else tinyPolaroid(ctx, id, sp.x, sp.y);
       // a little sparkle trail once it is on its way (on the plum card or the panel, never over a word: the sparks
       // sit beside the sprite on the side it came from)
@@ -665,13 +714,20 @@ function bundlePages(n: number) { const shown = n <= SHOW_ALL ? n : SHOW_MAX; re
 /** how long a bundle card holds (all its pages) */
 function bundleHold(n: number) { const { shown, pages } = bundlePages(n); return PAGE0 + (shown - 1) * PAGE + (pages > shown ? SUMMARY : 0); }
 /**
- * The filing route (screen coords, sprite centres). It never crosses a word: the half polaroid lifts in its slot
- * (right column), becomes the thumbnail there, rises past the header to the RIGHT of the kicker, tucks along the gap
- * between the card top and the counter row, and pops up into the album icon. In touch (no album chip) it rises to
- * the card's top-right corner. Waypoints after the slot centre, with the eased fraction each one is reached.
+ * The filing route (screen coords, sprite centres). It never crosses a word: the polaroid lifts in its slot (right
+ * column), steps down to the half one and then the thumbnail there, rises past the header to the RIGHT of the kicker,
+ * tucks along the gap between the card top and the counter row, and pops up into the album icon. In touch there is no
+ * album chip: a tall touch card rises to its own top-right corner, the strip card shrinks the photo away in its slot.
+ * Waypoints after the slot centre, with the eased fraction each one is reached.
  */
-const FLY_X = CARD_X + POL_DX + 16;
+const FLY_X = CARD_X + POL_DX + (MID_W >> 1);
+/** the photo's slot centre and how far it may lift before it travels (never past the header rule) */
+function slot() {
+  return STRIP ? { sx: CARD_X + SPOL_DX + 16, sy: CARD_Y + SPOL_DY + 15, lift: 0 }
+    : { sx: FLY_X, sy: CARD_Y + POL_DY + (MID_H >> 1), lift: POL_DY - 17 };
+}
 function buildRoute() {
+  if (STRIP) { const { sx, sy } = slot(); FLY_TOP = sy; ROUTE = [[sx, sy, 1]]; return; }
   if (TOUCH) { FLY_TOP = CARD_Y + 8; ROUTE = [[FLY_X, CARD_Y + 22, 0.4], [FLY_X + 4, FLY_TOP, 1]]; return; }
   FLY_TOP = CARD_Y - 2;
   ROUTE = [[FLY_X, CARD_Y + 22, 0.36], [FLY_X, FLY_TOP, 0.62], [ALBUM_X + 7, FLY_TOP, 0.8], [ALBUM_X, ALBUM_Y, 1]];
@@ -681,11 +737,10 @@ buildRoute();
 const LIFT_F = 0.2, HALF_F = 0.42;
 /** where the filing photo is at flight fraction f (its centre) */
 function flightAt(f: number) {
-  // the lift never rises past the header's dashed rule row (CARD_Y + 16), so the kicker stays readable
-  const lift = Math.min(POL_DY - 17, Math.round(f * 10));
-  const sx = CARD_X + POL_DX + 16, sy = CARD_Y + POL_DY + 15;
+  const { sx, sy, lift: lmax } = slot();
+  const lift = Math.min(lmax, Math.round(f * 10));
   const u = clamp01((f - LIFT_F) / (1 - LIFT_F)); const e = u * u * (3 - 2 * u);
-  let px = sx, py = sy - (POL_DY - 17), pe = 0, cx = px, cy = py;
+  let px = sx, py = sy - lmax, pe = 0, cx = px, cy = py;
   for (const [wx, wy, we] of ROUTE) {
     if (e <= we) { const t = (e - pe) / (we - pe || 1); cx = px + (wx - px) * t; cy = py + (wy - py) * t; break; }
     px = wx; py = wy; pe = we; cx = wx; cy = wy;
@@ -694,15 +749,44 @@ function flightAt(f: number) {
   return { cx: Math.round(cx), cy: Math.round(cy) };
 }
 /** the flying sprite at flight fraction f: which size, and its top-left */
-function flightSprite(f: number): { kind: 'half' | 'tiny'; x: number; y: number } {
+function flightSprite(f: number): { kind: 'mid' | 'half' | 'tiny'; x: number; y: number } {
   const { cx, cy } = flightAt(f);
+  if (f < LIFT_F && !STRIP) return { kind: 'mid', x: cx - (MID_W >> 1), y: cy - (MID_H >> 1) };
   if (f < HALF_F) return { kind: 'half', x: cx - 16, y: cy - 15 };
   return { kind: 'tiny', x: cx, y: cy };
+}
+/**
+ * Page a memory's text for a window of `room` lines: whole sentences per page where they fit (a page never ends on
+ * half a sentence when the next sentence would start a fresh page anyway); a sentence longer than a page is cut by
+ * whole lines, and its tail starts the next page.
+ */
+export function bodyPages(body: string, cols: number, room: number): string[][] {
+  const sents = body.match(/[^.!?]+[.!?]+["')]*\s*|[^.!?]+$/g)?.map(x => x.trim()).filter(Boolean) ?? [body];
+  const pages: string[][] = []; let cur = '';
+  for (const sn of sents) {
+    const join = cur ? `${cur} ${sn}` : sn;
+    if (wrap(join, cols).length <= room) { cur = join; continue; }
+    if (cur) { pages.push(wrap(cur, cols)); cur = ''; }
+    let ls = wrap(sn, cols);
+    while (ls.length > room) { pages.push(ls.slice(0, room)); ls = wrap(ls.slice(room).join(' '), cols); }
+    cur = ls.join(' ');
+  }
+  if (cur) pages.push(wrap(cur, cols));
+  return pages.length ? pages : [[]];
 }
 /** the pager dots' width (3px dots, and the 3px '+' for a MORE page, on a 5px step) */
 function pagerWidth(pages: number) { return pages * 5 - 2; }
 
 const OUTLINE = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1], [1, 2]];
+
+/** ?showcase=memories&area=<id>: the sector the memories showcase was asked for (null anywhere else) */
+function showcaseArea(): string | null {
+  try {
+    if (typeof location === 'undefined') return null;
+    const q = new URLSearchParams(location.search);
+    return q.get('showcase') === 'memories' ? q.get('area') : null;
+  } catch { return null; }
+}
 
 function clamp01(v: number) { return Math.max(0, Math.min(1, v)); }
 
