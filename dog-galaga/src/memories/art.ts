@@ -557,13 +557,29 @@ export function whiteSilhouette(ctx: Ctx, rows: string[] | null, cacheKey: strin
   if (img) ctx.drawImage(img, Math.round(cx - img.width / 2), Math.round(cy - img.height / 2));
 }
 
-/** A small "RECOVERED" rubber stamp (teal ink, 1px border, slightly uneven) for a lost memory's photo corner. */
+/** A "RECOVERED" rubber-stamp print for a lost photo, struck on the polaroid chin (below the image, never over it). */
 export function recoveredStamp(ctx: Ctx, x: number, y: number, label: (c: Ctx, s: string, x: number, y: number) => void) {
+  // A rubber-stamp print on the polaroid's chin (never over the photo): 'RECOVERED' in deep-blue ink, struck a hair
+  // crooked (the right half sits 1px higher), with a ruled underline and a couple of ink-starved pixels.
   x = Math.round(x); y = Math.round(y);
-  const w = 58, h = 11;
-  R(ctx, x - 1, y - 1, w + 2, h + 2, '0');
-  R(ctx, x, y, w, h, '7'); R(ctx, x, y, w, 1, 'm'); R(ctx, x, y + h - 1, w, 1, 'm'); R(ctx, x, y, 1, h, 'm'); R(ctx, x + w - 1, y, 1, h, 'm');
-  R(ctx, x + 2, y + 2, w - 4, h - 4, 'l'); D(ctx, x + 2, y + 2, w - 4, h - 4, 'm');
-  label(ctx, 'RECOVERED', x + 3, y + 2);
-  P(ctx, x + 1, y + 1, '7'); P(ctx, x + w - 2, y + h - 2, '7');   // worn corners of the ink
+  label(ctx, 'RECOV', x, y + 1); label(ctx, 'ERED', x + 30, y);
+  R(ctx, x, y + 9, 29, 1, 'n'); R(ctx, x + 29, y + 8, 24, 1, 'n');
+  P(ctx, x + 7, y + 9, 'm'); P(ctx, x + 40, y + 8, 'm'); P(ctx, x + 50, y + 8, 'm');
+}
+
+/**
+ * The polaroid at exactly half size (32x31 card + 1px ink, photo 28x22): the 56x44 photo drawn at an exact 2:1
+ * nearest-neighbour step, so it stays crisp. Used mid-flight when a card files its photo into the album.
+ */
+export function halfPolaroid(ctx: Ctx, id: string, x: number, y: number, lost = false) {
+  x = Math.round(x); y = Math.round(y);
+  R(ctx, x + 1, y + 32, 33, 1, '1'); R(ctx, x + 33, y + 1, 1, 32, '1');
+  R(ctx, x - 1, y - 1, 34, 33, '0');
+  R(ctx, x, y, 32, 31, lost ? '5' : '6'); R(ctx, x, y + 30, 32, 1, lost ? '4' : '7'); R(ctx, x + 31, y, 1, 31, lost ? '4' : '7');
+  R(ctx, x + 1, y + 1, 30, 24, 'o');
+  ctx.drawImage(photo(id), 0, 0, PHOTO_W, PHOTO_H, x + 2, y + 2, PHOTO_W / 2, PHOTO_H / 2);
+}
+/** The 9x10 thumbnail polaroid (+1px ink) centred on (cx, cy): the last step before it lands in the album. */
+export function tinyPolaroid(ctx: Ctx, id: string, cx: number, cy: number) {
+  ctx.drawImage(carryCard(id, false), Math.round(cx) - 5, Math.round(cy) - 6);
 }

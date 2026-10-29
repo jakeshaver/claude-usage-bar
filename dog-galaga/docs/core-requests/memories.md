@@ -138,3 +138,58 @@ Fairness fix for the reveal card (whole-game critic issue #1). No core change is
   `drawToasts` wrapper and the `toastsHidden` field are removed from `src/memories/index.ts`. `toastsHeld()` still
   reads `revealing()`, so new toasts are held for the whole up-or-waiting span.
 - No core hook was needed: the cozy beat holds `g.paused` and core already skips sim updates while paused.
+
+## Polish 2
+
+The memory card left the playfield (whole-game critic: it covered the formation's top row and froze the wave ~2.2 s).
+It now slides over the RIGHT HUD panel (x 516..636, y 122..286; compact y 122..230 when the touch deck is up, so the
+deck is never covered), below the RESCUED row, for ~3 s (bundle: pages through its photos by itself, pager dots on
+their own footer row; the 'TOOT: NEXT' hint is gone since FIRE is just shooting now). Play never pauses. At the end
+the polaroid lifts out and hops into the album counter in the RESCUED row (64x62 -> 32x31 -> 9x10 thumbnail along an
+arc), and the counter box flashes. On the field the catch only leaves a sparkle and a rising '+1 MEMORY'.
+memories draws it from `overlay` with `overlayZ = 50` (after ui's HUD, before save's indicator, 100); it is redrawn
+every frame, so the HUD shows again the frame it leaves. While any ui menu is open (pause / settings / journal), or
+outside play/bonus, the card is hidden and its clock parks; it resumes afterwards.
+
+19. **No freeze hook, and the old freeze is gone**: memories no longer sets `g.paused` (the `holding` field stays false)
+    and never asked for a `memories.frozen` core hook; `memories.frozen()` exists and always returns false. Nothing in
+    core needs to change for this.
+20. **ui (please do, small cleanup)**: `revealing()` and `showing()` now always return false (nothing covers the
+    playfield), so ui's toast hold (`toastsHeld()`) and the `drawToasts` skip in `ui.overlay` are inert; both can be
+    deleted. The new `memories.panelCard()` is true while the side card is up or parked, if ui ever wants it (e.g. to
+    hold its own right-panel animation). If ui later adds anything to the right panel between y 122 and 286, tell
+    memories (the card covers QUEST and the roster / boss-armor / sector checklist slots for ~3 s).
+21. **ARCHITECTURE.md, memories line (replaces the polish 1 wording from "Catching it starts a ~2.2 s cozy beat" up
+    to "`showing()`)")**: "Catching it never pauses play: a sparkle and a rising '+1 MEMORY' pop at the pickup point,
+    and the memory card slides in over the right HUD panel (below the RESCUED row; overlayZ 50, hidden while a menu is
+    open or outside play/bonus, its clock parked) for ~3 s, the photo develops, then the polaroid hops into the album
+    counter (exact 64x62 / 32x31 / 9x10 steps) and the card slides out. 3+ photos at once become one 'FOUND AT LAST'
+    card that pages through them by itself (pager dots on their own row). `panelCard()` = side card up or parked;
+    `revealing()` / `showing()` / `frozen()` are kept and always false; `calm()` is unchanged." API list: add
+    `panelCard()`, `frozen()`; stages add `file` (the polaroid mid-flight into the album).
+
+### Polish 2, round 2
+
+The card stays on the RIGHT HUD panel (now y 119..289, compact y 119..230), still never pauses play. `memories.frozen()`
+still exists and always returns false; no freeze hook is used or wanted (please do not add one).
+
+22. **ui (small, recommended): draw the album count from memories.** The RESCUED counter should only tick up when the
+    filed thumbnail lands. New API: `memories.albumShown()` = `state.memories.length` minus the photos still on the
+    card or mid-flight. In `ui` (right panel, RESCUED row) please replace
+    `` `${s.memories.length}/${g.content.memories.length}` `` with
+    `` `${g.mods.memories?.albumShown?.() ?? s.memories.length}/${g.content.memories.length}` ``.
+    Until then memories repaints that number itself (deep-night box at x RX+85..117, y 102..111, from its overlay,
+    play/bonus only, never under a menu), so nothing breaks either way; with the ui change the count also stays
+    correct under the pause menu and during dialogue.
+23. **ui, layout contract memories now relies on** (tell memories if any of these move): RESCUED album counter text at
+    (RX+86, 103) in a C.night box (RX+66, 98, 52x18); SECTOR GOALS at (RX+10, 230, w 108), MEMORIES row y 246 with
+    boxes at `x + w - 5 - (n - i) * 9 + 1` (8x9). After the card leaves, memories pulses that row for 40 ticks
+    (MEMORIES label blinks, the newly lit boxes get a 1px frame and a spark) when the card's photos belong to this
+    sector; hidden when the touch deck is up (the checklist is not drawn then).
+24. **ARCHITECTURE.md, memories line (replaces item 21's card wording)**: "The memory card slides over the right HUD
+    panel (y 119..289; compact 119..230) for ~3.8 s: one title size (1x), the whole memory text (scrolls 1px at a
+    time if one or two lines long), no N/18 number on the card. The polaroid hops into the album counter, which
+    holds the old count (`albumShown()`) until it lands, then the SECTOR GOALS MEMORIES row pulses. A bundle (2+
+    photos) pages by itself at >= 110 ticks a page: up to 4 photos, or 3 plus a '+N MORE PHOTOS' page; its pager
+    dots sit on the header row. Lost photos get a 'RECOVERED' rubber-stamp print on the polaroid chin. The field cue
+    '+1 MEMORY' has a full 1px ink outline." API list: add `albumShown()`; `goalPulse` is internal.
