@@ -1,5 +1,5 @@
 import type { Game, Module } from '../core/game';
-import { TRACKS, AREA_MUSIC, type Track } from './tracks';
+import { TRACKS, type Track } from './tracks';
 import { makeKit, type Kit } from './synth';
 import { buildMixer, Sequencer, LEVELS, PAUSE, SIDE, sideDip, type Mixer } from './engine';
 import { startAmbience, type AmbHandle } from './ambience';
@@ -7,7 +7,7 @@ import { SfxVoices, SFX_LEN } from './sfx';
 import { col } from '../core/palette';
 
 export type { RenderStats } from './offline';
-export { TRACKS, AREA_MUSIC, validateTracks, findUnknownSfx } from './tracks';
+export { TRACKS, validateTracks, findUnknownSfx } from './tracks';
 
 // Offline renderers are lazy: `./offline` is only fetched when a showcase/tool calls one, so it stays out of
 // the boot chunk. (A showcase can also `await import('../audio/offline')` directly.)
@@ -20,8 +20,8 @@ export const renderMixOffline: Off['renderMixOffline'] = (...a) => off().then(m 
 export const renderFireHoldOffline: Off['renderFireHoldOffline'] = (...a) => off().then(m => m.renderFireHoldOffline(...a));
 export const renderSequenceOffline: Off['renderSequenceOffline'] = (...a) => off().then(m => m.renderSequenceOffline(...a));
 
-/** Track ids several areas used to share; an area whose content still names one gets its own loop instead. */
-const SHARED = new Set(['yard', 'city', 'night', 'space', 'boss']);
+/** Sfx that already announce an event; a toast arriving with one of them stays silent. */
+const BIG = new Set(['quest', 'memory', 'pickup', 'bossdown', 'select', 'bark']);
 /** Longest wait for a bar-line switch before falling back to a half bar / beat. */
 const MAX_QUANT = 1.1;
 
@@ -61,6 +61,10 @@ class Audio implements Module {
   /** one sfx requested while the context was still starting (e.g. the select/bark of the unlocking press). */
   pending: { id: string; at: number } | null = null;
   private padTry = -999;
+  /** toast objects already heard (polled from the UI, which has no toast event) + last "big" sfx time. */
+  private seenToasts = new WeakSet<object>();
+  private bigAt = -9;
+  private hinted = false;
 
   /** play the stage-start fanfare at the next wave:start (first wave of an area visit, after a nap). */
   stageDue = false;
@@ -130,14 +134,10 @@ class Audio implements Module {
     } catch { /* ignore */ }
   }
 
-  /**
-   * The area's music. An area whose content music is 'boss' (the mothership's regular waves) plays the
-   * dedicated 'mothership' march instead, so the real boss fight still escalates (see core-requests/audio.md).
-   */
+  /** The area's music, exactly as content declares it (`areas.json` `music`; ARCHITECTURE.md section 5). */
   areaTrack(): string {
-    const a = this.g.mods.world?.area(); const m: string = a?.music ?? 'yard';
-    if (TRACKS[m] && !SHARED.has(m)) return m;            // content already names an area-specific loop
-    return (a?.id && AREA_MUSIC[a.id]) || (m === 'boss' ? 'mothership' : m);
+    const m = this.g.mods.world?.area()?.music;
+    return typeof m === 'string' && TRACKS[m] ? m : 'yard';
   }
   /** Regular bosses get 'boss'; the final area (one that leads to an ending) gets 'finale'. */
   bossTrack(): string { const a = this.g.mods.world?.area(); return a?.ending || a?.id === 'mothership' ? 'finale' : 'boss'; }
@@ -215,12 +215,38 @@ class Audio implements Module {
     } catch { /* ignore */ }
   }
 
+  /**
+   * Give every event its own sound even where a caller still uses the generic menu tick (see core-requests
+   * R4-2): the boss wind-up plays `tell`, and advancing dialogue plays `talk`. Menus keep `blip`.
+   */
+  private remap(id: string): string {
+    if (id !== 'blip') return id;
+    try {
+      const b: any = this.g.mods.interaction?.boss;
+      if (b && b.st === 'tell' && b.stT <= 1) return 'tell';
+      if (this.g.state?.scene === 'dialogue' && !this.g.paused) return 'talk';
+    } catch { /* ignore */ }
+    return id;
+  }
+
   sfx(id: string) {
+    id = this.remap(id);
+    if (BIG.has(id)) this.bigAt = this.g?.tick ?? 0;
     if (!this.ctx || !this.kit || !this.mix || SFX_LEN[id] === undefined) return;
     try {
       if (this.ctx.state !== 'running') { this.pending = { id, at: performance.now() }; return; }
       const t = this.ctx.currentTime + 0.005;
       if (this.voices.play(this.kit, this.mix.sfx, id, t) && SIDE.ids.includes(id)) sideDip(this.mix, t);
+    } catch { /* ignore */ }
+  }
+
+  /** New UI toasts chime (`toast`), unless a bigger cue (quest fanfare, memory...) just played for the same event. */
+  private pollToasts(g: Game) {
+    try {
+      const list: any[] = (g.mods.ui as any)?.toasts; if (!Array.isArray(list)) return;
+      let fresh = false;
+      for (const x of list) if (x && typeof x === 'object' && !this.seenToasts.has(x)) { this.seenToasts.add(x); fresh = true; }
+      if (fresh && g.tick - this.bigAt > 12 && g.state?.scene !== 'title') this.sfx('toast');
     } catch { /* ignore */ }
   }
 
@@ -238,7 +264,15 @@ class Audio implements Module {
   }
 
   update(g: Game) {
-    if (!g.headless && !this.failed && !this.running()) this.pollPad(g);
+    if (!g.headless && !this.failed && !this.running()) {
+      this.pollPad(g);
+      // a pad player (or anyone who starts without a key/tap) gets told once, outside the title screen
+      if (!this.hinted && g.tick > 90 && (g.state?.scene ?? 'title') !== 'title') {
+        this.hinted = true;
+        try { (g.mods.ui as any)?.toast?.('TAP OR PRESS A KEY FOR SOUND'); } catch { /* ignore */ }
+      }
+    }
+    if (!g.headless) this.pollToasts(g);
     const c = this.ctx; if (!c || !this.seq || !this.mix || c.state !== 'running') return;
     const now = c.currentTime;
     // resync after the tab was hidden / the loop stalled: never burst-schedule the past
@@ -257,11 +291,11 @@ class Audio implements Module {
   }
 
   /**
-   * Title-screen hint until sound is actually running (gamepad presses can't unlock audio on their own): a small
-   * pixel speaker in the top-right corner with a blinking red slash (the indie convention), out of the layout.
+   * "Sound is off" hint on every scene until sound is actually running (gamepad presses can't unlock audio on their
+   * own): a small pixel speaker in the top-right corner with a blinking red slash (the indie convention).
    */
   hint(g: Game, ctx: CanvasRenderingContext2D) {
-    if (g.headless || this.failed || g.state?.scene !== 'title' || this.running()) return;
+    if (g.headless || this.failed || this.running()) return;
     try {
       const x0 = 612, y0 = 6;
       ctx.fillStyle = col(2); ctx.fillRect(x0 - 1, y0 - 1, 22, 16); ctx.fillStyle = col(1); ctx.fillRect(x0, y0, 20, 14);

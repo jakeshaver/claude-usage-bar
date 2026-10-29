@@ -47,6 +47,8 @@ export interface Track {
   key?: number;
   /** one-shot song (stinger): only the intro is played, then the sequencer hands over to the next song. */
   once?: boolean;
+  /** per-song loudness trim (linear, default 1), calibrated offline so area loops land at 0.080-0.095 RMS. */
+  gain?: number;
 }
 
 export const TRACKS: Record<string, Track> = {
@@ -82,7 +84,7 @@ export const TRACKS: Record<string, Track> = {
     fill: 'k . h . s . s . s s t . t T T c',
     repeat: { counter: 0.11, echoArp: true, leadDuty: 0.125 },
   },
-  // Backyard / street / park: bouncy G-major romp.
+  // Backyard: bouncy G-major romp.
   yard: {
     bpm: 132, swing: 0.12,
     chords: ['G', 'C', 'G', 'D', 'G', 'C', 'Am D', 'G', 'Em', 'C', 'G', 'D', 'Em', 'C', 'Am', 'D7'],
@@ -114,8 +116,9 @@ export const TRACKS: Record<string, Track> = {
     fill: 'k . h . s . h k s . s s t t T T',
     repeat: { counter: 0.1, echoArp: true, leadDuty: 0.25 },
   },
-  // Alley / cafe / factory: sneaky, syncopated A minor.
+  // Alley: sneaky, syncopated A minor.
   city: {
+    gain: 0.95,
     bpm: 138,
     chords: ['Am', 'F', 'G', 'Em', 'Am', 'F', 'G', 'E', 'Dm', 'Am', 'Bb', 'E', 'Dm', 'Am', 'F', 'E7'],
     lead: [
@@ -150,6 +153,7 @@ export const TRACKS: Record<string, Track> = {
   // Rooftops: moonlit E minor. Keeps the lullaby colour (PWM lead + echo + pad) but drives: 120 bpm,
   // 16th-note hats and a pulsing 8th bass ostinato. Hook: "da-da DAA-a da DAAAA" (bars 1/5, answered 9/13).
   night: {
+    gain: 1.13,
     bpm: 120,
     chords: ['Em', 'Cmaj7', 'Am7', 'B7', 'Em', 'Cmaj7', 'Am7 B7', 'Em', 'C', 'D', 'Bm', 'Em', 'Am', 'B7', 'C', 'B7'],
     lead: [
@@ -183,8 +187,9 @@ export const TRACKS: Record<string, Track> = {
     pad: 0.018,
     repeat: { counter: 0.09, echoArp: true },
   },
-  // Sky / moon / nebula: driving D-minor space race. Lifts a whole step on the repeat.
+  // Sky: driving D-minor space race. Lifts a whole step on the repeat.
   space: {
+    gain: 0.97,
     bpm: 144,
     chords: ['Dm', 'Bb', 'C', 'Am', 'Dm', 'Bb', 'C', 'A', 'Gm', 'Dm', 'Bb', 'F', 'Gm', 'Dm', 'Bb', 'A7'],
     lead: [
@@ -218,6 +223,7 @@ export const TRACKS: Record<string, Track> = {
   },
   // Boss fights: urgent E minor, 160 bpm. 2-bar sting (not looped), 16-bar A/B loop, lifts a semitone on repeat.
   boss: {
+    gain: 0.86,
     bpm: 160,
     intro: {
       chords: ['B7', 'B7'],
@@ -257,6 +263,7 @@ export const TRACKS: Record<string, Track> = {
   },
   // Mothership waves: ominous F#-minor march that builds; leaves 'finale' for the final boss.
   mothership: {
+    gain: 1.03,
     bpm: 126,
     chords: ['F#m', 'D', 'E', 'C#m', 'F#m', 'D', 'Bm', 'C#', 'D', 'E', 'F#m', 'F#m', 'Bm', 'D', 'C#', 'C#7'],
     lead: [
@@ -291,6 +298,7 @@ export const TRACKS: Record<string, Track> = {
   },
   // Final boss: epic C minor.
   finale: {
+    gain: 0.88,
     bpm: 150,
     chords: ['Cm', 'Ab', 'Bb', 'G', 'Cm', 'Ab', 'Fm', 'G', 'Ab', 'Bb', 'Gm', 'Cm', 'Ab', 'Bb', 'G', 'G7'],
     lead: [
@@ -325,6 +333,7 @@ export const TRACKS: Record<string, Track> = {
   },
   // Ending: warm F-major lullaby.
   ending: {
+    gain: 0.8,
     bpm: 92,
     chords: ['F', 'C', 'Dm', 'Bb', 'F', 'Am', 'Bb', 'C', 'Dm', 'Am', 'Bb', 'F', 'Gm', 'C', 'F', 'C7'],
     lead: [
@@ -361,34 +370,35 @@ export const TRACKS: Record<string, Track> = {
 };
 
 // ---- area variants ------------------------------------------------------------------------------
-// Each of the 13 areas gets its own loop. Neighbouring areas share a song family (so a sector sounds like one
-// place) but never sound identical: different key, tempo, lead duty/voice, drum + bass patterns, and a new
-// chord progression + melody for the B section (bars 9-16).
-type VariantOpts = Partial<Omit<Track, 'leadVoice'>> & { voice?: Partial<Track['leadVoice']>; leadB?: string[]; chordsB?: string[] };
+// Each of the 13 areas gets its own loop with its OWN hook: a new A section (bars 1-8: chords + lead, with a
+// rhythmic hook on bars 1/5) and a new B section (bars 9-16). The "family" link to the parent song is only the
+// voice character and some drum/bass DNA, so neighbouring areas sound related but are instantly told apart.
+type VariantOpts = Partial<Omit<Track, 'leadVoice'>> & {
+  voice?: Partial<Track['leadVoice']>;
+  chordsA: string[]; leadA: string[]; chordsB: string[]; leadB: string[];
+};
 export function variant(base: Track, v: VariantOpts): Track {
-  const { leadB, chordsB, voice, ...rest } = v; const half = Math.floor(base.chords.length / 2);
-  return {
-    ...base, ...rest,
-    chords: chordsB ? [...base.chords.slice(0, half), ...chordsB] : base.chords,
-    lead: leadB ? [...base.lead.slice(0, half), ...leadB] : base.lead,
-    leadVoice: { ...base.leadVoice, ...(voice ?? {}) },
-  };
+  const { leadA, chordsA, leadB, chordsB, voice, ...rest } = v;
+  return { ...base, ...rest, chords: [...chordsA, ...chordsB], lead: [...leadA, ...leadB], leadVoice: { ...base.leadVoice, ...(voice ?? {}) } };
 }
 
-/** Area id -> track id. `areas.json` music should name these (see docs/core-requests/audio.md R3-1). */
-export const AREA_MUSIC: Record<string, string> = {
-  backyard: 'yard', street: 'street', park: 'park',
-  alley: 'city', cafe: 'cafe', factory: 'factory',
-  rooftops: 'night', docks: 'docks', station: 'station',
-  sky: 'space', moon: 'moon', nebula: 'nebula',
-  mothership: 'mothership',
-};
-
 Object.assign(TRACKS, {
-  // Street: the yard tune goes uptown. A major, 140 bpm, funk octave bass, claps, new B section.
+  // Street (Maple Street): A mixolydian funk, 140 bpm. Hook: a syncopated "ba-da  bop, b(l)ue-DAH" with a
+  // blue-third glide (bars 1/3/5) over a I-bVII vamp. Family link to the yard: the bright duty lead + swing only.
   street: variant(TRACKS.yard, {
     key: 2, bpm: 140, swing: 0.06,
     voice: { duty: 0.25, accent: 0.5, vib: 10 },
+    chordsA: ['G', 'F C', 'G', 'F D', 'G', 'F C', 'Em Am', 'D'],
+    leadA: [
+      'r/1 G5/1 G5/1 r/1 Bb5/2 r/1 ~B5/1 D6/2 G5/2 r/2 F5/2',
+      'A5/2 F5/2 r/1 C6/1 A5/2 G5/4 E5/4',
+      'r/1 G5/1 G5/1 r/1 Bb5/2 r/1 ~B5/1 D6/2 F6/2 r/2 D6/2',
+      'C6/2 A5/2 F5/2 C6/2 A5/4 F#5/4',
+      'r/1 G5/1 G5/1 r/1 Bb5/2 r/1 ~B5/1 D6/2 G6/2 r/2 F6/2',
+      'E6/2 C6/2 r/1 A5/1 C6/2 E6/4 G6/4',
+      'G6/2 E6/2 B5/2 G5/2 A5/2 C6/2 E6/4',
+      'D6/6 C6/2 A5/4 F#5/4',
+    ],
     chordsB: ['C', 'D', 'Bm', 'Em', 'C', 'D', 'Am', 'D7'],
     leadB: [
       'E5/1 G5/1 C6/2 r/2 C6/1 D6/1 E6/2 D6/2 C6/2 G5/2',
@@ -409,10 +419,23 @@ Object.assign(TRACKS, {
     fill: 'k . h k x . x . x x t t T T c .',
     repeat: { lift: 1, counter: 0.1, echoArp: true, leadDuty: 0.5 },
   }),
-  // Park: breezy F major, 124 bpm, thin 12.5% lead with echo, lazy bass, picnic B section.
+  // Park: breezy F major, 124 bpm. Hook: a lilting long-short turn "laaa di-da-dee DAAA" that starts on the IV
+  // chord (bars 1/5), thin 12.5% lead with echo, lazy bass, picnic B section.
   park: variant(TRACKS.yard, {
+    gain: 1.19,
     key: -2, bpm: 124, swing: 0.16,
     voice: { duty: 0.125, accent: 0.25, vib: 16, echo: 0.15 },
+    chordsA: ['Cmaj7', 'G', 'Am7', 'D', 'Cmaj7', 'Bm', 'Am7 D', 'G'],
+    leadA: [
+      'E6/4 D6/1 C6/1 B5/2 C6/6 r/2',
+      'D6/2 B5/2 G5/4 r/2 G5/1 A5/1 B5/4',
+      'C6/4 B5/1 A5/1 G5/2 A5/6 r/2',
+      'F#5/2 A5/2 D6/4 C6/2 A5/2 F#5/4',
+      'E6/4 D6/1 C6/1 B5/2 G6/6 r/2',
+      'F#6/2 D6/2 B5/4 r/2 B5/1 C6/1 D6/4',
+      'E6/3 D6/1 C6/2 A5/2 F#5/3 G5/1 A5/4',
+      'G5/8 r/4 B5/2 D6/2',
+    ],
     chordsB: ['Am7', 'D', 'Bm', 'Em', 'C', 'G', 'Am', 'D7'],
     leadB: [
       'r/2 E5/1 G5/1 A5/4 C6/4 B5/2 A5/2',
@@ -434,10 +457,23 @@ Object.assign(TRACKS, {
     drumVol: 0.7,
     repeat: { counter: 0.1, echoArp: true, leadDuty: 0.25 },
   }),
-  // Cafe: the alley tune in a jazz shuffle. G minor, 128 bpm, square lead, walking bass, ii-V B section.
+  // Cafe: G dorian jazz shuffle, 128 bpm. Hook: an off-beat pickup "(rest) da-da DA-daa" over a i7-IV7 vamp
+  // (bars 1/3/5), square lead, walking bass, ii-V B section.
   cafe: variant(TRACKS.city, {
+    gain: 1.08,
     key: -2, bpm: 128, swing: 0.2,
     voice: { duty: 0.5, accent: 0.25, vib: 8 },
+    chordsA: ['Am7', 'D7', 'Am7', 'D7', 'Fmaj7', 'E7', 'Am7 D7', 'E7'],
+    leadA: [
+      'r/2 E5/1 G5/1 A5/2 C6/3 B5/1 A5/2 G5/2 E5/2',
+      'F#5/4 r/2 A5/2 C6/2 A5/2 F#5/2 D5/2',
+      'r/2 E5/1 G5/1 A5/2 C6/3 B5/1 A5/2 E6/4',
+      'D6/3 C6/1 A5/2 F#5/2 r/4 D5/2 E5/2',
+      'r/2 F5/1 A5/1 C6/2 E6/3 D6/1 C6/2 A5/2 F5/2',
+      'G#5/4 B5/2 D6/2 r/2 C6/1 B5/1 G#5/4',
+      'A5/2 C6/2 E6/2 G5/2 F#5/2 A5/2 C6/2 D6/2',
+      'B5/6 G#5/2 E5/4 r/4',
+    ],
     chordsB: ['Dm7', 'G7', 'Cmaj7', 'Fmaj7', 'Dm7', 'E7', 'Am', 'E7'],
     leadB: [
       'F5/2 A5/2 C6/3 A5/1 r/2 D6/2 C6/2 A5/2',
@@ -461,10 +497,23 @@ Object.assign(TRACKS, {
     pad: 0.016,
     repeat: { counter: 0.09, leadDuty: 0.25 },
   }),
-  // Factory: the alley tune on a conveyor belt. Bb minor, 146 bpm, motor bass, machine 16ths.
+  // Factory: Bb minor conveyor belt, 146 bpm. Hook: a stamping 16th riff "da-da-di-DA  da-di-DA" (bars 1/3/5),
+  // motor bass, machine 16ths.
   factory: variant(TRACKS.city, {
+    gain: 0.78,
     key: 1, bpm: 146,
     voice: { duty: 0.125, accent: 0.5, vib: 6 },
+    chordsA: ['Am', 'Am', 'F', 'G', 'Am', 'Am', 'F G', 'E'],
+    leadA: [
+      'A5/1 A5/1 E5/1 A5/1 r/2 C6/1 B5/1 A5/2 E5/2 G5/2 A5/2',
+      'r/2 E6/2 D6/2 C6/2 B5/2 G5/2 A5/4',
+      'F5/1 F5/1 C5/1 F5/1 r/2 A5/1 G5/1 F5/2 C5/2 E5/2 F5/2',
+      'G5/4 B5/4 D6/4 B5/2 G5/2',
+      'A5/1 A5/1 E5/1 A5/1 r/2 C6/1 B5/1 A5/2 E6/2 G6/2 A6/2',
+      'r/2 G6/2 E6/2 C6/2 B5/2 C6/2 E6/4',
+      'F6/2 C6/2 A5/2 F5/2 G5/2 B5/2 D6/2 G6/2',
+      'G#6/6 E6/2 B5/4 G#5/4',
+    ],
     chordsB: ['Dm', 'E', 'Am', 'G', 'F', 'E', 'Dm E', 'E7'],
     leadB: [
       'D5/1 D5/1 F5/1 D5/1 A5/2 D5/2 D6/2 D5/2 C6/2 A5/2',
@@ -486,10 +535,23 @@ Object.assign(TRACKS, {
     drumVol: 0.8,
     repeat: { lift: 2, counter: 0.09, echoArp: true, leadDuty: 0.25 },
   }),
-  // Docks: the night tune with sea legs. D minor, 112 bpm, 3+3+2 shanty bass, warm duty-switch lead.
+  // Docks: D minor sea shanty, 112 bpm. Hook: a rolling "HEAVE-a-ho, ho-HO" (dotted, bars 1/2/5) over a
+  // descending i-bVII-bVI-V line, 3+3+2 shanty bass, warm duty-switch lead.
   docks: variant(TRACKS.night, {
+    gain: 1.28,
     key: -2, bpm: 112, swing: 0.14,
     voice: { pwm: false, duty: 0.25, accent: 0.125, echo: 0.34, vib: 24 },
+    chordsA: ['Em', 'D', 'C', 'B7', 'Em', 'D', 'C B7', 'Em'],
+    leadA: [
+      'E5/3 E5/1 E5/2 G5/2 B5/4 A5/2 G5/2',
+      'F#5/3 F#5/1 F#5/2 A5/2 D6/6 r/2',
+      'E6/3 D6/1 C6/2 B5/2 A5/2 G5/2 E5/4',
+      'D#5/4 F#5/4 B5/6 r/2',
+      'E5/3 E5/1 E5/2 G5/2 B5/4 E6/2 D6/2',
+      'D6/3 C6/1 B5/2 A5/2 F#5/6 r/2',
+      'G5/2 A5/2 C6/2 E6/2 D#6/4 B5/4',
+      'E6/8 r/4 B4/2 B4/2',
+    ],
     chordsB: ['Am', 'Em', 'C', 'G', 'Am', 'B7', 'Em', 'B7'],
     leadB: [
       'E5/3 A5/1 C6/4 B5/2 A5/2 E5/4',
@@ -512,10 +574,23 @@ Object.assign(TRACKS, {
     pad: 0.02,
     repeat: { counter: 0.09, echoArp: true, leadDuty: 0.5 },
   }),
-  // Station: the night tune goes cold and urgent. G minor, 128 bpm, driving 8th bass, stabbing B section.
+  // Station: cold, urgent G minor, 128 bpm. Hook: a staccato octave alarm "BIP bip BIP" + falling answer
+  // (bars 1/3/5), driving 8th bass, stabbing B section.
   station: variant(TRACKS.night, {
+    gain: 0.85,
     key: 3, bpm: 128,
     voice: { pwm: false, duty: 0.25, accent: 0.5, vib: 10, echo: 0.2 },
+    chordsA: ['Em', 'G', 'D', 'Am', 'Em', 'G', 'C D', 'B7'],
+    leadA: [
+      'E6/1 r/1 E5/1 r/1 E6/1 r/1 B5/2 G5/2 E5/2 F#5/2 G5/2',
+      'B5/4 D6/4 G5/4 r/4',
+      'D6/1 r/1 D5/1 r/1 D6/1 r/1 A5/2 F#5/2 D5/2 E5/2 F#5/2',
+      'A5/4 C6/4 E6/4 r/4',
+      'E6/1 r/1 E5/1 r/1 E6/1 r/1 B5/2 G5/2 B5/2 D6/2 E6/2',
+      'G6/4 D6/4 B5/2 G5/2 D6/4',
+      'E6/2 C6/2 G5/2 C6/2 D6/2 A5/2 F#5/2 A5/2',
+      'B5/2 D#6/2 F#6/4 D#6/4 B5/4',
+    ],
     chordsB: ['C', 'Am', 'B7', 'Em', 'C', 'D', 'B7', 'B7'],
     leadB: [
       'G5/2 G5/2 r/2 E6/2 D6/2 C6/2 G5/4',
@@ -538,10 +613,22 @@ Object.assign(TRACKS, {
     pad: 0.014,
     repeat: { lift: 1, counter: 0.09, echoArp: true, leadDuty: 0.125 },
   }),
-  // Moon: low gravity. B minor, 136 bpm, half-time drums, long bass notes, floating square lead.
+  // Moon: low gravity, B minor, 136 bpm. Hook: a slow leaping "do-SOL-DOOOO" octave float (bars 1/3/5),
+  // half-time drums, long bass notes, floating square lead.
   moon: variant(TRACKS.space, {
     key: -3, bpm: 136,
     voice: { duty: 0.5, accent: 0.25, echo: 0.3, vib: 18 },
+    chordsA: ['Dm', 'Gm', 'Dm', 'A', 'F', 'Gm', 'Bb A', 'Dm'],
+    leadA: [
+      'D5/2 A5/2 D6/8 C6/1 A5/1 F5/2',
+      'G5/6 Bb5/2 D6/4 r/4',
+      'D5/2 A5/2 F6/8 E6/1 D6/1 A5/2',
+      'C#6/6 E6/2 A5/8',
+      'F5/2 C6/2 F6/8 E6/1 C6/1 A5/2',
+      'Bb5/6 D6/2 G6/4 F6/4',
+      'F6/4 D6/4 E6/4 C#6/4',
+      'D6/12 r/4',
+    ],
     chordsB: ['Bb', 'C', 'Am', 'Dm', 'Gm', 'C', 'F', 'A7'],
     leadB: [
       'F5/6 Bb5/2 D6/4 C6/2 Bb5/2',
@@ -564,10 +651,22 @@ Object.assign(TRACKS, {
     pad: 0.016,
     repeat: { lift: 2, counter: 0.1, echoArp: true, leadDuty: 0.25 },
   }),
-  // Nebula: shimmering F minor, 152 bpm, thin lead, sparkling 16th arp, 16th hats in the B section.
+  // Nebula: shimmering F minor, 152 bpm. Hook: a falling 16th sparkle cascade then a held climb (bars 1/3/5),
+  // thin lead, sparkling 16th arp, 16th hats in the B section.
   nebula: variant(TRACKS.space, {
     key: 3, bpm: 152,
     voice: { duty: 0.125, accent: 0.25, echo: 0.25, vib: 12 },
+    chordsA: ['Dm', 'F', 'C', 'Gm', 'Dm', 'F', 'C', 'A7'],
+    leadA: [
+      'A6/1 F6/1 D6/1 A5/1 r/2 D6/1 E6/1 F6/4 E6/2 D6/2',
+      'C6/4 A5/2 F5/2 A5/4 C6/4',
+      'G6/1 E6/1 C6/1 G5/1 r/2 C6/1 D6/1 E6/4 D6/2 C6/2',
+      'Bb5/6 A5/2 G5/4 D5/4',
+      'A6/1 F6/1 D6/1 A5/1 r/2 D6/1 E6/1 F6/2 A6/2 G6/2 F6/2',
+      'A6/4 F6/2 C6/2 F6/4 A6/4',
+      'G6/2 E6/2 C6/2 G5/2 C6/2 E6/2 G6/4',
+      'C#6/2 E6/2 G6/2 A6/2 E6/4 C#6/4',
+    ],
     chordsB: ['Bb', 'F', 'C', 'Dm', 'Bb', 'C', 'A', 'A7'],
     leadB: [
       'D6/1 D6/1 r/1 D6/1 F6/3 D6/3 Bb5/4 F5/2',
@@ -647,6 +746,7 @@ Object.assign(TRACKS, {
   },
   // Treat Bonanza (bonus stage, Galaga's "challenging stage"): bouncy Bb major, call-and-response hook.
   bonus: {
+    gain: 0.94,
     bpm: 150, key: -2, bAt: 4,
     chords: ['C', 'Am', 'F', 'G', 'C', 'Am', 'Dm G', 'C'],
     lead: [

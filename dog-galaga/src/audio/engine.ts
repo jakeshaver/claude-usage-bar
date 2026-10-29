@@ -16,6 +16,7 @@ export const PAUSE = { music: 0.35, musicLP: 1100, amb: 1.25 };
 export interface Mixer {
   music: GainNode;      // music bus (volume)
   switchFade: GainNode; // short dip when changing tracks
+  trim: GainNode;       // per-song loudness trim (Track.gain)
   side: GainNode;       // sidechain-style dip under big sfx
   duck: GainNode;       // pause ducking
   duckLP: BiquadFilterNode;
@@ -46,7 +47,8 @@ export function buildMixer(ctx: BaseAudioContext, dest: AudioNode): Mixer {
   const duckLP = ctx.createBiquadFilter(); duckLP.type = 'lowpass'; duckLP.frequency.value = 20000; duckLP.Q.value = 0.4; duckLP.connect(duck);
   const music = ctx.createGain(); music.gain.value = LEVELS.music; music.connect(duckLP);
   const side = ctx.createGain(); side.connect(music);
-  const switchFade = ctx.createGain(); switchFade.connect(side);
+  const trim = ctx.createGain(); trim.connect(side);
+  const switchFade = ctx.createGain(); switchFade.connect(trim);
 
   // lead echo: dotted-eighth delay with a darkening feedback loop, returned slightly right.
   const echoSend = ctx.createGain(); echoSend.gain.value = 0;
@@ -61,7 +63,7 @@ export function buildMixer(ctx: BaseAudioContext, dest: AudioNode): Mixer {
   const sfx = ctx.createGain(); sfx.gain.value = LEVELS.sfx; sfx.connect(master);
   const ambDuck = ctx.createGain(); ambDuck.connect(master);
   const amb = ctx.createGain(); amb.gain.value = LEVELS.amb; amb.connect(ambDuck);
-  return { music, switchFade, side, duck, duckLP, ambDuck, arpEcho, echoSend, echoDelay, arpOut, sfx, amb, master, limiter };
+  return { music, switchFade, trim, side, duck, duckLP, ambDuck, arpEcho, echoSend, echoDelay, arpOut, sfx, amb, master, limiter };
 }
 
 /** Dip the music under a big sfx (sidechain feel). */
@@ -90,6 +92,7 @@ export class Sequencer {
     if (track && this.comp) {
       const t = Math.max(0, t0 - 0.01);
       this.mix.echoSend.gain.setValueAtTime(track.leadVoice.echo ?? 0, t);
+      this.mix.trim.gain.setValueAtTime(track.gain ?? 1, t);
       this.mix.echoDelay.delayTime.setValueAtTime(Math.min(1.4, this.comp.stepSec * 3), t);
     }
   }

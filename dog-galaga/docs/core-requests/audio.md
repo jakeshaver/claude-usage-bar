@@ -1,6 +1,81 @@
 # Core requests from `audio`
 
-(Round 3 requests first; rounds 2 and 1 kept below for history.)
+(Round 4 requests first; rounds 3, 2 and 1 kept below for history.)
+
+# Round 4
+
+## R4-1. BLOCKING: set the per-area `music` ids in `content/areas.json` (content owner). Repeats R3-1 and R2-1.
+Audio no longer overrides content. `SHARED` and the `AREA_MUSIC` fallback are deleted. `audio.areaTrack()` now
+plays exactly `area.music` (and `'yard'` only if the id is missing or unknown), as ARCHITECTURE.md section 5 requires.
+**Until this edit lands, 8 of the 13 new area loops cannot be heard in game** (street and park play `yard`, cafe and
+factory play `city`, and so on), and the mothership's regular waves play `boss`. Exact edit, one line per area:
+```
+backyard   "music": "yard"        rooftops "music": "night"      sky        "music": "space"
+street     "music": "street"      docks    "music": "docks"      moon       "music": "moon"
+park       "music": "park"        station  "music": "station"    nebula     "music": "nebula"
+alley      "music": "city"        cafe     "music": "cafe"       factory    "music": "factory"
+mothership "music": "mothership"
+```
+All of these are keys of `TRACKS`, so the content lint already accepts them. The boss fight in the mothership
+still escalates to `finale` (`bossTrack()`).
+
+## R4-2. Give the boss wind-up and the dialogue their own sounds at the call sites (interaction, quest owners)
+- `src/interaction/boss.ts:120` `beginTell()`: change `sfx('blip')` to `sfx('tell')` (repeats R3-2).
+- `src/quest/index.ts:90` (dialogue advance): change `sfx('blip')` to `sfx('talk')` (new: soft vocal "bwip").
+- Menus (`ui`, `journal`) should keep `blip` for cursor moves and `select` for confirm.
+Audio already does this on its own as a stopgap: `Audio.remap()` turns a `blip` into `tell` when the boss has just
+entered its `tell` state (`boss.st === 'tell' && boss.stT <= 1`), and into `talk` while `scene === 'dialogue'`.
+Once the two call sites change, the remap is a no-op. New sfx ids this round: **`talk`** and **`toast`**.
+- Toasts: the UI has no toast event, so audio polls `ui.toasts` and plays `toast` (a soft two-bell chime) for each
+  new toast, unless a bigger cue (`quest memory pickup bossdown select bark`) played in the last 12 ticks (so
+  QUEST COMPLETE still gets only its fanfare). If the UI owner prefers, `ui.toast()` can emit `bus 'toast'` and
+  audio will listen to that instead.
+
+## R4-3. Bundle warnings are still caused by the audio import graph (integrator). Repeats R3-4.4.
+`vite build`: main chunk 429 kB (> 400) and "src/audio/index.ts is dynamically imported by showcase but also
+statically imported by boot". Fix in `src/showcase/index.ts`: replace `await import('../audio/index')` with
+`await import('../audio/offline')` (renderers) + static `TRACKS` / `SFX_IDS` / `AMBIENCE_IDS` from
+`../audio/tracks`, `../audio/sfx` and `../audio/ambience`. To get under 400 kB, lazy-load the showcase from
+`core/boot.ts` (`if (params.has('showcase')) (await import('../showcase/index')).run(g)`), or raise
+`chunkSizeWarningLimit` to 450.
+
+## R4-4. Audio showcase layout (integrator, `src/showcase/index.ts:57`). Repeats R3-4.1-3.
+It now has 25 music ids + 7 beds + 18 sfx (50 rows), so it overflows even more. Please use 3 columns of 210 px,
+or rows of 12 px. Draw `envRms` under `envelope` (peak in palette index of the pink, rms in the cyan, via
+`col(i)` instead of hex), render loops for 48 s (`renderTrackOffline(id, 48)`) and stingers for 6 s, and add the
+game-flow rows (`renderSequenceOffline(['stage','street'], 16)`, `(['boss','victory','map'], 16, 5)`,
+`(['nap','stage','park'], 16)`). Without these, the A/B form and the bar-line handovers can't be checked visually.
+
+## R4-5. `tools/screenshot.mjs --skipDialogue` (tools owner). Repeats R3-5 and R2-5, 3rd time.
+Every `--area` deep link stops in `scene=dialogue`, so pause ducking, stingers and the new bed events can't be
+screenshotted during play. Close dialogue (press confirm) until `scene === 'play'` before `--advance`/`--keys`.
+
+## API contract: `renderTrackOffline` is async (FYI for integrators)
+`renderTrackOffline(trackId, seconds): Promise<RenderStats>`. `OfflineAudioContext.startRendering()` is async, so the
+function returns a promise. **It never rejects.** It resolves `{ ok:false, error, peak:0, rms:0, durationSec:0, ... }`
+when WebAudio is missing, the id is unknown, or rendering fails. On success it resolves
+`{ ok:true, peak, rms, durationSec, sampleRate, clipped, activity, envelope, envRms }`. Always `await` it.
+`renderAmbienceOffline`, `renderSfxOffline`, `renderMixOffline`, `renderFireHoldOffline` and
+`renderSequenceOffline` follow the same contract. The `src/audio/index.ts` exports are lazy wrappers around
+`./offline` with identical signatures.
+
+## Round 4 behaviour notes (no action required)
+- **Every area loop has its own hook now.** `variant()` takes `chordsA/leadA` + `chordsB/leadB` (all four required),
+  so a variant can no longer inherit the parent's melody. New A sections: street (mixolydian funk, blue-third glide),
+  park (lilting turn on the IV chord), cafe (dorian i7-IV7 shuffle, off-beat pickup), factory (stamping 16th riff),
+  docks (dotted shanty roll over i-bVII-bVI-V), station (staccato octave alarm), moon (slow octave-leap float),
+  nebula (falling 16th sparkle cascade). The family link is only voice, tempo feel and drum/bass DNA.
+- **Loudness:** `Track.gain` (per-song trim on a new `mix.trim` node). 16 s offline RMS of the 13 area loops is
+  now 0.082-0.094 (round 3: 0.064-0.111). Boss 0.097, finale 0.099, title 0.093, bonus 0.091. Deliberately
+  quieter: map 0.058, ending 0.082 (was 0.102), nap 0.083 (short), stingers 0.066-0.077.
+- **Ambience foreground events:** each bed now plays one recognisable event every 3-6 s (was 3-8 s) on its own
+  panned bus (pan -0.6 / +0.55, mostly alternating), boosted so event peaks are 0.27-0.32 (space 0.27, was 0.11).
+  The continuous bed floor is unchanged (bed RMS 0.030-0.040).
+- **Sound-off hint on every scene:** the speaker icon with the red slash now draws in the top-right corner on every
+  scene (title, play HUD corner, map...) until the AudioContext runs. Once, ~1.5 s into the first non-title scene
+  without sound, a toast says `TAP OR PRESS A KEY FOR SOUND` (a gamepad press can't unlock audio in Chrome).
+- Worst-case mix (boss + space + plop/thud/meow spam + bossdown): peak 0.91, RMS 0.168, 0 clipped.
+- New sfx peaks: talk 0.18 (dialogue), toast 0.22 (notification). Others unchanged.
 
 # Round 3
 

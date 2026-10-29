@@ -6,6 +6,9 @@ export const AMBIENCE_IDS = ['birds', 'city', 'wind', 'cafe', 'water', 'factory'
 /** Per-bed trim so every bed lands around 0.03-0.04 RMS offline (about -6..-9 dB under the music bus). */
 const BED_TRIM: Record<string, number> = { birds: 1.3, city: 1.4, wind: 1.6, cafe: 1.8, water: 1.5, factory: 1.05, space: 0.85 };
 
+/** Gain on the panned foreground-event buses (calibrated so event peaks land ~0.25-0.3 offline). */
+const FG_BOOST: Record<string, number> = { birds: 2.0, city: 1.6, wind: 2.4, cafe: 1.4, water: 2.0, factory: 1.7, space: 3.8 };
+
 export interface AmbHandle { id: string; stop(t: number): void; tick(until: number, now?: number): void }
 
 interface Ev { next: number; min: number; max: number; fire: (t: number) => void }
@@ -25,9 +28,24 @@ export function startAmbience(k: Kit, out: AudioNode, id: string, t0: number): A
   const mod = (p: AudioParam, rate: number, depth: number) => { srcs.push(lfo(k, p, rate, depth, t0)); };
   const every = (min: number, max: number, fire: (t: number) => void, first = 0.5) => evs.push({ next: t0 + first + r.range(0, max - min), min, max, fire });
   // one-shot sound sources route through `bus` so they fade with the bed
-  const O = bus;
-  /** One recognizable foreground event every 3-8 s, never the same one twice in a row. */
-  const fg = (fns: ((t: number) => void)[], first = 2) => { let last = -1; every(3, 8, t => { let i = r.int(0, fns.length - 1); if (fns.length > 1 && i === last) i = (i + 1) % fns.length; last = i; fns[i](t); }, first); };
+  let O: AudioNode = bus;
+  // foreground events sit off-centre (alternating-ish left/right) and well above the bed floor, so they cut
+  // through the music: peaks ~0.25-0.3 offline, while the continuous floor stays where it was.
+  const side = (v: number): AudioNode => {
+    const g = c.createGain(); g.gain.value = FG_BOOST[id] ?? 2.4;
+    try { const p = c.createStereoPanner(); p.pan.value = v; g.connect(p); p.connect(bus); } catch { g.connect(bus); }
+    return g;
+  };
+  const sides = [side(-0.6), side(0.55)]; let sideIx = r.int(0, 1);
+  /** One recognizable foreground event every 3-6 s, never the same one twice in a row, panned off-centre. */
+  const fg = (fns: ((t: number) => void)[], first = 2) => {
+    let last = -1;
+    every(3, 6, t => {
+      let i = r.int(0, fns.length - 1); if (fns.length > 1 && i === last) i = (i + 1) % fns.length; last = i;
+      sideIx = r.next() < 0.75 ? 1 - sideIx : sideIx; // mostly alternate sides
+      const prev = O; O = sides[sideIx]; try { fns[i](t); } finally { O = prev; }
+    }, first);
+  };
   const sweep = (t: number, f0: number, f1: number, f2: number, dur: number, v: number, q = 1.2) => { // filtered-noise whoosh
     const s = c.createBufferSource(); s.buffer = k.noise; s.loop = true;
     const f = c.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = q; f.frequency.setValueAtTime(f0, t); f.frequency.linearRampToValueAtTime(f1, t + dur * 0.45); f.frequency.linearRampToValueAtTime(f2, t + dur);

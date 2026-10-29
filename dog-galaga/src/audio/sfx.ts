@@ -1,10 +1,10 @@
 // Sound effects. Every effect is built from oscillators/noise at call time; nothing is sampled.
 import { type Kit, tone, noise, mtof } from './synth';
 
-export const SFX_IDS = ['plop', 'thud', 'meow', 'dive', 'hurt', 'whimper', 'shield', 'pickup', 'memory', 'quest', 'bossdown', 'blip', 'select', 'bark', 'hack', 'tell'] as const;
+export const SFX_IDS = ['plop', 'thud', 'meow', 'dive', 'hurt', 'whimper', 'shield', 'pickup', 'memory', 'quest', 'bossdown', 'blip', 'select', 'bark', 'hack', 'tell', 'talk', 'toast'] as const;
 
 /** Rough length of each effect in seconds (used for voice limiting and offline rendering). */
-export const SFX_LEN: Record<string, number> = { plop: 0.16, thud: 0.1, meow: 0.42, dive: 0.45, hurt: 0.35, whimper: 0.7, shield: 0.5, pickup: 0.3, memory: 1.1, quest: 0.9, bossdown: 1.8, blip: 0.05, select: 0.14, bark: 0.25, hack: 0.32, tell: 0.32 };
+export const SFX_LEN: Record<string, number> = { plop: 0.16, thud: 0.1, meow: 0.42, dive: 0.45, hurt: 0.35, whimper: 0.7, shield: 0.5, pickup: 0.3, memory: 1.1, quest: 0.9, bossdown: 1.8, blip: 0.05, select: 0.14, bark: 0.25, hack: 0.32, tell: 0.32, talk: 0.1, toast: 0.5 };
 /** Max simultaneous voices per effect. */
 export const SFX_POLY: Record<string, number> = { plop: 3, thud: 3, meow: 3, dive: 2, hack: 2, tell: 2 };
 /**
@@ -16,7 +16,7 @@ export const SFX_GAIN: Record<string, number> = {
   plop: 1.42, thud: 2.3, meow: 1.5, dive: 3.0, hack: 1.2, bark: 1.15, tell: 1.75,
   hurt: 0.85, whimper: 2, shield: 1.9, pickup: 1.9,
   memory: 2.4, quest: 1.5, bossdown: 0.84,
-  blip: 2.3, select: 1.55,
+  blip: 2.3, select: 1.55, talk: 1.1, toast: 2.8,
 };
 
 export interface SfxOpts { gain?: number; variant?: number; short?: boolean }
@@ -190,5 +190,16 @@ export function playSfx(k: Kit, dest: AudioNode, id: string, t: number, o: SfxOp
       tone(k, out, t + 0.05, mtof(93), 0.08, 0.22, { wave: 'pulse', duty: 0.5, sustain: 0.8, release: 0.03 });
       break;
     case 'bark': bark(k, out, t); break;
+    case 'talk': { // dialogue advance: a soft vocal "bwip" (rising pulse through a formant), not the menu tick
+      const p = r.range(0.94, 1.06);
+      tone(k, out, t, 520 * p, 0.05, 0.22, { wave: 'pulse', duty: 0.5, slideTo: 780 * p, slideTime: 0.04, lp: 1800, attack: 0.002, sustain: 0.8, release: 0.02 });
+      tone(k, out, t + 0.045, 700 * p, 0.04, 0.16, { wave: 'pulse', duty: 0.25, slideTo: 620 * p, lp: 1800, attack: 0.002, release: 0.02 });
+      break;
+    }
+    case 'toast': // notification chime (toasts, quest log): soft two-bell "ding-ding" with a sparkle tail
+      tone(k, out, t, mtof(88), 0.3, 0.24, { wave: 'tri', attack: 0.002, sustain: 0.35, decay: 0.18, release: 0.12 });
+      tone(k, out, t + 0.1, mtof(95), 0.36, 0.22, { wave: 'tri', attack: 0.002, sustain: 0.35, decay: 0.2, release: 0.14, vib: 10 });
+      tone(k, out, t + 0.1, mtof(107), 0.18, 0.04, { wave: 'pulse', duty: 0.125, attack: 0.002, sustain: 0.3, decay: 0.1 });
+      break;
   }
 }
