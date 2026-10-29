@@ -9,7 +9,7 @@ export function freshState(seed = 1337): GameState {
     score: 0, hiScore: 0, hearts: 3, maxHearts: 3,
     flags: {}, quests: {}, inventory: {}, memories: [], areasCleared: [], ending: null,
     stats: { shots: 0, hits: 0, naps: 0, playTicks: 0, catsBooped: 0 },
-    settings: { music: 0.6, sfx: 0.8, shake: true, touch: 'auto' },
+    settings: { music: 0.6, sfx: 0.8, amb: 0.8, shake: true, flash: true, reduceMotion: false, touch: 'auto' },
   };
 }
 

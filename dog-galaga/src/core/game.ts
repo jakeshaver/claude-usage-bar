@@ -10,6 +10,8 @@ export const W = 640, H = 360;
 export const PF_X = 128, PF_W = 384;          // playfield viewport on screen
 export const WORLD_W = 448;                    // playfield world width (camera pans 64px)
 export const TICK_HZ = 60;
+/** modules that keep updating during an effects hit-stop */
+const HITSTOP_LIVE = new Set(['effects', 'ui', 'audio']);
 
 export interface Renderer {
   ctx: CanvasRenderingContext2D;
@@ -99,11 +101,17 @@ export class Game {
 
   step() {
     this.input.poll(this);
-    if (!this.paused) {
+    // Presentational hit-stop: effects may hold the simulation for a few ticks (never headless, so the
+    // bot and tests stay deterministic). Only effects, ui and audio keep updating while frozen.
+    const frozen = !this.headless && !this.paused && !!this.mods.effects?.frozen?.();
+    if (!this.paused && !frozen) {
       this.tick++; this.bus.tick = this.tick;
       if (this.state.scene === 'play' || this.state.scene === 'bonus') this.state.stats.playTicks++;
     }
-    for (const m of this.modules) if (m.update) this.safe(m.id, () => m.update!(this));
+    for (const m of this.modules) {
+      if (frozen && !HITSTOP_LIVE.has(m.id)) continue;
+      if (m.update) this.safe(m.id, () => m.update!(this));
+    }
     this.input.endFrame();
   }
 }

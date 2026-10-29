@@ -49,5 +49,5 @@ export interface GameState {
   inventory: Record<string, number>; memories: string[]; areasCleared: string[];
   ending: string | null;
   stats: { shots: number; hits: number; naps: number; playTicks: number; catsBooped: number };
-  settings: { music: number; sfx: number; shake: boolean; touch: 'auto' | 'on' | 'off' };
+  settings: { music: number; sfx: number; amb: number; shake: boolean; flash: boolean; reduceMotion: boolean; touch: 'auto' | 'on' | 'off' };
 }

@@ -10,14 +10,16 @@ export class Input {
   down = new Set<Action>();
   private prev = new Set<Action>();
   private kb = new Set<Action>();
+  /** keys pressed since the last endFrame(): a tap shorter than one tick still registers for one frame */
+  private latched = new Set<Action>();
   touch = new Set<Action>();
   synthetic = new Set<Action>();
   lastDevice: 'keyboard' | 'gamepad' | 'touch' = 'keyboard';
   attach(target: Window) {
     target.addEventListener('keydown', e => {
       const a = KEYMAP[e.code]; if (!a) return;
-      e.preventDefault(); this.kb.add(a); this.lastDevice = 'keyboard';
-      if (a === 'fire') this.kb.add('confirm');
+      e.preventDefault(); this.kb.add(a); this.latched.add(a); this.lastDevice = 'keyboard';
+      if (a === 'fire') { this.kb.add('confirm'); this.latched.add('confirm'); }
     });
     target.addEventListener('keyup', e => {
       const a = KEYMAP[e.code]; if (!a) return;
@@ -26,7 +28,12 @@ export class Input {
     target.addEventListener('blur', () => this.kb.clear());
   }
   poll(_g: Game) {
-    this.down = new Set([...this.kb, ...this.touch, ...this.synthetic]);
+    // reuse the two preallocated sets (no per-tick allocation): down <- kb | latched | touch | synthetic
+    const d = this.down; d.clear();
+    for (const a of this.kb) d.add(a);
+    for (const a of this.latched) d.add(a);
+    for (const a of this.touch) d.add(a);
+    for (const a of this.synthetic) d.add(a);
     const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : [];
     for (const p of pads) {
       if (!p) continue;
@@ -44,5 +51,8 @@ export class Input {
   }
   held(a: Action) { return this.down.has(a); }
   pressed(a: Action) { return this.down.has(a) && !this.prev.has(a); }
-  endFrame() { this.prev = new Set(this.down); }
+  endFrame() {
+    this.prev.clear(); for (const a of this.down) this.prev.add(a);
+    this.latched.clear();
+  }
 }

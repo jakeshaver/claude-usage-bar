@@ -49,13 +49,12 @@ export function pxDither(ctx: Ctx, cx: number, cy: number, r: number, key: strin
 }
 
 /** Flat oval drop shadow (rows of rects), drawn translucent in palette ink. */
-export function pxShadow(ctx: Ctx, cx: number, cy: number, w: number, alpha = 0.3) {
+export function pxShadow(ctx: Ctx, cx: number, cy: number, w: number, _alpha = 0.3) {
+  // 50% checkerboard of ink (palette-exact; no globalAlpha tints that change with the floor)
   const x0 = Math.round(cx), y0 = Math.round(cy); const hw = Math.max(2, Math.round(w / 2));
-  ctx.globalAlpha = alpha; ctx.fillStyle = col('0');
-  ctx.fillRect(x0 - hw + 2, y0 - 1, hw * 2 - 4, 1);
-  ctx.fillRect(x0 - hw, y0, hw * 2, 2);
-  ctx.fillRect(x0 - hw + 2, y0 + 2, hw * 2 - 4, 1);
-  ctx.globalAlpha = 1;
+  ctx.fillStyle = col('0');
+  const row = (y: number, xa: number, xb: number) => { for (let x = xa + ((x0 + xa + y) & 1); x < xb; x += 2) ctx.fillRect(x0 + x, y, 1, 1); };
+  row(y0 - 1, -hw + 2, hw - 2); row(y0, -hw, hw); row(y0 + 1, -hw, hw); row(y0 + 2, -hw + 2, hw - 2);
 }
 
 /** Dashed pixel line (Bresenham), used for attack telegraphs. on/off in pixels; offset animates the dashes. */

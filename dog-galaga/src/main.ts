@@ -21,6 +21,7 @@ try {
   g.setScene('title');
   if (params.get('state')) api.setState(JSON.parse(atob(params.get('state')!)));
   if (params.get('autopilot')) g.autopilot = true;
+  if (params.get('touch')) g.state.settings.touch = params.get('touch') === 'off' ? 'off' : params.get('touch') === 'auto' ? 'auto' : 'on';
   const sc = params.get('showcase');
   if (sc) runShowcase(g, sc, params);
   else if (params.get('area')) g.mods.world.enterArea(params.get('area')!, +(params.get('wave') ?? 0));
