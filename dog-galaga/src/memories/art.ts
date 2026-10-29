@@ -39,9 +39,13 @@ const MAYA = [
   '..nnn.nnn..',
   '..000.000..',
 ];
+/** eyes shut: the photo's 2-frame idle (the subject blinks while the photo develops) */
+const MAYA_B = MAYA.map((r, i) => i === 3 ? '.b9999999b.' : i === 4 ? '.b9a090a9b.' : r);
 const MAYA_SIT = [...MAYA.slice(0, 14), '.nnnnnnnnn.', '.nnnnnnnnn.', '.000...000.'];
+const MAYA_SIT_B = [...MAYA_B.slice(0, 14), ...MAYA_SIT.slice(14)];
 /** Maya's head and shoulders (peeking out of forts, beds, car windows). */
 const MAYA_HEAD = MAYA.slice(0, 10);
+const MAYA_HEAD_B = MAYA_B.slice(0, 10);
 const POM = [
   '...66666...',
   '..6777776..',
@@ -55,7 +59,11 @@ const POM = [
   '..66...66..',
   '..77...77..',
 ];
+const POM_B = POM.map((r, i) => i === 2 ? '.667777766.' : i === 3 ? '.660707066.' : r);
 const POM_HEAD = POM.slice(0, 6);
+const POM_HEAD_B = POM_B.slice(0, 6);
+/** set while a scene is painted for its blink frame */
+let BLINK = false;
 const PUPPY = ['.a99a.', 'a9999a', '909909', '.9cc9.'];
 
 const spriteCache = new Map<string, HTMLCanvasElement>();
@@ -77,11 +85,11 @@ function fig(ctx: Ctx, name: string, rows: string[], x: number, y: number, flipY
   if (!flipY) { ctx.drawImage(s, Math.round(x), Math.round(y)); return; }
   ctx.save(); ctx.translate(Math.round(x), Math.round(y) + s.height); ctx.scale(1, -1); ctx.drawImage(s, 0, 0); ctx.restore();
 }
-const maya = (ctx: Ctx, x: number, y: number) => fig(ctx, 'maya', MAYA, x, y);
-const mayaSit = (ctx: Ctx, x: number, y: number) => fig(ctx, 'mayaSit', MAYA_SIT, x, y);
-const mayaHead = (ctx: Ctx, x: number, y: number) => fig(ctx, 'mayaHead', MAYA_HEAD, x, y);
-const pom = (ctx: Ctx, x: number, y: number, flipY = false) => fig(ctx, 'pom', POM, x, y, flipY);
-const pomHead = (ctx: Ctx, x: number, y: number) => fig(ctx, 'pomHead', POM_HEAD, x, y);
+const maya = (ctx: Ctx, x: number, y: number) => BLINK ? fig(ctx, 'mayaB', MAYA_B, x, y) : fig(ctx, 'maya', MAYA, x, y);
+const mayaSit = (ctx: Ctx, x: number, y: number) => BLINK ? fig(ctx, 'mayaSitB', MAYA_SIT_B, x, y) : fig(ctx, 'mayaSit', MAYA_SIT, x, y);
+const mayaHead = (ctx: Ctx, x: number, y: number) => BLINK ? fig(ctx, 'mayaHeadB', MAYA_HEAD_B, x, y) : fig(ctx, 'mayaHead', MAYA_HEAD, x, y);
+const pom = (ctx: Ctx, x: number, y: number, flipY = false) => BLINK ? fig(ctx, 'pomB', POM_B, x, y, flipY) : fig(ctx, 'pom', POM, x, y, flipY);
+const pomHead = (ctx: Ctx, x: number, y: number) => BLINK ? fig(ctx, 'pomHeadB', POM_HEAD_B, x, y) : fig(ctx, 'pomHead', POM_HEAD, x, y);
 const heart = (ctx: Ctx, x: number, y: number, k = 'd') => { R(ctx, x, y, 2, 1, k); R(ctx, x + 3, y, 2, 1, k); R(ctx, x, y + 1, 5, 1, k); R(ctx, x + 1, y + 2, 3, 1, k); P(ctx, x + 2, y + 3, k); };
 
 // ---------------------------------------------------------------- backdrops
@@ -234,13 +242,15 @@ const SCENES: Record<string, (ctx: Ctx) => void> = {
 function generic(ctx: Ctx) { sky(ctx, 'dusk', 28); grass(ctx, 28); maya(ctx, 12, 9); pom(ctx, 28, 24); heart(ctx, 26, 8); }
 
 const photoCache = new Map<string, HTMLCanvasElement>();
-/** The 56x44 photo of a memory (cached). */
-export function photo(id: string): HTMLCanvasElement {
-  let c = photoCache.get(id); if (c) return c;
+/** The 56x44 photo of a memory (cached). blink = the idle frame where Maya / Pom shut their eyes. */
+export function photo(id: string, blink = false): HTMLCanvasElement {
+  const key = blink ? id + ':b' : id;
+  let c = photoCache.get(key); if (c) return c;
   c = document.createElement('canvas'); c.width = PHOTO_W; c.height = PHOTO_H;
   const ctx = c.getContext('2d')!; ctx.imageSmoothingEnabled = false;
-  (SCENES[id] ?? generic)(ctx);
-  photoCache.set(id, c); return c;
+  BLINK = blink;
+  try { (SCENES[id] ?? generic)(ctx); } finally { BLINK = false; }
+  photoCache.set(key, c); return c;
 }
 
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
@@ -248,15 +258,15 @@ const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
  * Polaroid card (frame 64x62: 4px borders, 14px chin) with its photo at top-left (x, y).
  * dev 0..1 "develops" the photo: an ordered-dither veil of plum lifts pixel by pixel. scale is an integer.
  */
-export function polaroid(ctx: Ctx, id: string, x: number, y: number, dev = 1, scale = 1) {
+export function polaroid(ctx: Ctx, id: string, x: number, y: number, dev = 1, scale = 1, blink = false) {
   const s = Math.max(1, Math.round(scale)); x = Math.round(x); y = Math.round(y);
   const fw = 64 * s, fh = 62 * s;
-  D(ctx, x + 2 * s, y + 2 * s, fw, fh, '0');                     // drop shadow
+  R(ctx, x + 1, y + fh + 1, fw + 1, 1, '1'); R(ctx, x + fw + 1, y + 1, 1, fh + 1, '1');   // solid 1px drop shadow
   R(ctx, x - 1, y - 1, fw + 2, fh + 2, '0');
   R(ctx, x, y, fw, fh, '6'); R(ctx, x, y + fh - s, fw, s, '7'); R(ctx, x + fw - s, y, s, fh, '7');
   const px = x + 4 * s, py = y + 4 * s;
   R(ctx, px - 1, py - 1, PHOTO_W * s + 2, PHOTO_H * s + 2, 'o');
-  ctx.drawImage(photo(id), px, py, PHOTO_W * s, PHOTO_H * s);
+  ctx.drawImage(photo(id, blink && dev >= 1), px, py, PHOTO_W * s, PHOTO_H * s);
   if (dev < 1) {
     const th = Math.floor(dev * 17);
     for (let yy = 0; yy < PHOTO_H; yy++) for (let xx = 0; xx < PHOTO_W; xx++) {
@@ -271,24 +281,126 @@ export function polaroid(ctx: Ctx, id: string, x: number, y: number, dev = 1, sc
 }
 
 // ---------------------------------------------------------------- tiny polaroids in the playfield
-/** micro photo 8x6: sky + sun + grass, tinted by the memory so each drop looks a little different */
-const MICRO_SKY: Record<string, string> = { mem_07: '1', mem_10: 'c', mem_13: '3', mem_14: '1', mem_18: '2', mem_06: 'v', mem_16: 't', mem_11: 'c', mem_17: 'c', mem_09: 'k', mem_02: 's' };
-function microPhoto(ctx: Ctx, id: string, x: number, y: number, w: number, h: number) {
-  R(ctx, x, y, w, h, MICRO_SKY[id] ?? '5');
-  R(ctx, x, y + h - 2, w, 2, MICRO_SKY[id] === '1' || MICRO_SKY[id] === '2' ? '2' : 'j');
-  if (w >= 6) { P(ctx, x + w - 3, y + 1, 'f'); R(ctx, x + 1, y + h - 4, 2, 2, 'd'); R(ctx, x + 3, y + h - 3, 2, 1, '6'); }
+/**
+ * The real photo boiled down to a w x h thumbnail: each cell takes the most common palette colour of its
+ * block of the 56x44 scene, so a falling or carried polaroid shows a hint of that memory's actual picture.
+ */
+const microCache = new Map<string, HTMLCanvasElement>();
+function micro(id: string, w: number, h: number): HTMLCanvasElement {
+  const key = `${id}|${w}x${h}`; let c = microCache.get(key); if (c) return c;
+  c = document.createElement('canvas'); c.width = w; c.height = h;
+  const out = c.getContext('2d')!;
+  let data: Uint8ClampedArray | null = null;
+  try { data = photo(id).getContext('2d')!.getImageData(0, 0, PHOTO_W, PHOTO_H).data; } catch { data = null; }
+  if (!data) { R(out, 0, 0, w, h, '5'); R(out, 0, h - 2, w, 2, 'j'); }
+  else for (let cy = 0; cy < h; cy++) for (let cx = 0; cx < w; cx++) {
+    const x0 = Math.floor(cx * PHOTO_W / w), x1 = Math.floor((cx + 1) * PHOTO_W / w), y0 = Math.floor(cy * PHOTO_H / h), y1 = Math.floor((cy + 1) * PHOTO_H / h);
+    const n = new Map<number, number>(); let best = 0, bn = -1;
+    for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) {
+      const i = (yy * PHOTO_W + xx) * 4; const v = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
+      const k = (n.get(v) ?? 0) + 1; n.set(v, k); if (k > bn) { bn = k; best = v; }
+    }
+    out.fillStyle = '#' + best.toString(16).padStart(6, '0'); out.fillRect(cx, cy, 1, 1);
+  }
+  microCache.set(key, c); return c;
 }
-/** The little polaroid a memory cat holds in its mouth (9x10), swinging a pixel either way. */
-export function carriedPolaroid(ctx: Ctx, id: string, cx: number, cy: number, t: number) {
-  const sw = [0, 1, 0, -1][(t >> 4) & 3];
-  const x = Math.round(cx - 4 + sw), y = Math.round(cy);
-  R(ctx, x - 1, y - 1, 11, 12, '0'); R(ctx, x, y, 9, 10, '6'); R(ctx, x + 8, y, 1, 10, '7');
-  microPhoto(ctx, id, x + 1, y + 1, 7, 6);
-  if (((t >> 3) & 7) === 0) P(ctx, x + 2, y + 2, '6');   // a glint runs across the photo now and then
+
+/** The carried polaroid (9x10 card + 1px ink), cached per memory. Photo window 7x6 at (1,1). */
+const carryCache = new Map<string, HTMLCanvasElement>();
+function carryCard(id: string, flipY: boolean): HTMLCanvasElement {
+  const key = flipY ? id + ':u' : id;
+  let c = carryCache.get(key); if (c) return c;
+  c = document.createElement('canvas'); c.width = 11; c.height = 12;
+  const x = c.getContext('2d')!;
+  if (flipY) { x.translate(0, 12); x.scale(1, -1); }   // a belly-up cat holds it the same way, turned round
+  R(x, 0, 0, 11, 12, '0'); R(x, 1, 1, 9, 10, '6'); R(x, 9, 1, 1, 10, '7'); R(x, 1, 10, 9, 1, '7');
+  x.drawImage(micro(id, 7, 6), 2, 2);
+  carryCache.set(key, c); return c;
 }
 /**
+ * The little polaroid a memory cat holds in its mouth. (cx, chinY) is the cat's chin pixel; dir is +1 when the
+ * cat faces down (the photo hangs below), -1 when it flies belly-up (the photo points up). The card tucks 3px
+ * into the muzzle, a jaw line with two fangs bites its edge, and its far end swings a pixel per step.
+ * extra = more photos in the same bite (a bundle of lost memories): their corners peek out behind.
+ */
+export function carriedPolaroid(ctx: Ctx, id: string, cx: number, chinY: number, dir: 1 | -1, t: number, extra = 0) {
+  const sw = [0, 1, 0, -1][(t >> 4) & 3];
+  const card = carryCard(id, dir < 0);
+  const x = Math.round(cx) - 5, top = dir > 0 ? Math.round(chinY) - 2 : Math.round(chinY) + 2 - 11;
+  for (let e = Math.min(2, extra); e > 0; e--) { // peeking corners of the other photos
+    const ex = x + e * 3 - sw, ey = top + dir * e;
+    R(ctx, ex, ey, 11, 12, '0'); R(ctx, ex + 1, ey + 1, 9, 10, e === 1 ? '7' : '8');
+  }
+  // near half (by the mouth) stays put, far half swings: a 1px tilt
+  const near = 6;
+  if (dir > 0) { ctx.drawImage(card, 0, 0, 11, near, x, top, 11, near); ctx.drawImage(card, 0, near, 11, 12 - near, x + sw, top + near, 11, 12 - near); }
+  else { ctx.drawImage(card, 0, 12 - near, 11, near, x, top + 12 - near, 11, near); ctx.drawImage(card, 0, 0, 11, 12 - near, x + sw, top, 11, 12 - near); }
+  if (((t >> 3) & 7) === 0) P(ctx, x + 3 + sw, top + (dir > 0 ? 5 : 6), '6');   // a glint runs across the photo now and then
+  // the bite: jaw line over the card's edge, two fangs on the white border
+  const jy = Math.round(chinY);
+  R(ctx, x + 2, jy, 7, 1, '0'); P(ctx, x + 1, jy - dir, '0'); P(ctx, x + 9, jy - dir, '0');
+  P(ctx, x + 3, jy + dir, '6'); P(ctx, x + 7, jy + dir, '6');
+}
+
+/** Bounds of a sprite's muzzle: the lowest opaque row near the centre column (the chin of a down-facing cat). */
+const chinCache = new Map<string, { w: number; h: number; chin: number }>();
+export function spriteChin(rows: string[] | null, key: string) {
+  let v = chinCache.get(key); if (v) return v;
+  if (!rows) return { w: 32, h: 32, chin: 28 };
+  const h = rows.length, w = Math.max(...rows.map(r => r.length)), m = w >> 1; let chin = h - 1;
+  for (let y = h - 1; y >= 0; y--) if ([-2, -1, 0, 1].some(d => { const ch = rows[y][m + d]; return ch && ch !== '.' && ch !== ' '; })) { chin = y; break; }
+  v = { w, h, chin }; chinCache.set(key, v); return v;
+}
+
+/**
+ * Gold rim hugging a sprite's silhouette: 1px `key` right outside the sprite's own ink outline, then 1px of ink
+ * beyond it so the rim reads on light floors too. Drawn in front of the cat (it never touches sprite pixels).
+ */
+const rimCache = new Map<string, HTMLCanvasElement | null>();
+export function silhouetteRim(ctx: Ctx, rows: string[] | null, key: string, cacheKey: string, flipY: boolean, cx: number, cy: number) {
+  const ck = `${cacheKey}|${flipY ? 1 : 0}|${key}`;
+  let out = rimCache.get(ck);
+  if (out === undefined) {
+    out = null;
+    if (rows && typeof document !== 'undefined') {
+      const h = rows.length, w = Math.max(...rows.map(r => r.length));
+      const on = (x: number, y: number) => { const ch = rows[flipY ? h - 1 - y : y]?.[x]; return !!ch && ch !== '.' && ch !== ' '; };
+      const ring1 = (x: number, y: number) => !on(x, y) && (on(x + 1, y) || on(x - 1, y) || on(x, y + 1) || on(x, y - 1));
+      out = document.createElement('canvas'); out.width = w + 4; out.height = h + 4;
+      const c = out.getContext('2d')!;
+      for (let y = -2; y < h + 2; y++) for (let x = -2; x < w + 2; x++) {
+        if (on(x, y)) continue;
+        if (ring1(x, y)) { c.fillStyle = col(key); c.fillRect(x + 2, y + 2, 1, 1); continue; }
+        let near = false; for (let j = -1; j <= 1 && !near; j++) for (let i = -1; i <= 1; i++) if (ring1(x + i, y + j)) { near = true; break; }
+        if (near) { c.fillStyle = col('0'); c.fillRect(x + 2, y + 2, 1, 1); }
+      }
+    }
+    rimCache.set(ck, out);
+  }
+  if (out) ctx.drawImage(out, Math.round(cx - out.width / 2), Math.round(cy - out.height / 2));
+}
+
+/**
+ * The carrier's halo: one clean two-tone pixel ring (gold outside, white inside) between two ink rings, with
+ * bright pixels chasing round it. bright = the slow blink's lit frame (the inner band flares white).
+ */
+export function carrierHalo(ctx: Ctx, cx: number, cy: number, r: number, t: number, bright: boolean) {
+  pxRing(ctx, cx, cy, r + 1, '0'); pxRing(ctx, cx, cy, r - 2, '0');
+  pxRing(ctx, cx, cy, r, 'f'); pxRing(ctx, cx, cy, r - 1, bright ? '6' : 'f');
+  const n = 6;
+  for (let k = 0; k < n; k++) {
+    const a = t / 24 + (k * Math.PI * 2) / n;
+    for (let s = 0; s < 3; s++) { // a head pixel and a 2-pixel tail, all on the ring
+      const b = a - s * 0.06; const px = Math.round(cx + Math.cos(b) * (r - 0.5)), py = Math.round(cy + Math.sin(b) * (r - 0.5));
+      ctx.fillStyle = col(s === 0 ? '6' : s === 1 ? (bright ? '6' : 'f') : 'f'); ctx.fillRect(px, py, 1, 1);
+      if (s === 0) { ctx.fillStyle = col('6'); ctx.fillRect(Math.round(cx + Math.cos(b) * r), Math.round(cy + Math.sin(b) * r), 1, 1); }
+    }
+  }
+}
+
+/**
  * A falling polaroid (14x16) that flips over as it drifts, like a leaf: drawn by integer-width column scaling
- * (cos of the flip -> 14, 12, 8, 4, 2 px wide), front shows the photo, back is plain cream with a tape mark.
+ * (cos of the flip -> 14, 12, 8, 4, 2 px wide), front shows a 12x10 thumbnail of the photo, back is plain cream.
  */
 const flipCache = new Map<string, HTMLCanvasElement>();
 function flipFace(id: string, back: boolean): HTMLCanvasElement {
@@ -297,7 +409,7 @@ function flipFace(id: string, back: boolean): HTMLCanvasElement {
   const x = c.getContext('2d')!;
   R(x, 0, 0, 16, 18, '0'); R(x, 1, 1, 14, 16, back ? '7' : '6');
   if (back) { R(x, 1, 16, 14, 1, '8'); R(x, 5, 1, 6, 2, 'o'); R(x, 4, 8, 8, 1, '8'); R(x, 4, 11, 6, 1, '8'); }
-  else { R(x, 14, 1, 1, 16, '7'); microPhoto(x, id, 2, 2, 12, 10); R(x, 4, 14, 8, 1, 'o'); }
+  else { R(x, 14, 1, 1, 16, '7'); R(x, 1, 16, 14, 1, '7'); x.drawImage(micro(id, 12, 10), 2, 2); }
   flipCache.set(k, c); return c;
 }
 export function fallingPolaroid(ctx: Ctx, id: string, cx: number, cy: number, t: number, flip = true) {
