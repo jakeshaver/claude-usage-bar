@@ -56,6 +56,15 @@ export function ring(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: n
   ctx.fillStyle = c; cx = Math.round(cx); cy = Math.round(cy);
   ringPts(r).forEach(([a, b], i) => { if (onDash(i, dash, phase)) ctx.fillRect(cx + a, cy + b, 1, 1); });
 }
+/** Contiguous arcs on a 1px ring: `count` evenly spaced arcs of `len` px, rotated by `phase` px (no uneven dash gaps). */
+export function ringArcs(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, c: string, len: number, count: number, phase = 0) {
+  ctx.fillStyle = c; cx = Math.round(cx); cy = Math.round(cy);
+  const pts = ringPts(r); const n = pts.length;
+  for (let j = 0; j < count; j++) {
+    const st = Math.round(phase + j * n / count);
+    for (let k = 0; k < len; k++) { const [a, b] = pts[(((st + k) % n) + n) % n]; ctx.fillRect(cx + a, cy + b, 1, 1); }
+  }
+}
 const patCache = new Map<string, CanvasPattern | null>();
 type Pat = 'check' | 'sparse' | 'scan';
 /** Dither fill: 'check' = 50% checkerboard, 'sparse' = 25%, 'scan' = broken scanline every 3rd row. */
@@ -116,13 +125,13 @@ export function header(ctx: CanvasRenderingContext2D, s: string, x: number, y: n
   const lx = x + 6 + textWidth(s) + 4;
   if (lx < x + w - 4) { rect(ctx, lx, y + 3, x + w - lx - 3, 1, C.indigo); rect(ctx, x + w - 2, y + 1, 2, 5, darkOf(accent)); }
 }
-export function bar(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, p: number, color = C.hot, back = C.plum) {
+export function bar(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, p: number, color = C.hot, back = C.indigo) {
   const f = Math.round(w * Math.max(0, Math.min(1, p)));
   rect(ctx, x, y, w, h, back); rect(ctx, x, y, f, h, color);
   if (h > 2 && f > 0) rect(ctx, x, y, f, 1, lighter(color));
 }
 /** Segmented bar: n cells of width cw with 1px gaps. */
-export function segBar(ctx: CanvasRenderingContext2D, x: number, y: number, n: number, cw: number, h: number, p: number, color = C.line, back = C.plum) {
+export function segBar(ctx: CanvasRenderingContext2D, x: number, y: number, n: number, cw: number, h: number, p: number, color = C.line, back = C.indigo) {
   const on = Math.round(n * Math.max(0, Math.min(1, p)));
   for (let i = 0; i < n; i++) {
     rect(ctx, x + i * (cw + 1), y, cw, h, i < on ? color : back);
@@ -142,17 +151,39 @@ export function arrow(ctx: CanvasRenderingContext2D, x: number, y: number, dir: 
     if (dir === 'u') ctx.fillRect(x - i, y + i, len, 1);
   }
 }
-/** Keycap / button glyph: chamfered box with label. Returns its width. */
+/**
+ * Button glyph, drawn to look like the real control: 'SPACE' = keyboard keycap (chamfered box with a
+ * bottom lip); '(A)' = round face button (gamepad A/B, touch OK/TOOT), colored like the button;
+ * '[II]' = the on-screen pause key with its two bars. Returns its width.
+ */
+const BTN: Record<string, string> = { A: C.lime, B: C.hot, OK: C.hot, TOOT: C.hot, START: C.pale };
+export function capWidth(s: string) {
+  if (s === '[II]') return 13;
+  if (s.startsWith('(')) { const l = s.slice(1, -1); return l.length === 1 ? 11 : textWidth(l) + 9; }
+  return textWidth(s) + 7;
+}
 export function keycap(ctx: CanvasRenderingContext2D, s: string, x: number, y: number, color = C.line, align: 'left' | 'center' | 'right' = 'left') {
-  const w = textWidth(s) + 7; let bx = Math.round(x);
+  const w = capWidth(s); let bx = Math.round(x);
   if (align === 'center') bx = Math.round(x - w / 2); else if (align === 'right') bx = Math.round(x - w);
+  if (s === '[II]') {
+    chamferFill(ctx, bx, y - 2, w, 11, C.night, 2); chamferLine(ctx, bx, y - 2, w, 11, darkOf(C.line), 2);
+    rect(ctx, bx + 4, y, 2, 7, C.line); rect(ctx, bx + 7, y, 2, 7, C.line);
+    return w;
+  }
+  if (s.startsWith('(')) {
+    const l = s.slice(1, -1); const c = BTN[l] ?? color; const cut = l.length === 1 ? 4 : 4;
+    chamferFill(ctx, bx, y - 2, w, 11, darkOf(c), cut); chamferFill(ctx, bx + 1, y - 2, w - 2, 10, C.night, cut - 1);
+    chamferLine(ctx, bx, y - 2, w, 11, c, cut);
+    text(ctx, l, l.length === 1 ? bx + 3 : bx + 5, y, l.length === 1 ? c : lighter(c));
+    return w;
+  }
   chamferFill(ctx, bx, y - 2, w, 11, C.night, 2); chamferLine(ctx, bx, y - 2, w, 11, darkOf(color), 2);
   rect(ctx, bx + 2, y + 8, w - 4, 1, darkOf(color));
   text(ctx, s, bx + 4, y, color);
   return w;
 }
 export function hintWidth(pairs: [string, string][], gap = 12) {
-  return pairs.reduce((a, [k, c]) => a + textWidth(k) + 11 + textWidth(c), 0) + (pairs.length - 1) * gap;
+  return pairs.reduce((a, [k, c]) => a + capWidth(k) + 4 + textWidth(c), 0) + (pairs.length - 1) * gap;
 }
 /** Row of [keycap, caption] pairs, centered on cx. */
 export function hintRow(ctx: CanvasRenderingContext2D, pairs: [string, string][], cx: number, y: number, color = C.line, gap = 12) {
@@ -164,12 +195,17 @@ const ICONS: Record<string, string[]> = {
   heart: ['.##.##.', '#######', '#######', '.#####.', '..###..', '...#...', '.......'],
   star: ['...#...', '...#...', '#######', '.#####.', '..###..', '.##.##.', '.#...#.'],
   paw: ['.#.#.#.', '.#.#.#.', '.......', '..###..', '.#####.', '.#####.', '..#.#..'],
+  lock: ['..###..', '.#...#.', '.#...#.', '#######', '###.###', '###.###', '#######'],
+  clockface: ['.#####.', '#.....#', '#.....#', '#.....#', '#.....#', '#.....#', '.#####.'],
   clock: ['.#####.', '#..#..#', '#..#..#', '#..##.#', '#.....#', '#.....#', '.#####.'],
   flag: ['#####..', '######.', '######.', '#####..', '#......', '#......', '#......'],
   wave: ['#..#...', '.#..#..', '..#..#.', '.#..#..', '#..#...', '.......', '.......'],
   cat: ['#.....#', '##...##', '#######', '#.#.#.#', '#######', '.#####.', '..#.#..'],
   photo: ['#######', '#.....#', '#.#...#', '#...#.#', '#..####', '#######', '.......'],
   sun: ['#..#..#', '.#####.', '.#####.', '#######', '.#####.', '.#####.', '#..#..#'],
+  dusk: ['.......', '..###..', '.#####.', '#######', '.......', '#######', '.#.#.#.'],
+  dawn: ['#..#..#', '.#...#.', '..###..', '.#####.', '#######', '.......', '#######'],
+  skip: ['.......', '#..#..#', '##.##.#', '#######', '##.##.#', '#..#..#', '.......'],
   moon: ['..###..', '.##....', '##.....', '##.....', '##.....', '.##....', '..###..'],
   gear: ['.#.#.#.', '#######', '.##.##.', '###.###', '.##.##.', '#######', '.#.#.#.'],
   book: ['.##.##.', '#..#..#', '#..#..#', '#..#..#', '#..#..#', '.##.##.', '...#...'],
@@ -193,28 +229,75 @@ export function icon(ctx: CanvasRenderingContext2D, name: string, x: number, y: 
   if (shadow) { ctx.fillStyle = shadow; put(1, 1); }
   ctx.fillStyle = color; put(0, 0);
 }
-/** Vertical menu. Selected row: chamfered plum bar, hot caps, animated pixel arrows. */
-export function menu(ctx: CanvasRenderingContext2D, items: string[], sel: number, cx: number, y: number, t: number, gap = 16, icons?: string[], width?: number) {
+export interface Row { x: number; y: number; w: number; h: number }
+/**
+ * Vertical menu. Selected row: chamfered plum bar, hot caps, animated pixel arrows.
+ * opts.center centers every row (icon + label) on cx instead of sharing a left edge.
+ * opts.disabled rows draw dimmed with an optional right-hand tag. Returns each row's hit rect (touch).
+ */
+export function menu(ctx: CanvasRenderingContext2D, items: string[], sel: number, cx: number, y: number, t: number, gap = 16, icons?: string[], width?: number, opts: { center?: boolean; disabled?: boolean[]; tag?: string[] } = {}): Row[] {
   const maxW = Math.max(...items.map(s => textWidth(s))) + (icons ? 12 : 0);
   const w = width ?? maxW + 40;
-  const tx = Math.round(cx - maxW / 2) + (icons ? 12 : 0);
+  const bx = Math.round(cx - w / 2);
+  const rows: Row[] = [];
   items.forEach((it, i) => {
-    const on = i === sel; const yy = y + i * gap;
+    const on = i === sel; const yy = y + i * gap; const off = !!opts.disabled?.[i];
+    rows.push({ x: bx, y: yy - 4, w, h: Math.max(13, gap) });
     if (on) {
-      const bx = Math.round(cx - w / 2);
       chamferFill(ctx, bx, yy - 3, w, 13, C.plum, 3); chamferLine(ctx, bx, yy - 3, w, 13, C.mag, 3);
       rect(ctx, bx + 1, yy, 1, 7, C.hot); rect(ctx, bx + w - 2, yy, 1, 7, C.hot);
       const o = (t >> 3) % 2;
       if (!icons) { arrow(ctx, bx + 8 + o, yy + 3, 'r', 4, C.gold); arrow(ctx, bx + w - 9 - o, yy + 3, 'l', 4, C.gold); }
     }
-    if (icons?.[i]) icon(ctx, icons[i], tx - 12 - (on && (t >> 3) % 2 ? 1 : 0), yy, on ? C.gold : C.peri, on ? C.mag : undefined);
-    text(ctx, it, tx, yy, on ? C.gold : C.text, { shadow: on ? C.mag : C.ink });
+    const rowW = textWidth(it) + (icons ? 12 : 0);
+    const tx = opts.tag?.some(Boolean) ? bx + 30 : (opts.center ? Math.round(cx - rowW / 2) : Math.round(cx - maxW / 2)) + (icons ? 12 : 0);
+    const ic = off ? C.peri : on ? C.gold : C.dim;
+    if (icons?.[i]) icon(ctx, icons[i], tx - 12 - (on && (t >> 3) % 2 ? 1 : 0), yy, ic, on ? C.mag : undefined);
+    text(ctx, it, tx, yy, off ? C.dim : on ? C.gold : C.text, { shadow: on ? C.mag : C.ink });
+    const tag = opts.tag?.[i];
+    if (tag) { const tw = textWidth(tag) + 6; const tx2 = bx + w - tw - 6; chamferFill(ctx, tx2, yy - 2, tw, 11, C.ink, 2); chamferLine(ctx, tx2, yy - 2, tw, 11, C.peri, 2); text(ctx, tag, tx2 + 3, yy, C.dim); }
   });
+  return rows;
+}
+/** Corner tick brackets just outside a rect (the HUD's targeting-frame motif). */
+export function ticks(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, c: string, len = 6, gap = 3) {
+  const l = x - gap, r = x + w - 1 + gap, tp = y - gap, b = y + h - 1 + gap;
+  rect(ctx, l, tp, len, 1, c); rect(ctx, l, tp, 1, len, c);
+  rect(ctx, r - len + 1, tp, len, 1, c); rect(ctx, r, tp, 1, len, c);
+  rect(ctx, l, b, len, 1, c); rect(ctx, l, b - len + 1, 1, len, c);
+  rect(ctx, r - len + 1, b, len, 1, c); rect(ctx, r, b - len + 1, 1, len, c);
+}
+// ---- palette remap dimming: every pixel maps to a darker palette color (calm, no dither noise)
+let remap: Map<number, number> | null = null;
+const rgbOf = (h: string) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+function nearestDark(r: number, g: number, b: number): number {
+  // target: 38% brightness pulled toward deep navy, then snapped to the nearest palette color
+  const tr = r * 0.34 + 18, tg = g * 0.34 + 16, tb = b * 0.34 + 34;
+  let best = 0, bd = 1e9;
+  P.forEach((h, i) => { const [pr, pg, pb] = rgbOf(h); const d = (pr - tr) ** 2 * 0.8 + (pg - tg) ** 2 + (pb - tb) ** 2 * 0.7; if (d < bd) { bd = d; best = i; } });
+  const [pr, pg, pb] = rgbOf(P[best]);
+  return (255 << 24 | pb << 16 | pg << 8 | pr) >>> 0; // little-endian RGBA as uint32
+}
+/** Darken a screen rect by remapping each pixel to a dark palette neighbor (pause/modal backdrop). */
+export function dimRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
+  if (!remap) remap = new Map();
+  let img: ImageData;
+  try { img = ctx.getImageData(x, y, w, h); } catch { dither(ctx, x, y, w, h, C.ink); return; }
+  const d = new Uint32Array(img.data.buffer);
+  for (let i = 0; i < d.length; i++) {
+    const v = d[i]; let o = remap.get(v);
+    if (o === undefined) { o = nearestDark(v & 255, (v >> 8) & 255, (v >> 16) & 255); if (remap.size < 8192) remap.set(v, o); }
+    d[i] = o;
+  }
+  ctx.putImageData(img, x, y);
 }
 export type Device = 'keyboard' | 'gamepad' | 'touch';
-/** Device-aware button names for hints. */
+/**
+ * Device-aware button names for hints. Gamepad and touch use round face-button glyphs '(A)' and the
+ * pause-key glyph '[II]' so every prompt matches the control the player actually holds or sees.
+ */
 export function keys(dev: Device) {
-  if (dev === 'gamepad') return { ok: 'A', back: 'B', pause: 'START', move: 'D-PAD', fire: 'A' };
-  if (dev === 'touch') return { ok: 'TOOT', back: 'II', pause: 'II', move: 'PAD', fire: 'TOOT' };
-  return { ok: 'SPACE', back: 'ESC', pause: 'ESC', move: 'ARROWS', fire: 'SPACE' };
+  if (dev === 'gamepad') return { ok: '(A)', back: '(B)', pause: '(START)', move: 'D-PAD', fire: '(A)', next: '(A)', skip: '(B)', adj: 'D-PAD' };
+  if (dev === 'touch') return { ok: '(OK)', back: '[II]', pause: '[II]', move: 'PAD', fire: '(TOOT)', next: '(OK)', skip: '[II]', adj: 'PAD' };
+  return { ok: 'SPACE', back: 'ESC', pause: 'ESC', move: 'ARROWS', fire: 'SPACE', next: 'SPACE', skip: 'X', adj: '< >' };
 }

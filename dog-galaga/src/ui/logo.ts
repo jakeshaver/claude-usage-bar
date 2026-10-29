@@ -1,6 +1,6 @@
 import { col } from '../core/palette';
 // The POODLE PATROL logo: custom chunky 10x12 letterforms, rasterized once into a cached canvas with
-// a bevel (top highlight, chrome horizon line, dark right edge), 3D extrusion, ink outline and a
+// a bevel (outer top highlight, chrome horizon line, dark right edge), 3D extrusion, ink outline and a
 // dithered neon glow. All colors are palette keys; every pixel is placed explicitly.
 const GLYPHS: Record<string, string[]> = {
   P: ['########..', '#########.', '###...####', '###....###', '###....###', '###...####', '#########.', '########..', '###.......', '###.......', '###.......', '###.......'],
@@ -75,7 +75,9 @@ export function logoWord(word: string, s: number, sc: Scheme, depth = s + 1, glo
       if (y === horizon) k = sc.dark;
       else if (f > 0.84) k = sc.light;
       if (!at(M, x + 1, y) || (!at(M, x, y + 1) && f < 0.84)) k = sc.dark;
-      if (!at(M, x, y - 1) || (!at(M, x - 1, y) && f < 0.5)) k = sc.hi;
+      // bevel highlight only on outer top/left edges (never inside the counters of O, D, P, A, R)
+      const outU = y > 0 && O[i - Wd] === 1, outL = x > 0 && O[i - 1] === 1;
+      if (outU || (outL && f < 0.5)) k = sc.hi;
       put(x, y, k); shine.push(x, y);
     } else if (S[i] === 2) {
       put(x, y, at(S, x, y + 1) ? (at(S, x - 1, y) ? sc.ext : sc.dark) : sc.extLo);
