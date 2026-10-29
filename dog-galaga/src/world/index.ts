@@ -157,9 +157,9 @@ class World implements Module {
 
   private shadeOff = false;
   render(g: Game, r: any) {
-    // The ground under the rack is dimmed by world (bg.ts RACK_DIM: a one-step remap inside a soft organic blob), so
-    // interaction's older hard-edged 50% ink checker band would double it and read as a selection box. Until interaction
-    // drops renderShade() (docs/core-requests/world.md, Polish 5), switch it off at runtime.
+    // No band or dim behind the formation rack: the stages keep a calm, low-contrast ground there instead. Interaction's
+    // older hard-edged 50% ink checker band reads as a selection box, so until interaction drops renderShade()
+    // (docs/core-requests/world.md, Polish 5) it is switched off at runtime.
     if (!this.shadeOff) { const it: any = g.mods.interaction; if (it && typeof it.renderShade === 'function') { it.renderShade = () => {}; this.shadeOff = true; } }
     const sc = g.state.scene;
     if (sc === 'play' || sc === 'bonus' || sc === 'dialogue') this.bg.render(g, r);

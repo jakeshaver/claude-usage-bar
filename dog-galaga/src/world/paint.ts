@@ -34,7 +34,7 @@ export const SHADE_TOD: Record<Tod, Ramp> = {
   day: SHADE,
   night: remap('2:1 q:1 3:2 k:1 j:1 n:1 p:2 4:3 u:2 o:q 9:b a:v 8:p 1:0', SHADE),
   dawn: remap('k:1 j:k i:k q:2 p:q o:3 7:o 8:p 9:b a:b b:v h:a v:1 3:2 4:3 5:4 6:5 n:2 m:n c:d', SHADE),
-  dusk: remap('k:1 j:b i:b q:v p:q o:p 8:a 9:b a:v b:v h:b g:h 4:u 3:2 2:v n:v m:n 1:0 e:v u:v', SHADE),
+  dusk: remap('k:v j:b i:b q:v p:q o:p 8:a 9:b a:v b:v h:b g:h 4:u 3:2 2:v n:v m:n 1:0 e:v u:v', SHADE),
 };
 // ---------------------------------------------------------------- lighting
 // Time of day is a PALETTE REMAP: each time of day is a palette index -> palette index table applied once,
@@ -66,7 +66,7 @@ export const TOD_RAMP: Record<Tod, Ramp> = {
   // stone cools to indigo for contrast against the warm ground, blues to violet
   dusk: remap('6:7 7:8 8:9 9:a a:b b:v c:d f:g g:h h:b r:h i:f j:k l:m s:m m:n o:p p:q 1:v 2:v 3:2 4:3 5:4 t:u'),
   // dark but legible: lawns one dark teal-green (blades and tufts melt into it), stone periwinkle/indigo, creams to periwinkle
-  night: remap('6:o 7:p 8:q 9:a a:b b:v c:e d:e e:v f:9 g:a h:b r:e i:k j:k k:1 l:m m:n n:2 s:p o:p p:q q:1 1:0 2:1 3:2 4:3 5:4 t:u u:2'),
+  night: remap('6:o 7:p 8:q 9:a a:b b:v c:e d:e e:v f:9 g:a h:b r:e i:k j:q k:1 l:m m:n n:2 s:p o:p p:q q:1 1:0 2:1 3:2 4:3 5:4 t:u u:2'),
 };
 /** Low sun on the sunward faces: warm amber at dusk (west faces), peach-pink at dawn (top / east edges). */
 export const RIM_RAMP: Partial<Record<Tod, Ramp>> = {
@@ -80,8 +80,9 @@ export const RIM_RAMP: Partial<Record<Tod, Ramp>> = {
  * Four steps from the rim inward (edge, middle, core, a small hot centre). Grass keeps its blades (lit green,
  * then gold-tipped yellow-green), water lifts through teal. No pixel is painted with a flat fill.
  */
-// sodium light: dark greys / navy lift through plum and warm browns to amber-tan and cream (never lavender or white)
-const WARM_LIFT = remap('0:1 1:v v:b b:a a:9 h:g 9:8 8:7 7:7 6:6 2:v q:a 3:a p:9 4:9 o:8 5:8 e:h d:g c:7 r:g g:f f:7 u:a t:8 n:m m:s l:s s:7');
+// warm light lifts each material in its own family: night-dark ground through plum to warm brown, mid greys a neutral
+// step first and then into light brown / tan at the heart, woods to lighter woods, oranges to yellow, blues through teal (never a brown overlay, never lavender or white)
+const WARM_LIFT = remap('0:1 1:v v:b b:a a:9 9:8 8:7 7:7 6:6 2:v q:p 3:p p:9 4:9 o:8 5:8 h:g g:f f:7 e:h d:g c:7 r:g u:3 t:8 n:m m:s l:s s:7');
 function liftN(v: number, n: number) { for (let i = 0; i < n; i++) v = WARM_LIFT.a[v]; return v; }
 const GK = KEY.indexOf('k'), GJ = KEY.indexOf('j'), GI = KEY.indexOf('i');
 /** grass under a lamp, by ring (edge..hot) for the day indices k (ground), j (blade), i (tip) */

@@ -265,3 +265,12 @@ night with day-coloured pendant pools); sky and space tilesets keep their own ba
   shade indoors at dawn), `poolWobble` (lamp pool outline lumpiness, factory 0.25) and `grassLit` (lit-grass colours per
   lamp ring; the park uses a low, dark-green set so night pools have no bright green halo). Door-light spills are now
   clean stepped bands with no dithered tail.
+- Polish 5 round 3: world no longer dims the ground under the rack at all (the `RACK_DIM` blob in `world/bg.ts` read as a
+  hard stepped block in the alley and as a black hole in the night harbour, so it is gone; the stages rely on a calm,
+  low-contrast ground instead). Please drop the ARCHITECTURE sentence about "Busy stages dim the ground under the rack ...
+  `RACK_DIM`". The `renderShade` runtime shim in `world/index.ts` stays until interaction deletes `renderShade()`.
+- ARCHITECTURE.md (wording, optional): `WARM_LIFT` now lifts night-dark ground through plum to warm brown, and mid greys a
+  neutral step first and then into light brown / tan (lamp pools brighten each material in its own family). Dusk lawns
+  draw each blade's shadow as a long plum dash with gold low-sun bands across the grass (`lawnSunBands`); dusk alley light
+  comes through gaps between the west tenements as warm shafts; the mothership hull is gunmetal at every hour and only
+  its window lights change colour (pink dawn, amber dusk, violet night).
