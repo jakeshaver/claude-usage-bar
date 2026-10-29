@@ -1,10 +1,10 @@
 {
- "updated": "2026-10-28",
- "phase": "wave1-round1-integrated",
+ "updated": "2026-10-29",
+ "phase": "wave1-complete-integrated",
  "build": {
   "ok": true,
-  "jsKB": 261,
-  "gzipKB": 53,
+  "jsKB": 513,
+  "gzipKB": 145,
   "budgetKB": 1024
  },
  "lint": {
@@ -19,10 +19,10 @@
    "ending_true"
   ],
   "botMinutes": [
-   32,
-   37
+   31,
+   33
   ],
-  "note": "perfect-aim bot; watch human playtime target 60-120 min"
+  "note": "perfect-aim bot; human estimate 65-100 min"
  },
  "tests": {
   "passed": 7,
@@ -35,33 +35,39 @@
    "status": "built"
   },
   "art": {
-   "score": 6.3,
-   "status": "round 1 done, failed gauntlet (<8.5)",
-   "placeholders": 0
+   "score": 6.6,
+   "status": "wave1 6.6 (4 rounds); Pom redrawn by integrator after gauntlet, not yet re-judged",
+   "placeholders": 0,
+   "history": null
   },
   "world": {
-   "score": 7.1,
-   "status": "round 1 done, failed gauntlet (<8.5)"
+   "score": 7.4,
+   "status": "wave1: 4 rounds, did not pass 8.5",
+   "history": null
   },
   "player": {
    "score": null,
    "status": "v1"
   },
   "interaction": {
-   "score": null,
-   "status": "round 1 built; critic lost to container restart, re-running"
+   "score": 7.8,
+   "status": "wave1: 4 rounds, did not pass 8.5",
+   "history": null
   },
   "ui": {
-   "score": 7.4,
-   "status": "round 1 done, failed gauntlet (<8.5)"
+   "score": 8.1,
+   "status": "wave1: 4 rounds, did not pass 8.5",
+   "history": null
   },
   "audio": {
-   "score": null,
-   "status": "round 1 built; critic lost to container restart, re-running"
+   "score": 7.2,
+   "status": "wave1: 4 rounds, did not pass 8.5",
+   "history": null
   },
   "effects": {
-   "score": null,
-   "status": "round 1 built; critic lost to container restart, re-running"
+   "score": 8.0,
+   "status": "wave1: 4 rounds, did not pass 8.5",
+   "history": null
   },
   "quest": {
    "score": null,
@@ -85,10 +91,11 @@
   }
  },
  "openIssues": [
-  "art 6.3: poodle silhouette, breed template reuse, bengal=tabby, persian reads as skull",
-  "world 7.1: dark cats vanish on dark bgs, day sky clouds dark, tod hue swaps, noisy cafe/factory",
-  "ui 7.4: HUD dead zones, dialogue box covers player, sector map flat",
-  "perf: rooftops 36fps in headless chromium"
+  "art: persian/scottishfold/russianblue/bengal breed reads at 1x; fur speckle on bosses",
+  "world: dawn/dusk weak, night flattens values, backyard noisy, park lamp-pool bug",
+  "audio: critic cannot hear; 7.2 based on structure",
+  "interaction: turd readability, boss tells",
+  "ui: scanner low value, small toast-under-pause glitch"
  ],
- "nextStep": "Resume wave1 gauntlet rounds 2-4 (workflow resume). Weakest: art (6.3)."
+ "nextStep": "Wave 2 (systems): player, quest, memories, minigames, journal, save builders + critics. Then whole-game final gate. Weakest module: art (6.6)."
 }

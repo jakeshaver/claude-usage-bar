@@ -11,3 +11,4 @@ Project lives in `dog-galaga/` inside this repo. Read `ARCHITECTURE.md` first.
 - Modules are constructed per game in `src/core/boot.ts` (tests create many games).
 - Headless mode (`createGame({headless:true})`) never touches DOM; render/overlay are browser-only.
 - Math.random and network calls are banned in src/ (linter enforces).
+- Pushing to the cloud branch is allowed (user updated the rule); GitHub App access is currently missing (403).
