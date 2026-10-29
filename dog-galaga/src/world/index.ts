@@ -302,7 +302,12 @@ function titleCard(ctx: CanvasRenderingContext2D, name: string, sub: string, idx
   const nm = typed(name, 28, 1.2); const nw = textWidth(name, 2);
   text(ctx, nm, cx - nw / 2, cy - 7, '#ffffff', { scale: 2, shadow: MAG });
   if (Math.floor(e / 6) % 2 === 0 && nm.length < name.length) { ctx.fillStyle = CYAN; ctx.fillRect(cx - nw / 2 + textWidth(nm, 2) + 2, cy - 7, 8, 14); }
-  if (sub) { const st = typed(sub, 46, 2); text(ctx, st, cx - textWidth(sub) / 2, cy + 13, VIOLET); }
+  if (sub && e > 46) { // whole subtitle revealed by a left-to-right wipe over 12 ticks (never a truncated line)
+    const sw = textWidth(sub), sx = cx - sw / 2, k = Math.min(1, (e - 46) / 12);
+    ctx.save(); ctx.beginPath(); ctx.rect(sx - 1, cy + 11, Math.ceil((sw + 2) * k), 12); ctx.clip();
+    text(ctx, sub, sx, cy + 13, VIOLET); ctx.restore();
+    if (k < 1) { ctx.fillStyle = CYAN; ctx.fillRect(sx - 1 + Math.ceil((sw + 2) * k), cy + 11, 1, 9); }
+  }
   // progress bar
   const bw = Math.round((x1 - x0 - 40) * Math.min(1, Math.max(0, (e - 30) / 80)));
   ctx.fillStyle = DEEP; ctx.fillRect(x0 + 20, y1 - 6, x1 - x0 - 40, 2); ctx.fillStyle = CYAN; ctx.fillRect(x0 + 20, y1 - 6, bw, 2);
