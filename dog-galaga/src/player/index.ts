@@ -4,12 +4,13 @@ import { drawSprite } from '../art/sprite';
 import { text } from '../art/font';
 import { col } from '../core/palette';
 import { autopilotInput } from './autopilot';
-import { shadowOval, hitDot, dot, flame, tootPuff, ribbon, scarfTail, shieldRing, drawNapPose } from './draw';
+import { shadowOval, shadowInk, shadowDX, hitDot, dot, flame, tootPuff, ribbon, scarfTail, shieldRing, drawNapPose } from './draw';
 import { POM_NOZZLES, POM_KNOT, PUP_NOZZLES } from './pom-art';
 import { galleryModule } from './gallery';
 import './sprites';
 
-export const MIN_Y = 200, MAX_Y = 336;
+// Galaga keeps the ship well clear of the bottom edge: at MAX_Y her flames, shadow and the shield bubble all fit
+export const MIN_Y = 196, MAX_Y = 316;
 
 const HIST = 16;            // ticks of position history kept for the wingpup's lag
 const PUP_LAG = 9;          // the pup flies where Pom was this many ticks ago
@@ -18,7 +19,7 @@ const TRAIL = 8;            // ticks of nozzle history behind each exhaust ribbo
 const NAP_CURL = 22;        // ticks of the "spin and flop" before Pom curls up
 const WAKE_STRETCH = 9, WAKE_DROP = 6, WAKE_FLY = 16;   // wake-up: stretch + yawn, drop off-screen, fly back in
 const WAKE = WAKE_STRETCH + WAKE_DROP + WAKE_FLY;
-const START_X = WORLD_W / 2, START_Y = 316, BELOW = H + 26;
+const START_X = WORLD_W / 2, START_Y = 300, BELOW = H + 26;
 const ease = (k: number) => 1 - Math.pow(1 - k, 3);
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const cam0 = (x: number) => clamp(x - PF_W / 2, 0, WORLD_W - PF_W);
@@ -36,7 +37,7 @@ const noise = (n: number) => { let h = (n * 374761393) | 0; h = Math.imul(h ^ (h
 class Player implements Module {
   id = 'player';
   api = this;
-  x = WORLD_W / 2; y = 316; vx = 0; vy = 0;
+  x = WORLD_W / 2; y = START_Y; vx = 0; vy = 0;
   invuln = 0; invulnMax = 0; cooldown = 0; anim = 0;
   bank = 0;                 // -1 (banking left) .. 1 (banking right), eased
   kick = 0;                 // recoil ticks after a toot
@@ -47,7 +48,7 @@ class Player implements Module {
   hx: number[] = []; hy: number[] = [];   // position history (newest last)
   trX: number[] = []; trY: number[] = []; // Pom positions for the exhaust ribbons (newest last)
   puX: number[] = []; puY: number[] = []; // pup positions for its ribbon
-  pupX = WORLD_W / 2 + PUP_DX; pupY = 320; hadBuddy = false;
+  pupX = WORLD_W / 2 + PUP_DX; pupY = START_Y + 4; hadBuddy = false;
   pupSide = 1; pupOff = PUP_DX; bankHold = 0;
   sparks: Spark[] = [];
   napT = -1;                // ticks into the current nap (-1: awake)
@@ -269,6 +270,12 @@ class Player implements Module {
     if (this.trX.length > TRAIL) { this.trX.shift(); this.trY.shift(); }
     if (this.buddy) { this.puX.push(this.pupX); this.puY.push(this.pupY); if (this.puX.length > 5) { this.puX.shift(); this.puY.shift(); } }
     else this.puX.length = this.puY.length = 0;
+    // normal flight: a lone 1px ember drops off a pod every 7 ticks so the exhaust always looks alive
+    if (!(this.powers.speed > 0) && n % 7 === 0 && this.sparks.length < 24 && this.wakeT <= 0) {
+      const r = noise(n * 3 + 1), noz = POM_NOZZLES[this.frameName()] ?? [];
+      const [ox, oy] = noz[(n / 7) & 1] ?? noz[0] ?? [0, 0];
+      this.sparks.push({ x: this.x + ox + (r - 0.5) * 2, y: this.y + oy + 8, vx: (r - 0.5) * 0.5 - this.vx * 0.2, vy: 1.1 + r * 0.4, t: 0, life: 9 });
+    }
     // boosting (speed power-up): a few loose stars kick out of the exhaust
     if (this.powers.speed > 0 && n % 4 === 0 && this.sparks.length < 24) {
       const r = noise(n), [ox, oy] = (POM_NOZZLES[this.frameName()] ?? [[0, 0]])[n & 1] ?? [0, 0];
@@ -287,6 +294,24 @@ class Player implements Module {
       const px = sx + (hx - nowX) * 0.55, py = Math.max(pts[i - 1][1] + 0.6, sy + (hy - nowY) + i * 1.2);
       if (py - sy > cap) { const k = (cap - (pts[i - 1][1] - sy)) / Math.max(0.01, py - pts[i - 1][1]); pts.push([pts[i - 1][0] + (px - pts[i - 1][0]) * k, sy + cap]); break; }
       pts.push([px, py]);
+    }
+    return pts;
+  }
+  /** Scarf tail polyline from the knot: hangs down and flutters when idle, streams opposite to her sideways
+   *  motion (along the same position history as the exhaust ribbons) and stretches out when she climbs.
+   *  Always mostly downward, so it never reaches across to the wingpup. */
+  scarfPts(kx: number, ky: number, side: number, t: number): [number, number][] {
+    const n = this.trX.length, moving = Math.abs(this.vx) + Math.abs(this.vy) > 0.4;
+    const len = Math.round(8 + clamp(-this.vy, 0, 3) * 0.8 + Math.abs(this.vx) * 0.5);
+    const dirX = clamp(-this.vx * 0.3 + side * 0.42, -0.8, 0.8);
+    const amp = moving ? 0.9 : 1.4;
+    const pts: [number, number][] = [];
+    for (let i = 0; i <= len; i += 2) {
+      const j = Math.min(n - 1, i >> 1), hx = n ? this.trX[n - 1 - j] - this.x : 0, hy = n ? this.trY[n - 1 - j] - this.y : 0;
+      const f = Math.sin(i * 0.6 - t * 0.28) * amp * (i / len);
+      const x = kx + dirX * i + clamp(hx * 0.45, -5, 5) + f;
+      const y = ky + Math.max(i * 0.55, i * 0.9 + clamp(hy * 0.35, -3, 4)) - f * dirX * 0.6;
+      pts.push([x, y]);
     }
     return pts;
   }
@@ -316,7 +341,7 @@ class Player implements Module {
     const t = this.anim;
     const tod = g.state.tod, lit = tod === 'dusk' || tod === 'night' ? '@' + tod : '';
     if (this.sparks.length) r.push(2, this.y - 40, (ctx: CanvasRenderingContext2D) => {
-      for (const s of this.sparks) { const k = s.t / s.life; if (k < 0.8) dot(ctx, sx(s.x), s.y, (s.t >> 2) & 1 ? '6' : 'f', k < 0.4); }
+      for (const s of this.sparks) { const k = s.t / s.life; if (k < 0.8) dot(ctx, sx(s.x), s.y, s.life < 12 ? (k < 0.4 ? 'f' : 'g') : (s.t >> 2) & 1 ? '6' : 'f', s.life >= 12 && k < 0.4); }
     });
     if (g.mods.world?.phase === 'nap' && this.napT >= 0) return this.renderNap(r, ground, sx, tod);
     const blink = this.invuln > 0 && !g.paused && this.wakeT <= 0;   // solid while paused and during the wake-up
@@ -330,10 +355,10 @@ class Player implements Module {
     const nozzles = this.wakeT > WAKE - WAKE_STRETCH ? [] : POM_NOZZLES[base] ?? [];
     if (ground && !hidden) {
       // shadow: light from the upper left; longer at dusk, faint and small at night, none in the sky/space
-      const night = tod === 'night', dusk = tod === 'dusk';
-      r.push(1, this.y, (ctx: CanvasRenderingContext2D) => shadowOval(ctx, px + (dusk ? 9 : night ? 4 : 6), Math.round(this.y) + 19 - bob, (dusk ? 22 : night ? 14 : 20) + bob, night ? 3 : 5, 'v', night));
+      const night = tod === 'night', long = tod === 'dusk' || tod === 'dawn', ink = shadowInk(g.state.areaId, tod);
+      r.push(1, this.y, (ctx: CanvasRenderingContext2D) => shadowOval(ctx, px + shadowDX(tod), Math.round(this.y) + 19 - bob, (long ? 22 : night ? 14 : 20) + bob, night ? 3 : 5, ink, night));
     }
-    if (hidden) { this.renderPup(r, ground, sx, lit, tod, t); return; }
+    if (hidden) { this.renderPup(r, ground, sx, lit, tod, t, g.state.areaId); return; }
     r.push(2, this.y, (ctx: CanvasRenderingContext2D) => {
       // exhaust ribbons from the outer pods (tucked far pods only show a flame)
       // exhaust ribbons (the tucked far pod leaves a thinner 1px one)
@@ -341,14 +366,11 @@ class Player implements Module {
         const len = this.flameLen(w), cap = (this.vy < -0.5 ? 13 : this.vy > 0.5 ? 4 : 7) - (w <= 2 ? 2 : 0);
         ribbon(ctx, this.ribbonPts(this.trX, this.trY, px + ox, py + oy + 1 + len, cap), w <= 2 ? 1 : 2, t);
       }
-      drawSprite(ctx, name, px, py, { frame, flash: whiteFlash });
-      // scarf tail: streams longer and flatter when she flies left or climbs, flutters short when she goes right
+      // hit flash: a white silhouette that keeps its 1px ink outline and face, so it never reads as a hole
+      drawSprite(ctx, whiteFlash ? base + '!w' : name, px, py, { frame });
       const kn = POM_KNOT[base];
-      if (kn && !whiteFlash) {
-        const len = Math.round(clamp(10 - this.vx * 1.2 + Math.max(0, -this.vy) * 0.6, 7, 13));
-        scarfTail(ctx, px + kn[0] + 1, py + kn[1] - 1, 1, t, len, this.vx > 0.5 ? 2 : 1.3);
-      }
-      if (!whiteFlash) for (const [ox, oy, w] of nozzles) flame(ctx, px + ox - w / 2, py + oy + 1, w, this.flameLen(w));
+      if (kn && !whiteFlash) scarfTail(ctx, this.scarfPts(px + kn[0], py + kn[1], kn[2], t));
+      if (!whiteFlash) for (const [ox, oy, w] of nozzles) flame(ctx, px + ox - w / 2, py + oy + 1, w, this.flameLen(w), t);
       if (tod === 'night' && !whiteFlash) {
         // warm pod glow spilling onto her flanks
         ctx.fillStyle = col('g');
@@ -357,37 +379,37 @@ class Player implements Module {
       if (this.kick > 0) tootPuff(ctx, px, py - 18, this.kick > 2 ? 0 : 1);
       const sh = this.powers.shield ?? 0;
       if (sh > 0 && !(sh < 180 && (t >> 3) % 2)) {
-        const rr = 20 + (Math.sin(t / 22) > 0.2 ? 1 : 0);      // gentle 1px breathing
-        shieldRing(ctx, px, py + 1, rr, 'm', 's');
+        const rr = 19 + (Math.sin(t / 22) > 0.2 ? 1 : 0);      // gentle 1px breathing
+        shieldRing(ctx, px, py + 1, rr, t);
       }
     });
-    this.renderPup(r, ground, sx, lit, tod, t);
+    this.renderPup(r, ground, sx, lit, tod, t, g.state.areaId);
     if (this.near > 0 && !whiteFlash && this.wakeT <= 0) {
       const hb = this.hitbox();
       r.push(3, this.y, (ctx: CanvasRenderingContext2D) => hitDot(ctx, sx(hb.x + hb.w / 2), Math.round(hb.y + hb.h / 2) + bob, (t >> 3) & 1 ? 'f' : '6'));
     }
   }
 
-  renderPup(r: any, ground: boolean, sx: (wx: number) => number, lit: string, tod: string, t: number) {
+  renderPup(r: any, ground: boolean, sx: (wx: number) => number, lit: string, tod: string, t: number, area: string) {
     if (!this.buddy) return;
     const ph = Math.sin(t / 8 + 1.3);
     const pbob = Math.round(ph * 1.6);
     const ppx = sx(this.pupX), ppy = Math.round(this.pupY) + pbob;
     const pn = this.pupName(), noz = PUP_NOZZLES[pn] ?? [];
-    if (ground) r.push(1, this.pupY + 1, (ctx: CanvasRenderingContext2D) => shadowOval(ctx, ppx + (tod === 'dusk' ? 5 : 3), Math.round(this.pupY) + 11 - pbob, tod === 'night' ? 7 : 11, 3, 'v', tod === 'night'));
+    if (ground) r.push(1, this.pupY + 1, (ctx: CanvasRenderingContext2D) => shadowOval(ctx, ppx + shadowDX(tod, 0.6), Math.round(this.pupY) + 12 - pbob, tod === 'night' ? 8 : 12, 3, shadowInk(area, tod), tod === 'night'));
     r.push(2, this.pupY + 1, (ctx: CanvasRenderingContext2D) => {
       for (const [ox, oy, w] of noz) {
-        const len = 2 + [0, 1, 1][(t >> 1) % 3];
-        ribbon(ctx, this.ribbonPts(this.puX, this.puY, ppx + ox, ppy + oy + 1 + len, 4), 1, t);
+        const len = 3 + [0, 1, 1][(t >> 1) % 3];
+        ribbon(ctx, this.ribbonPts(this.puX, this.puY, ppx + ox, ppy + oy + 1 + len, 5), 2, t);
       }
       drawSprite(ctx, pn + lit, ppx, ppy, { frame: ph > 0.2 ? 1 : 0 });     // ears flap up with the bob
-      for (const [ox, oy, w] of noz) flame(ctx, ppx + ox - w / 2, ppy + oy + 1, w, 2 + [0, 1, 1][(t >> 1) % 3]);
+      for (const [ox, oy, w] of noz) flame(ctx, ppx + ox - w / 2, ppy + oy + 1, w, 3 + [0, 1, 1][(t >> 1) % 3], t);
     });
   }
 
   renderNap(r: any, ground: boolean, sx: (wx: number) => number, tod: string) {
     // the world dims the playfield during a nap; Pom herself is drawn in overlay() so she stays lit, "spotlit" in the dim
-    if (ground && this.napT < NAP_CURL) r.push(1, this.y, (ctx: CanvasRenderingContext2D) => shadowOval(ctx, sx(this.x) + 6, Math.round(this.y) + 19, 18, 4, 'v', tod === 'night'));
+    if (ground && this.napT < NAP_CURL) r.push(1, this.y, (ctx: CanvasRenderingContext2D) => shadowOval(ctx, sx(this.x) + shadowDX(tod), Math.round(this.y) + 19, 18, 4, shadowInk(this.g.state.areaId, tod), tod === 'night'));
   }
 
   /** Nap pose + Zzz, drawn above the world's nap dim (player overlays run after the world's); touch auto-fire tag. */
@@ -417,7 +439,7 @@ class Player implements Module {
       return;
     }
     const k = t - NAP_CURL;
-    drawNapPose(ctx, px, y0, k, ground, tod);
+    drawNapPose(ctx, px, y0, k, ground, tod, shadowInk(this.g.state.areaId, tod));
   }
 }
 

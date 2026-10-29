@@ -19,7 +19,7 @@ function big(ctx: Ctx, name: string, cx: number, cy: number, s: number, frame = 
 /** Draw a 1x scene into an offscreen and blit it at 2x, so runtime decorations (flames, scarf) scale too. */
 const tmp = typeof document !== 'undefined' ? document.createElement('canvas') : null;
 function at2x(ctx: Ctx, cx: number, cy: number, w: number, h: number, draw: (c: Ctx) => void) {
-  if (!tmp) return;
+  if (!tmp) return;   // the offscreen is the cell: anything drawn outside w x h (e.g. a rising Z) is clipped
   tmp.width = w; tmp.height = h;
   const c = tmp.getContext('2d')!; c.imageSmoothingEnabled = false; c.clearRect(0, 0, w, h);
   draw(c);
@@ -29,7 +29,15 @@ function pomKit(c: Ctx, base: string, name: string, x: number, y: number, t: num
   for (const [ox, oy, w] of POM_NOZZLES[base] ?? []) if (w > 2) ribbon(c, [[x + ox, y + oy + 1 + flen], [x + ox, y + oy + 4 + flen], [x + ox, y + oy + 7 + flen], [x + ox, y + oy + 9 + flen], [x + ox, y + oy + 11 + flen]], 2, t);
   drawSprite(c, name, x, y, { frame });
   for (const [ox, oy, w] of POM_NOZZLES[base] ?? []) flame(c, x + ox - w / 2, y + oy + 1, w, w <= 2 ? flen - 2 : flen);
-  const kn = POM_KNOT[base]; if (kn) scarfTail(c, x + kn[0] + 1, y + kn[1] - 1, 1, t, 10, 1.3);
+  const kn = POM_KNOT[base];
+  if (kn) {
+    // the idle hang (in play the tail streams opposite to her sideways motion, see Player.scarfPts);
+    // bank frames show the tail blown away from the turn
+    const dir = (base.includes('bank') ? 0.6 : base.includes('lean') ? 0.4 : 0.25) * kn[2];
+    const pts: [number, number][] = [];
+    for (let i = 0; i <= 10; i += 2) { const f = Math.sin(i * 0.6 - t * 0.28) * 1.4 * (i / 10); pts.push([x + kn[0] + dir * i + f, y + kn[1] + i * 0.9]); }
+    scarfTail(c, pts);
+  }
 }
 function label(ctx: Ctx, s: string, x: number, y: number) { text(ctx, s, x, y, col('5'), { align: 'center' }); }
 
@@ -50,20 +58,20 @@ export function galleryModule(): Module {
         at2x(ctx, cx, 54, 36, 34, c => pomKit(c, n, n, 18, 15, t, f, n === 'pom_lean_l' ? 7 : n === 'pom_bank_r' ? 3 : 5));
         label(ctx, lab, cx, 92);
       });
-      big(ctx, 'pom', 40 + 7 * 72, 52, 2, 0, true); label(ctx, 'HIT FLASH', 40 + 7 * 72, 92);
+      big(ctx, 'pom!w', 40 + 7 * 72, 52, 2); label(ctx, 'HIT FLASH', 40 + 7 * 72, 92);
       // blink: off-phase is fully hidden (an empty dashed slot marks where she is)
       ctx.fillStyle = col('p'); for (let i = 0; i < 64; i += 4) { ctx.fillRect(40 + 8 * 72 - 32 + i, 20, 2, 1); ctx.fillRect(40 + 8 * 72 - 32 + i, 84, 2, 1); }
       label(ctx, 'BLINK OFF', 40 + 8 * 72, 92);
       // row 2: nap breathing frames with Zzz, then the wingpup frames (ear flap) with flames
       for (let i = 0; i < 3; i++) {
         const cx = 44 + i * 80;
-        at2x(ctx, cx, 132, 40, 56, c => drawNapPose(c, 20, 44, [26, 38, 50][i], false));
+        at2x(ctx, cx, 140, 40, 44, c => drawNapPose(c, 20, 30, [26, 38, 50][i], false));
         label(ctx, 'NAP ' + i, cx, 190);
       }
       const pups: [string, number, string][] = [['pom_pup', 0, 'PUP'], ['pom_pup', 1, 'PUP FLAP'], ['pom_pup_l', 0, 'PUP L'], ['pom_pup_r', 0, 'PUP R']];
       pups.forEach(([n, f, lab], i) => {
         const cx = 290 + i * 54;
-        at2x(ctx, cx, 150, 16, 18, c => { drawSprite(c, n, 8, 8, { frame: f }); for (const [ox, oy, w] of PUP_NOZZLES[n] ?? []) flame(c, 8 + ox - w / 2, 8 + oy + 1, w, 3); });
+        at2x(ctx, cx, 150, 16, 22, c => { drawSprite(c, n, 8, 8, { frame: f }); for (const [ox, oy, w] of PUP_NOZZLES[n] ?? []) flame(c, 8 + ox - w / 2, 8 + oy + 1, w, 4, t); });
         label(ctx, lab, cx, 190);
       });
       big(ctx, 'pom_pup', 290 + 4 * 54 + 20, 150, 3); label(ctx, 'PUP 3X', 290 + 4 * 54 + 20, 190);
@@ -76,10 +84,10 @@ export function galleryModule(): Module {
         label(ctx, lab, cx, 342);
         // 1x composite below
         const x = cx - 4, y = 300;
-        if (i < 2) shadowOval(ctx, x + (i === 1 ? 9 : 6), y + 19, i === 1 ? 22 : 20, 4, 'v'); else shadowOval(ctx, x + 4, y + 19, 14, 3, 'v', true);
+        if (i < 2) shadowOval(ctx, x + (i === 1 ? 9 : 4), y + 19, i === 1 ? 22 : 20, 4, 'v'); else shadowOval(ctx, x + 2, y + 19, 14, 3, '0', true);
         pomKit(ctx, 'pom', 'pom' + sfx, x, y, t);
         drawSprite(ctx, 'pom_pup' + sfx, x + 20, y + 6, { frame: (t >> 3) & 1 });
-        shieldRing(ctx, x, y + 1, 20, 'm', 's');
+        shieldRing(ctx, x, y + 1, 19, t);
       });
       // flame lengths: backing off / idle / climbing
       [3, 5, 7].forEach((len, i) => {

@@ -4,7 +4,7 @@
 import { defineSprites, type SpriteDef } from '../art/sprite';
 import { POM_ART } from './pom-art';
 
-const FUR = '6789a';
+const FUR = '6789a54';
 type Light = { map: Record<string, string>; rim: string; dirs: [number, number][] };
 /** Pom's head starts at row 19: the night highlight swap stays off the head so her face keeps full contrast. */
 const HEAD_ROW = 19;
@@ -27,4 +27,7 @@ for (const [name, d] of Object.entries(POM_ART)) for (const [tod, L] of Object.e
   const mr = name.startsWith('pom_pup') || name === 'pom_nap' ? Infinity : HEAD_ROW;
   defs[`${name}@${tod}`] = { rows: relit(d.rows, L, mr), frames: d.frames?.map(f => relit(f, L, mr)) };
 }
+// hit-flash silhouettes: every colour goes white except the ink, so the outline and face survive the flash
+const whiten = (rows: string[]) => rows.map(r => r.replace(/[^.0]/g, '6'));
+for (const [name, d] of Object.entries(POM_ART)) defs[`${name}!w`] = { rows: whiten(d.rows), frames: d.frames?.map(whiten) };
 defineSprites(defs);

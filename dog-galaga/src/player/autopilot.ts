@@ -21,7 +21,7 @@ export function autopilotInput(g: Game, p: { x: number; y: number }): Set<Action
     if (x < 20 || x > 428) d += 50;
     return d;
   };
-  const targetY = 322;
+  const targetY = 308;    // a little above the player module's MAX_Y (316)
   let best = 0, bestScore = Infinity;
   for (let dir = -1; dir <= 1; dir++) {
     const nx = p.x + dir * 14;

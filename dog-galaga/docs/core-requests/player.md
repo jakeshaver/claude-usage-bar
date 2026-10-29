@@ -72,3 +72,18 @@
 5. **ARCHITECTURE.md hitbox-marker rule (documentation).** The marker now shows only while a threat is within
    44x52 px (lingering 24 ticks), not for the whole invulnerability window; invulnerability is a clean
    4-on/4-off blink (fully hidden on the off phase) after a 10-tick white flash. `pom_nap` has 3 breathing frames.
+
+## Round 4 (wave2/player)
+
+1. **Playfield bottom moved up (interaction owner).** `MAX_Y` is now 316 and the start/respawn y is 300 (was
+   336 / 316) so the flames, the drop shadow and the shield bubble always fit on screen. `interaction/index.ts`
+   `stage()` puts Pom at `y = 316` and `interaction/boss.ts` falls back to `py = 316`: please use 300 for both
+   (or import `MAX_Y` from `src/player/index.ts`). Nothing breaks as is: 316 is still inside the clamp.
+2. **Pom's signature colours (art + ARCHITECTURE).** Pom's coat now uses a cool ramp (white highlight, cream
+   coat, pale-lavender `5` / lavender `4` curl shadows) plus a 2px teal (`l`/`m`) flight-harness strap with a
+   gold buckle across her back, so she never matches the warm cream Persians. Please keep teal straps and
+   lavender-shaded cream fur off the cat roster (art owner), and note it in the ARCHITECTURE palette section.
+3. **Hit-flash sprites.** The player registers `<pom frame>!w` sprites (every colour white except the ink
+   outline/face). If `drawSprite`'s `flash` option is meant to be the house style, consider making it keep
+   `'0'` pixels in `art/sprite.ts` so enemies get the same readable flash on light grounds.
+4. **Showcase:** `--showcase=player --filter=gallery` cells are now clipped (rising Zs stay inside their cell).

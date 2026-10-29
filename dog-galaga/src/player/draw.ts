@@ -1,32 +1,50 @@
 // Pixel-exact drawing helpers private to the player module: every shape is integer fillRects in palette colours.
 import { col } from '../core/palette';
 import { drawSprite } from '../art/sprite';
+import { pxRing } from '../core/pixel';
 
 type Ctx = CanvasRenderingContext2D;
 
-/** Drop shadow: a solid core in a dark tinted ink with a 1-2px dithered rim (no translucency).
- *  `soft` draws the dithered pattern only (night: a faint, smaller shadow). */
+/** Drop shadow: a solid oval core drawn as one fillRect per row, with a single 1px checker-dithered pixel at the
+ *  left and right extremes of the middle rows only (never on the top and bottom rows, so the rim never reads as
+ *  a comb). `soft` = night: the whole oval is a 50% checker (faint, small). */
 export function shadowOval(ctx: Ctx, cx: number, cy: number, w: number, h = 4, key = 'v', soft = false) {
   const x0 = Math.round(cx), y0 = Math.round(cy); const rx = Math.max(2, w / 2), ry = Math.max(1, h / 2);
+  const top = -Math.floor(ry), bot = Math.floor(ry);
   ctx.fillStyle = col(key);
-  for (let dy = -Math.floor(ry); dy <= Math.floor(ry); dy++) {
+  for (let dy = top; dy <= bot; dy++) {
     const rw = Math.round(rx * Math.sqrt(Math.max(0, 1 - (dy * dy) / ((ry + 0.5) * (ry + 0.5)))));
-    const edgeRow = Math.abs(dy) === Math.floor(ry) && ry >= 1.5;
-    for (let dx = -rw; dx <= rw; dx++) {
-      const X = x0 + dx, Y = y0 + dy, rim = edgeRow || Math.abs(dx) > rw - 2;
-      if ((rim || soft) && ((X + Y) & 1)) continue;
-      ctx.fillRect(X, Y, 1, 1);
+    const Y = y0 + dy;
+    if (soft) { for (let dx = -rw + ((x0 - rw + Y) & 1); dx <= rw; dx += 2) ctx.fillRect(x0 + dx, Y, 1, 1); continue; }
+    const edge = dy !== top && dy !== bot;
+    ctx.fillRect(x0 - rw + (edge ? 1 : 0), Y, rw * 2 + 1 - (edge ? 2 : 0), 1);
+    if (edge) {
+      if (((x0 - rw + Y) & 1) === 0) ctx.fillRect(x0 - rw, Y, 1, 1);
+      if (((x0 + rw + Y) & 1) === 0) ctx.fillRect(x0 + rw, Y, 1, 1);
     }
   }
 }
 
+/** Shadow ink for the ground under Pom: the plum shadow, or pure ink where the ground is already dark
+ *  (asphalt, water, the moon at night) and plum would vanish. */
+export function shadowInk(area: string, tod: string): string {
+  const dark = ['street', 'alley', 'docks', 'factory', 'moon', 'station', 'mothership'].includes(area);
+  return dark || tod === 'night' ? '0' : 'v';
+}
+/** Horizontal shadow offset by time of day: the world's light casts dawn shadows down-left, day a little to
+ *  the right, dusk long to the east, night nearly underneath. */
+export function shadowDX(tod: string, scale = 1): number {
+  return Math.round((tod === 'dawn' ? -6 : tod === 'dusk' ? 9 : tod === 'night' ? 2 : 4) * scale);
+}
+
 /** Jet flame below a nozzle: white core, yellow body, orange then burnt tip; tapers to a point.
  *  x = left edge, y = first row, w = nozzle width, len = rows. */
-export function flame(ctx: Ctx, x: number, y: number, w: number, len: number) {
+export function flame(ctx: Ctx, x: number, y: number, w: number, len: number, tick = 0) {
   x = Math.round(x); y = Math.round(y); len = Math.max(2, Math.round(len));
+  const wide = ((tick >> 1) & 1) === 1;      // the tip flickers between two widths
   for (let j = 0; j < len; j++) {
     const k = j / len;
-    const inset = j === len - 1 ? Math.max(0, Math.floor((w - 1) / 2)) : k < 0.6 || w <= 2 ? 0 : 1;
+    const inset = j === len - 1 ? Math.max(0, Math.floor((w - 1) / 2) - (wide ? 1 : 0)) : k < 0.6 || w <= 2 || wide ? 0 : 1;
     const ww = Math.max(1, w - inset * 2);
     ctx.fillStyle = col(k < 0.5 ? 'f' : k < 0.8 ? 'g' : 'h'); ctx.fillRect(x + inset, y + j, ww, 1);
     if (k < 0.35 && w > 2) { ctx.fillStyle = col('6'); ctx.fillRect(x + 1, y + j, w - 2, 1); }
@@ -59,39 +77,47 @@ export function ribbon(ctx: Ctx, pts: [number, number][], w: number, tick: numbe
   }
 }
 
-/** The captain's scarf tail: a 2px red ribbon tied at (x, y), streaming out to `dir` (+1 right, -1 left),
- *  drooping a little and waving; inked on both edges and ending in a notched two-point tip. */
-export function scarfTail(ctx: Ctx, x: number, y: number, dir: number, t: number, len = 10, amp = 1.4) {
-  x = Math.round(x); y = Math.round(y);
-  const ys: number[] = [];
-  for (let i = 0; i <= len; i++) ys.push(y + Math.round(Math.sin(i * 0.55 - t * 0.3) * amp * (i / len) + i * 0.3));
-  ctx.fillStyle = col('0');
-  for (let i = 0; i <= len + 1; i++) { const yy = ys[Math.min(i, len)], X = x + dir * i; ctx.fillRect(X, yy - 1, 1, 4); }
-  for (let i = 0; i <= len; i++) {
-    const yy = ys[i], X = x + dir * i;
-    if (i >= len - 1) {          // notched tip: two 1px points with an ink gap between
-      ctx.fillStyle = col('r'); ctx.fillRect(X, yy - (i === len ? 1 : 0), 1, 1);
-      ctx.fillStyle = col('e'); ctx.fillRect(X, yy + 1 + (i === len ? 1 : 0), 1, 1);
-      continue;
+/** The captain's scarf tail along a polyline (pts[0] = the knot): a 2px red ribbon with a 1px ink edge, lit on
+ *  the left, darker on the right, ending in a notched two-point tip. Points are walked 1px at a time so a bent
+ *  or diagonal tail stays unbroken. */
+export function scarfTail(ctx: Ctx, pts: [number, number][]) {
+  const cells: [number, number][] = [];
+  for (let i = 1; i < pts.length; i++) {
+    const [ax, ay] = pts[i - 1], [bx, by] = pts[i];
+    const n = Math.max(1, Math.ceil(Math.max(Math.abs(bx - ax), Math.abs(by - ay))));
+    for (let k = i === 1 ? 0 : 1; k <= n; k++) {
+      const X = Math.round(ax + (bx - ax) * k / n), Y = Math.round(ay + (by - ay) * k / n);
+      const l = cells[cells.length - 1]; if (!l || l[0] !== X || l[1] !== Y) cells.push([X, Y]);
     }
-    ctx.fillStyle = col(i < 3 ? 'c' : 'r'); ctx.fillRect(X, yy, 1, 1);
-    ctx.fillStyle = col('e'); ctx.fillRect(X, yy + 1, 1, 1);
+  }
+  const m = cells.length; if (!m) return;
+  ctx.fillStyle = col('0');
+  for (let i = 0; i < m; i++) { const [X, Y] = cells[i]; if (i < m - 2) ctx.fillRect(X - 1, Y - 1, 4, 4); else ctx.fillRect(X - 1, Y - 1, 3, 3); }
+  for (let i = 0; i < m; i++) {
+    const [X, Y] = cells[i];
+    if (i >= m - 2) { ctx.fillStyle = col(i === m - 1 ? 'e' : 'r'); ctx.fillRect(X, Y, 1, 1); continue; }
+    ctx.fillStyle = col('r'); ctx.fillRect(X, Y, 2, 2);
+    ctx.fillStyle = col(i < 3 ? 'c' : 'r'); ctx.fillRect(X, Y, 1, 1);
+    ctx.fillStyle = col('e'); ctx.fillRect(X + 1, Y + 1, 1, 1);
   }
 }
 
-/** Shield bubble: one clean midpoint circle, a lighter 1px arc on the upper-left quadrant as the highlight. */
-export function shieldRing(ctx: Ctx, cx: number, cy: number, r: number, key: string, hi: string) {
-  const x0 = Math.round(cx), y0 = Math.round(cy);
-  let x = r, y = 0, err = 1 - r;
-  const put = (dx: number, dy: number) => {
-    const ul = dx < 0 && dy < 0 && -dx > r * 0.3 && -dy > r * 0.3;
-    ctx.fillStyle = col(ul ? hi : key); ctx.fillRect(x0 + dx, y0 + dy, 1, 1);
-  };
-  while (x >= y) {
-    put(x, y); put(y, x); put(-y, x); put(-x, y); put(-x, -y); put(-y, -x); put(y, -x); put(x, -y);
-    y++;
-    if (err < 0) err += 2 * y + 1; else { x--; err += 2 * (y - x) + 1; }
+/** Shield bubble from core/pixel.ts pxRing: a 2px rim (dark teal outside, ice inside), a dithered inner rim on
+ *  the lower half, and 3 bright highlight pixels orbiting slowly. */
+export function shieldRing(ctx: Ctx, cx: number, cy: number, r: number, t: number) {
+  pxRing(ctx, cx, cy, r + 1, 'n');
+  pxRing(ctx, cx, cy, r, 'm');
+  pxRing(ctx, cx, cy, r - 1, 's', 6, t / 40);
+  pxRing(ctx, cx, cy, r - 2, 'l', 10, -t / 30);
+  for (let i = 0; i < 3; i++) {
+    const a = t / 28 + i * 2.09;
+    ctx.fillStyle = col(i ? 's' : '6');
+    ctx.fillRect(Math.round(cx + Math.cos(a) * r), Math.round(cy + Math.sin(a) * r), 1, 1);
   }
+  // fixed upper-left glint
+  ctx.fillStyle = col('6');
+  const g = Math.round(r * 0.6);
+  ctx.fillRect(Math.round(cx) - g - 1, Math.round(cy) - g, 2, 1); ctx.fillRect(Math.round(cx) - g, Math.round(cy) - g - 1, 1, 1);
 }
 
 /** Toot puff at the shot spawn point: frame 0 a tight 3px tan puff, frame 1 a 5px broken brown ring. */
@@ -107,18 +133,14 @@ export function tootPuff(ctx: Ctx, x: number, y: number, f: number) {
   }
 }
 
-/** Pixel "Z" glyph of size n (3..8) with a 1px ink outline and a plum drop shadow, so it reads on any background.
- *  Sizes 7+ get 2px-thick strokes. */
+/** Small pixel "Z" (3..6px), soft lavender with a 1px 4-neighbour ink outline: light enough to sit above the sprite. */
 export function zGlyph(ctx: Ctx, x: number, y: number, n: number, key: string) {
-  x = Math.round(x); y = Math.round(y); n = Math.max(3, Math.min(8, Math.round(n)));
+  x = Math.round(x); y = Math.round(y); n = Math.max(3, Math.min(6, Math.round(n)));
   const cells: [number, number][] = [];
-  const bar = n >= 7 ? 2 : 1;
-  for (let i = 0; i < n; i++) for (let b = 0; b < bar; b++) { cells.push([i, b]); cells.push([i, n - 1 - b]); }
-  for (let i = bar; i < n - bar; i++) { const cx = n - 1 - i; cells.push([cx, i]); if (bar > 1) cells.push([Math.max(0, cx - 1), i]); }
-  ctx.fillStyle = col('v');
-  for (const [a, b] of cells) ctx.fillRect(x + a, y + b + 2, 2, 2);
+  for (let i = 0; i < n; i++) { cells.push([i, 0]); cells.push([i, n - 1]); }
+  for (let i = 1; i < n - 1; i++) cells.push([n - 1 - i, i]);
   ctx.fillStyle = col('0');
-  for (const [a, b] of cells) ctx.fillRect(x + a - 1, y + b - 1, 3, 3);
+  for (const [a, b] of cells) { ctx.fillRect(x + a - 1, y + b, 3, 1); ctx.fillRect(x + a, y + b - 1, 1, 3); }
   ctx.fillStyle = col(key);
   for (const [a, b] of cells) ctx.fillRect(x + a, y + b, 1, 1);
 }
@@ -138,20 +160,20 @@ export function dot(ctx: Ctx, x: number, y: number, key: string, star = false) {
 }
 
 /** The curled-up nap: whole-body breathing squash (3 frames on a slow sine), landing flop, rising Zzz. */
-export function drawNapPose(ctx: Ctx, px: number, y0: number, k: number, ground: boolean, tod = 'day') {
+export function drawNapPose(ctx: Ctx, px: number, y0: number, k: number, ground: boolean, tod = 'day', ink = '0') {
   const s = Math.sin(k / 24);
   const breathe = s > 0.45 ? 2 : s > -0.45 ? 1 : 0;
   const squash = k < 6 ? 1 : 0;       // tiny flop on landing
-  if (ground) shadowOval(ctx, px + 5, y0 + 11, 28, 4, 'v', tod === 'night');
+  if (ground) shadowOval(ctx, px + shadowDX(tod, 0.6), y0 + 12, 30, 4, ink, tod === 'night');
   drawSprite(ctx, 'pom_nap', px, y0 + squash, { frame: breathe });
-  // three Zs rise from her snoot, staggered, swaying: the first pops in at 5px (with a 1-tick overshoot)
-  // and grows to 8px as it climbs
+  // three small Zs rise from her snoot, staggered and swaying: they pop in at 3px and grow to 6px as they climb
+  // (at most 30px above her head, so they stay inside a gallery cell)
   for (let i = 0; i < 3; i++) {
     const z = k - i * 24; if (z < 0) continue;
     const zt = z % 72, p = zt / 72;
-    const n = zt < 2 ? 3 : zt < 4 ? 6 : 5 + Math.floor(p * 3.99);
-    const zx = px + 1 + Math.round(Math.sin(p * 6.28 + i) * 2) + Math.round(p * 10);
-    const zy = y0 - 8 - Math.round(p * 34) - n;
-    if (p < 0.88) zGlyph(ctx, zx, zy, n, p < 0.65 ? '6' : '5');
+    const n = zt < 3 ? 3 : 4 + Math.floor(p * 2.99);
+    const zx = px + 4 + Math.round(Math.sin(p * 6.28 + i) * 2) + Math.round(p * 8);
+    const zy = y0 - 6 - Math.round(p * 24) - n;
+    if (p < 0.88) zGlyph(ctx, zx, zy, n, p < 0.6 ? '5' : '4');
   }
 }
