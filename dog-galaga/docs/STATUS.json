@@ -1,10 +1,9 @@
 {
  "updated": "2026-10-29",
- "phase": "wave1-complete-integrated",
+ "phase": "wave2-complete-integrated; final gate running",
  "build": {
   "ok": true,
-  "jsKB": 513,
-  "gzipKB": 145,
+  "jsKB": 696,
   "budgetKB": 1024
  },
  "lint": {
@@ -20,12 +19,12 @@
   ],
   "botMinutes": [
    31,
-   33
+   35
   ],
   "note": "perfect-aim bot; human estimate 65-100 min"
  },
  "tests": {
-  "passed": 7,
+  "passed": 39,
   "failed": 0
  },
  "modules": {
@@ -46,8 +45,8 @@
    "history": null
   },
   "player": {
-   "score": null,
-   "status": "v1"
+   "score": 7.6,
+   "status": "wave2 4 rounds, fail"
   },
   "interaction": {
    "score": 7.8,
@@ -70,24 +69,24 @@
    "history": null
   },
   "quest": {
-   "score": null,
-   "status": "v1"
+   "score": 7.6,
+   "status": "wave2 4 rounds, fail"
   },
   "save": {
-   "score": null,
-   "status": "v1 + tests"
+   "score": 8.0,
+   "status": "wave2 4 rounds, fail"
   },
   "memories": {
-   "score": null,
-   "status": "v1"
+   "score": 8.5,
+   "status": "PASSED wave2 round 4"
   },
   "minigames": {
-   "score": null,
-   "status": "v1"
+   "score": 8.1,
+   "status": "wave2 4 rounds, fail"
   },
   "journal": {
-   "score": null,
-   "status": "v1"
+   "score": 8.6,
+   "status": "PASSED wave2 round 3"
   }
  },
  "openIssues": [
@@ -97,5 +96,9 @@
   "interaction: turd readability, boss tells",
   "ui: scanner low value, small toast-under-pause glitch"
  ],
- "nextStep": "Wave 2 (systems): player, quest, memories, minigames, journal, save builders + critics. Then whole-game final gate. Weakest module: art (6.6)."
+ "nextStep": "Read final-gate results (whole-game critic, blind judges, release verifier). Then /loop: rerun gauntlet on weakest modules (art 6.6, world 7.4, audio 7.2, player 7.6, quest 7.6).",
+ "passedModules": [
+  "memories",
+  "journal"
+ ]
 }
