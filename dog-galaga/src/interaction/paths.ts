@@ -1,4 +1,4 @@
-// Flight paths in world coordinates (world is 448 wide, formation sits at y 44..140).
+// Flight paths in world coordinates (world is 448 wide, formation sits at y ~46..160).
 // Control points are smoothed with Catmull-Rom and re-parameterized by arc length (Track), so cats fly
 // at a constant, readable speed through curves instead of speeding up on long segments.
 export type Pt = [number, number];
@@ -59,7 +59,8 @@ export function entryPath(kind: string, side: number, slot: Pt): Pt[] {
   // finish every stream by swinging under the cat's own column and rising straight into its cell: the formation fills
   // top row first, so the climb only passes empty cells and never cuts through cats already parked
   const last = pts[pts.length - 2];
-  const under: Pt = [slot[0], Math.max(slot[1] + 44, Math.min(236, last[1]))];
+  // stay high: one row-and-a-bit under the cell, never down at Pom's altitude (y <= 200)
+  const under: Pt = [slot[0], Math.min(200, Math.max(slot[1] + 30, Math.min(last[1], slot[1] + 48)))];
   return [...pts.slice(0, -1), [(last[0] + slot[0]) / 2, under[1] + 6], under, slot];
 }
 function entryCurve(kind: string, side: number, slot: Pt): Pt[] {
@@ -68,22 +69,22 @@ function entryCurve(kind: string, side: number, slot: Pt): Pt[] {
     case 'swirl-left': case 'swirl-right': {
       // low in from the side, swing up and around a circle, then rise into the slot
       const mm = mir(kind === 'swirl-left' ? side : -side);
-      const pts: Pt[] = [[-28, 300], [40, 270], [110, 248], ...arc(150, 192, 56, Math.PI / 2, -Math.PI * 0.55)];
+      const pts: Pt[] = [[-28, 184], [40, 176], [104, 168], ...arc(150, 128, 44, Math.PI / 2, -Math.PI * 0.55)];
       return [...pts.map(mm), slot];
     }
     case 'split': {
       // two streams drop in from the top and CROSS at the center, each loops outward and climbs home
-      const pts: Pt[] = [[CX + 56, -28], [CX + 20, 40], [CX - 30, 110], [CX - 84, 170], ...arc(CX - 112, 142, 40, Math.PI / 4, Math.PI * 1.55)];
+      const pts: Pt[] = [[CX + 56, -28], [CX + 20, 30], [CX - 30, 92], [CX - 80, 144], ...arc(CX - 108, 122, 36, Math.PI / 4, Math.PI * 1.55)];
       return [...pts.map(m), slot];
     }
     case 'rain': {
       // two mirrored streams pour straight down the middle, fan out wide and hook back up into place
-      const pts: Pt[] = [[CX - 36, -28], [CX - 42, 60], [CX - 60, 140], [CX - 104, 192], [CX - 156, 186], [CX - 176, 140]];
+      const pts: Pt[] = [[CX - 36, -28], [CX - 42, 50], [CX - 60, 120], [CX - 100, 168], [CX - 150, 164], [CX - 170, 124]];
       return [...pts.map(m), slot];
     }
     case 'loop': {
       // in from the side at mid height, a full loop-de-loop, then up into the slot
-      const pts: Pt[] = [[-28, 120], [50, 132], [120, 138], ...arc(140, 186, 48, -Math.PI / 2, Math.PI * 1.5), [196, 128]];
+      const pts: Pt[] = [[-28, 104], [50, 112], [120, 116], ...arc(140, 152, 38, -Math.PI / 2, Math.PI * 1.5), [196, 112]];
       return [...pts.map(m), slot];
     }
     default: return [[slot[0], -40], slot];
@@ -106,16 +107,17 @@ export function divePath(x0: number, y0: number, px: number, behavior: string, j
       const a1 = -Math.PI / 2 + (s < 0 ? TAU : -TAU);
       return [...peel, [cx + 40 * s, 128], [cx, 140], ...arc(cx, 176, 36, -Math.PI / 2, a1), [cx - 30 * s, 168], [lx + j * 20, 256], [lx - 30 * s, 320], [lx - 60 * s, H + 40]];
     }
-    case 'shooter': // shallow strafing pass: swoop down, curve across, climb out
-      return [...peel, [(x0 + lx) / 2, 150], [lx + 40 * s, 196], [lx - 50 * s, 206], [lx - 120 * s, 150], [lx - 150 * s, 40], [lx - 160 * s, -40]];
+    case 'shooter': // shallow strafing pass: swoop down, curve across in front of Pom, then drop off the bottom
+      // (never a long sideways exit along the screen edge, which reads as a straggler outside the lanes)
+      return [...peel, [(x0 + lx) / 2, 150], [lx + 40 * s, 200], [lx - 40 * s, 214], [lx - 90 * s, 252], [lx - 110 * s, H + 40]];
     case 'tank': // slow, heavy, nearly straight dive
       return [...peel, [(x0 * 2 + lx) / 3, 160], [lx + j * 30, 270], [lx + j * 40, H + 40]];
     case 'capturer': // wide swoop with a lazy turn near the bottom, escorts in tow
       return [...peel, [lx + 50 * s, 170], [lx, 246], [lx - 50 * s, 280], [lx - 90 * s, 246], [lx - 70 * s, 200], [lx - 20 * s, 228], [lx + 10 * s, H + 40]];
     case 'zigzag': // straight line, the weave is added on top while flying
       return [...peel, [(x0 + lx) / 2, 150], [lx, 240], [lx - 20 * s, H + 40]];
-    default: // basic: swoop at the player then curl back up the other side
-      return [...peel, [(x0 + lx) / 2 + 20 * s, 160], [lx + j * 24, 250], [lx - 40 * s, 296], [lx - 90 * s, 280], [lx - 110 * s, 220], [lx - 100 * s, -40]];
+    default: // basic: swoop at the player, hook past it and off the bottom (it drops back in above its slot)
+      return [...peel, [(x0 + lx) / 2 + 20 * s, 160], [lx + j * 24, 250], [lx - 40 * s, 290], [lx - 80 * s, 296], [lx - 104 * s, H + 40]];
   }
 }
 

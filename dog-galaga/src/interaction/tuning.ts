@@ -11,6 +11,7 @@ export interface Tuning {
   fireEvery: number;    // ticks between formation shots (scaled by the wave's fireRate)
   diveEvery: number;    // ticks between dive launches (scaled by the wave's diveRate)
   diveGroups: number;   // max dive groups in the air at once
+  maxDivers: number;    // max cats out of formation (diving or flying home) at once: the grid always reads
   diveSpeed: number;    // px/tick along a dive
   entrySpeed: number;   // px/tick along an entry path
   diveShots: number;    // hairballs a diving cat may cough on the way down
@@ -37,9 +38,10 @@ export function tuning(g: Game, fireRate = 0.0016, diveRate = 0.0022): Tuning {
     bossSpitCap: Math.round(lerp(11, 16, d)),
     fireEvery: Math.round(lerp(110, 66, d) / fr),
     diveEvery: Math.round(lerp(170, 112, d) / dr),
-    diveGroups: d < 0.45 ? 1 : d < 0.9 ? 2 : 3,   // 2 groups from the midpoint, 3 only in sectors 12-13
+    diveGroups: d < 0.7 ? 1 : 2,                  // a second group only in the last sectors
+    maxDivers: d < 0.45 ? 2 : 3,                  // Galaga: 1-2 divers, or a leader with escorts, never a swarm
     diveSpeed: lerp(2.5, 3.15, d),
-    entrySpeed: lerp(2.8, 3.3, d),
+    entrySpeed: lerp(4.0, 4.4, d),   // brisk streams: the grid assembles in ~4s (Galaga)
     diveShots: d < 0.3 ? 1 : 2,
     tell: Math.round(lerp(24, 16, d)),
     aimSlop: Math.round(lerp(56, 30, d)),
