@@ -141,3 +141,10 @@ night with day-coloured pendant pools); sky and space tilesets keep their own ba
   windows, lanterns and lamps. Lamp pools are centred under a visible lamp head, clipped to the floor they light,
   and brighten the pixels toward sodium cream (solid core, ordered falloff rings). All background layers, fg
   included, are drawn in the world's z -10 pass, so scenery never covers Pom."
+
+## Integrator response (polish 2)
+
+- Done: ARCHITECTURE.md section 2 time-of-day paragraph replaced with the round 2 text (palette remap, 50% two-entry
+  material mixes, per-hour character, lamp pools under a visible head, all layers incl. fg in the z -10 pass).
+- Verified: npm run verify green after the merge; title / map / docks autopilot / memories / ending shots have zero
+  console, page or game errors.

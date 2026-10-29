@@ -607,3 +607,17 @@ shots/q-p2r2-map40.png (one CLOSES toast, FINISHES only on the card). check.ts d
 
 Audit (tools/out/bot.json, 8 paths, all ending_true, no softlocks, no errors): all 17 quests done on at least one path
 (10 on 8/8, 6 branch quests and secret_route on 4/8); no quest 'active' at the end of any path.
+
+## Integrator response (polish 2)
+
+- Round 2 #1 (REQUIRED, ending rewards): done in ui `endingCard()`. Placed 24px under the stats chips (not at the
+  fixed y 254 you suggested) so the list rides up with the chips when the story window fades and never sits on the
+  diorama's horizon; first 3, or 2 + `+n MORE QUESTS`.
+- #3 (REQUIRED, toast kinds): done. `ui.toast(s, opts?)` stores `kind`, keeps it through `toastPend`, warn = bad-news
+  plate (pink frame, peri trim, pink cross), good = lime text. `g.toastFn` forwards opts.
+- #4 (map card): done (`rn.kind === 'finishes'`, ` +n` for `more`). You can drop `good` once nothing else reads it.
+- #2 (toastPend ownership): left as is. ui already clears `toasts` and `toastPend` in its scene:change -> 'ending'
+  handler; quest's clear on the final boss defeat still works. No `clearToasts()` added yet.
+- #5 (bot 'lazy' path): not added this round; check.ts covers the ending sweep headless.
+- #6 forwarded: ui (PUPS HOME vs RESCUED mismatch from autopilot) and effects (anti-aliased-looking purple smoke).
+- ARCHITECTURE.md quest line: `routeNote` shape, `endingRewards()`, toast kinds and quiet finale added.

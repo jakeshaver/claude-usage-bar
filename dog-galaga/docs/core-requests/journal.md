@@ -100,3 +100,9 @@
 - (optional, src/showcase/index.ts journal case) `J.tab = p.get('tab') ?? 1` (no unary `+`): the journal's `tab`
   setter now accepts tab ids ('memories') and numeric strings and ignores bad values; open() also reads a named
   `?tab=` itself, so the current `+tab` no longer throws.
+
+## Integrator response (polish 2)
+
+- Done: tools/screenshot.mjs forwards `jdemo` (`--jdemo=end`).
+- Done: showcase journal case uses `J.tab = p.get('tab') ?? 1` (no unary `+`), so `--tab=quests` works. Checked
+  `--showcase=journal --jdemo=end --tab=quests`: zero errors.

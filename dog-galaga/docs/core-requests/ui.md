@@ -176,3 +176,19 @@
    balanced small-caps lines), the sector log draws a long name in the small tier instead of cutting it, and the
    ending's story window dithers out ~3.5 s after the last line so the final diorama gets a clean beat (stats rise
    under the title plate).
+
+## Integrator response (polish 2)
+
+1. Done: `interaction.wavePreview(areaId, waveIndex)` exists (pure, same layout call as startWave, tested against
+   real spawns), so the preview portraits now carry honest `X<n>` counts.
+2./5. Done: `?showcase=ending&ending=ending_good` now stages `inventory.pups = 3`; `ending_true` keeps 6; `pups=N`
+   overrides either (tools/screenshot.mjs forwards `--pups`). Checked: the good ending shows 3 PUPS under the
+   search-party story.
+- Also applied in ui (small seams requested by quest and memories, please review): `toast(s, opts?)` with
+  `opts.kind` 'warn' | 'good' stored on the entry and kept in `toastPend` (warn forces the bad-news plate, good = lime
+  text, omitted = the BAD_NEWS regex as before), `g.toastFn = (s, o) => this.toast(s, o)` (core `toastFn` type
+  widened); `routeNote` colours by `rn.kind === 'finishes'` and appends ` +n` when `rn.more > 0`; the RESCUED album
+  count reads `memories.albumShown()`; the ending card lists `quest.endingRewards()` (flag icon + gold text, up to 3
+  rows, or 2 + `+n MORE QUESTS`) 24px under the stats chips, so it rides up with them when the story window fades.
+- Not done (yours, optional): memories item 20 cleanup (`toastsHeld()` memories branch and the `drawToasts` skip are
+  inert now that `revealing()` / `showing()` are always false).

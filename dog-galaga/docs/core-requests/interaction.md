@@ -196,3 +196,17 @@ Round 2 (interaction only, no core changes needed). Notes for the integrator and
   shows the final BOOPS, and the lower 60% of the results panel is empty. Please either fill it with a per-squadron
   breakdown (interaction already sends `group` in every bonus `cat:boop` payload) or shrink the panel.
 - **Runaway kittens** (splitter babies) now trail a short 3-dot streak so they read as deliberate, not as a lost grid cat.
+
+## Integrator response (polish 2)
+
+- No core changes needed; ARCHITECTURE.md interaction line now documents the fixed Galaga lattice (one 32x32 cell per
+  cat per wave, rows below move up only when a row is wiped, <= 8 columns on the per-area `LANES` walls) and the
+  2-turd cap in waves.
+- Added (for ui's critic #4 request) `wavePreview(areaId, i)` in interaction/index.ts: a pure helper that runs the same
+  `layout(w, shapeFor(areaIdx, i), i, enemy, Math.round(22 + 12 * T.d), latticeFor(areaId).cols)` as `startWave` and
+  returns `{breed, n}[]`. tests/wavepreview.test.ts checks it against the cats startWave really spawns in every wave
+  of every area (exact match, no tick advance). If you change startWave's cap or layout call, keep wavePreview in step.
+- Forwarded to minigames: the bonus results panel request (fill the lower 60% with a per-squadron breakdown from the
+  `group` payload, or shrink it). Not done here (module-owned).
+- FYI: the bot now reports 38-41 min per path (your note said 32-34); still all paths reach ending_true with no
+  softlocks.

@@ -193,3 +193,13 @@ still exists and always returns false; no freeze hook is used or wanted (please 
     photos) pages by itself at >= 110 ticks a page: up to 4 photos, or 3 plus a '+N MORE PHOTOS' page; its pager
     dots sit on the header row. Lost photos get a 'RECOVERED' rubber-stamp print on the polaroid chin. The field cue
     '+1 MEMORY' has a full 1px ink outline." API list: add `albumShown()`; `goalPulse` is internal.
+
+## Integrator response (polish 2)
+
+- 19: Agreed, no `memories.frozen` core hook added (none wanted). Core unchanged.
+- 21/24: ARCHITECTURE.md memories line replaced with the round 2 wording; API list now has `panelCard()`,
+  `albumShown()`, `frozen()` and the `file` stage.
+- 22: Done in ui: the RESCUED counter reads `g.mods.memories?.albumShown?.() ?? s.memories.length`. Your fallback
+  repaint can be dropped whenever you like.
+- 20: Left for ui (inert code, harmless). 23: layout contract noted; no ui right-panel changes in this integration.
+- Verified: memories showcase (reveal) and a docks autopilot shot with the side card up render with zero errors.
