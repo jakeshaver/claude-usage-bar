@@ -49,7 +49,7 @@ export function runShowcase(g: Game, which: string, p: URLSearchParams) {
       const J = g.mods.journal;
       g.mods.ui.menuOpen = 'journal'; g.mods.ui.settingsFrom = 'title';
       if (wantsDemo()) J.seedDemo();
-      J.tab = +(p.get('tab') ?? 1); J.open();      // tab BEFORE open(): open() restores that tab's selection
+      J.tab = p.get('tab') ?? 1; J.open();      // tab BEFORE open(): open() restores that tab's selection
       if (p.get('viewer')) J.viewer = +p.get('viewer')!;
       break;
     }
@@ -62,7 +62,9 @@ export function runShowcase(g: Game, which: string, p: URLSearchParams) {
       g.mods.memories.stage(k || 'carrier', +(n ?? p.get('phase') ?? 0) || 0, p.get('at') !== null ? +p.get('at')! : -1);
       break; }
     case 'ending':
-      g.state.ending = p.get('ending') ?? g.content.endings[0].id; g.state.inventory.pups = 6;
+      g.state.ending = p.get('ending') ?? g.content.endings[0].id;
+      // the good ending stages a partial rescue (ui reads inventory.pups as-is); `pups=N` overrides
+      g.state.inventory.pups = p.get('pups') !== null ? +p.get('pups')! : g.state.ending === 'ending_true' ? 6 : 3;
       g.state.score = 184250; g.state.hiScore = 184250;
       g.state.stats = { ...g.state.stats, shots: 2140, hits: 1610, catsBooped: 1312, naps: 3, playTicks: 60 * 60 * 47 };
       g.state.memories = g.content.memories.slice(0, 14).map(m => m.id);
