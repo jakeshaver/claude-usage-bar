@@ -75,6 +75,12 @@ function checkMark(ctx: CanvasRenderingContext2D, x: number, y: number) {
   for (const [dx, dy] of [[0, 3], [1, 4], [2, 5], [3, 4], [4, 3], [5, 2], [6, 1], [1, 3], [2, 4], [3, 3], [4, 2], [5, 1]]) rect(ctx, x + dx, y + dy, 1, 1, C.lime);
 }
 
+/** Settings rows: label, icon, settings key ('' = BACK). */
+const SETTINGS_ROWS: [string, string, 'music' | 'sfx' | 'amb' | 'shake' | 'flash' | 'reduceMotion' | 'touch' | ''][] = [
+  ['MUSIC', 'note', 'music'], ['SFX', 'speaker', 'sfx'], ['AMBIENCE', 'speaker', 'amb'], ['SCREEN SHAKE', 'shake', 'shake'],
+  ['FLASHES', 'bolt', 'flash'], ['REDUCE MOTION', 'wave', 'reduceMotion'], ['TOUCH CONTROLS', 'hand', 'touch'], ['BACK', 'back', ''],
+];
+
 /** UI shell: HUD panels, title, sector map, pause, settings, dialogue box, ending, recovery, toasts. */
 class UI implements Module {
   id = 'ui';
@@ -111,7 +117,11 @@ class UI implements Module {
     if (g.contentIssues.length) setTimeout(() => this.toast(`${g.contentIssues.length} CONTENT ISSUE(S): USING SAFE DEFAULTS`), 0);
     if (!g.headless) this.touch.attach(g);
   }
+  /** Staged showcases mute HUD toasts (presentational only). */
+  toastsMuted = false;
+  muteToasts(on: boolean) { this.toastsMuted = on; if (on) this.toasts = []; }
   toast(s: string) {
+    if (this.toastsMuted) return;
     // power pickups: name the HUD slot the item lights up, so the bay labels and pickups tie together
     const it = this.g?.content?.items?.find(i => i.name.toUpperCase() === s);
     const pw = it && POWERS.find(p => p[0] === it.effect.kind);
@@ -173,7 +183,9 @@ class UI implements Module {
     for (const [k] of POWERS) { const v = P?.powers?.[k] ?? 0; this.powMax[k] = v > 0 ? Math.max(this.powMax[k] ?? 0, v) : 0; }
     const live = (g.mods.interaction?.cats ?? []).length; this.waveCats = Math.max(this.waveCats, live);
     const I = g.input; const sc = g.state.scene;
-    if (g.autopilot) { this.autopilotNav(g); return; }
+    // autopilot drives menus itself, but a real pause press still opens the pause menu (and its nav then runs)
+    const pauseable = sc === 'play' || sc === 'bonus' || sc === 'map' || sc === 'dialogue';
+    if (g.autopilot && this.menuOpen === 'none' && !(pauseable && I.pressed('pause'))) { this.autopilotNav(g); return; }
     if (this.menuOpen === 'journal') { if (g.mods.journal?.update2) g.mods.journal.update2(g, () => { this.menuOpen = this.settingsFrom === 'title' ? 'none' : 'pause'; }); return; }
     if (this.menuOpen === 'settings') return this.settingsNav(g);
     if (this.menuOpen === 'pause') {
@@ -193,7 +205,7 @@ class UI implements Module {
       return;
     }
     if (sc === 'dialogue' && I.pressed('back')) { this.skipDialogue(g); return; }
-    if ((sc === 'play' || sc === 'bonus' || sc === 'map' || sc === 'dialogue') && I.pressed('pause')) { this.openPause(); return; }
+    if (pauseable && I.pressed('pause')) { this.openPause(); return; }
     if (sc === 'title') this.titleNav(g);
     else if (sc === 'map') this.mapNav(g);
     else if (sc === 'ending') { this.endingT++; if (this.endingT > 240 && I.pressed('confirm')) { g.setScene('title'); } }
@@ -225,20 +237,25 @@ class UI implements Module {
     }
   }
   settingsNav(g: Game) {
-    const I = g.input; const s = g.state.settings; const n = 5;
+    const I = g.input; const s = g.state.settings; const n = SETTINGS_ROWS.length; const back = n - 1;
     if (I.pressed('up')) { this.sel = (this.sel + n - 1) % n; g.mods.audio?.sfx('blip'); }
     if (I.pressed('down')) { this.sel = (this.sel + 1) % n; g.mods.audio?.sfx('blip'); }
     // left/right adjust; confirm also cycles toggles so a single button works on gamepad/touch
+    const key = SETTINGS_ROWS[this.sel][2];
     let d = I.pressed('left') ? -1 : I.pressed('right') ? 1 : 0;
-    if (!d && I.pressed('confirm') && this.sel >= 2 && this.sel <= 3) d = 1;
+    if (!d && I.pressed('confirm') && this.sel !== back && key !== 'music' && key !== 'sfx' && key !== 'amb') d = 1;
     if (d) {
-      if (this.sel === 0) s.music = Math.max(0, Math.min(1, Math.round((s.music + d * 0.1) * 10) / 10));
-      if (this.sel === 1) s.sfx = Math.max(0, Math.min(1, Math.round((s.sfx + d * 0.1) * 10) / 10));
-      if (this.sel === 2) s.shake = !s.shake;
-      if (this.sel === 3) s.touch = (['auto', 'on', 'off'] as const)[((['auto', 'on', 'off'].indexOf(s.touch) + d) + 3) % 3];
+      const vol = (v: number) => Math.max(0, Math.min(1, Math.round((v + d * 0.1) * 10) / 10));
+      if (key === 'music') s.music = vol(s.music);
+      else if (key === 'sfx') s.sfx = vol(s.sfx);
+      else if (key === 'amb') s.amb = vol(s.amb);
+      else if (key === 'shake') s.shake = !s.shake;
+      else if (key === 'flash') s.flash = !s.flash;
+      else if (key === 'reduceMotion') s.reduceMotion = !s.reduceMotion;
+      else if (key === 'touch') s.touch = (['auto', 'on', 'off'] as const)[((['auto', 'on', 'off'].indexOf(s.touch) + d) + 3) % 3];
       g.mods.audio?.setVolumes(); g.mods.audio?.sfx('blip');
     }
-    if (I.pressed('back') || I.pressed('pause') || (I.pressed('confirm') && this.sel === 4)) {
+    if (I.pressed('back') || I.pressed('pause') || (I.pressed('confirm') && this.sel === back)) {
       g.mods.save?.save(); this.menuOpen = this.settingsFrom === 'title' ? 'none' : 'pause'; this.sel = this.settingsFrom === 'title' ? 3 : this.pauseItems().indexOf('SETTINGS');
     }
   }
@@ -915,28 +932,27 @@ class UI implements Module {
   settings(g: Game, ctx: CanvasRenderingContext2D) {
     const s = g.state.settings;
     this.dim(ctx);
-    const w = 280, h = 196; const x = Math.round(W / 2 - w / 2), y = 76;
+    const w = 280, h = 52 + SETTINGS_ROWS.length * 22; const x = Math.round(W / 2 - w / 2), y = Math.round((H - h) / 2) + 6;
     frame(ctx, x, y, w, h, C.violet, C.night, 8);
     scanlines(ctx, x + 2, y + 2, w - 4, h - 4);
     ticks(ctx, x, y, w, h, C.purple, 8, 3);
     chamferFill(ctx, x + 40, y - 8, w - 80, 26, C.ink, 5); chamferLine(ctx, x + 40, y - 8, w - 80, 26, C.purple, 5);
     headline(ctx, 'SETTINGS', W / 2, y - 1, C.violet, C.pale, C.purple);
-    const rows: [string, string][] = [['MUSIC', 'note'], ['SFX', 'speaker'], ['SCREEN SHAKE', 'shake'], ['TOUCH CONTROLS', 'hand'], ['BACK', 'back']];
     this.rows = [];
-    rows.forEach(([k, ic], i) => {
-      const on = i === this.sel; const yy = y + 30 + i * 26; const rx = x + 14, rw = w - 28;
+    SETTINGS_ROWS.forEach(([k, ic, key], i) => {
+      const on = i === this.sel; const yy = y + 30 + i * 22; const rx = x + 14, rw = w - 28;
       this.rows.push({ x: rx, y: yy - 6, w: rw, h: 22 });
       if (on) { chamferFill(ctx, rx, yy - 5, rw, 18, C.plum, 4); chamferLine(ctx, rx, yy - 5, rw, 18, C.purple, 4); rect(ctx, rx + 1, yy - 1, 1, 10, C.violet); }
       icon(ctx, ic, rx + 8, yy, on ? C.gold : C.peri);
       text(ctx, k, rx + 20, yy, on ? C.gold : C.text, { shadow: C.ink });
       const vx = rx + rw - 8;
-      if (i <= 1) {
-        const v = i === 0 ? s.music : s.sfx;
+      if (key === 'music' || key === 'sfx' || key === 'amb') {
+        const v = s[key];
         segBar(ctx, vx - 99, yy, 10, 8, 7, v, on ? C.gold : C.violet, C.ink);
         text(ctx, String(Math.round(v * 10)), vx - 104, yy, on ? C.gold : C.dim, { align: 'right' });
-      } else if (i === 2) {
-        this.pill(ctx, vx, yy, ['OFF', 'ON'], s.shake ? 1 : 0, on);
-      } else if (i === 3) {
+      } else if (key === 'shake' || key === 'flash' || key === 'reduceMotion') {
+        this.pill(ctx, vx, yy, ['OFF', 'ON'], s[key] ? 1 : 0, on);
+      } else if (key === 'touch') {
         this.pill(ctx, vx, yy, ['AUTO', 'ON', 'OFF'], ['auto', 'on', 'off'].indexOf(s.touch), on);
       }
     });

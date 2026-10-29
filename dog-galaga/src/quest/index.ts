@@ -84,10 +84,10 @@ class Quest implements Module {
   }
 
   update(g: Game) {
-    const d = this.dlg; if (!d || g.state.scene !== 'dialogue') return;
+    const d = this.dlg; if (!d || g.paused || g.state.scene !== 'dialogue') return;
     d.t++; if (d.chars < d.node.text.length) d.chars += 1.5;
     if (g.autopilot) { if (d.t > 20) this.advance(); return; }
-    if (g.input.pressed('confirm') || g.input.pressed('fire')) { this.advance(); g.mods.audio?.sfx('blip'); }
+    if (g.input.pressed('confirm') || g.input.pressed('fire')) { this.advance(); g.mods.audio?.sfx('talk'); }
   }
 }
 export const makeQuest = (): Module => new Quest();

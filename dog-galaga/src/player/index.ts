@@ -29,7 +29,7 @@ class Player implements Module {
     if (this.powers.shield > 0) { this.powers.shield = 0; this.invuln = 60; g.mods.effects?.burst(this.x, this.y, 'shield'); g.mods.audio?.sfx('shield'); return false; }
     if (this.buddy) { this.buddy = false; this.invuln = 90; g.mods.effects?.burst(this.x + 18, this.y, 'poof'); g.mods.audio?.sfx('whimper'); return false; }
     g.state.hearts--; this.invuln = 120;
-    g.mods.effects?.shake(4, 16); g.mods.effects?.flash('#ff5a4f', 6); g.mods.audio?.sfx('hurt');
+    g.mods.effects?.shake(4, 16); g.mods.effects?.flash('r', 6); g.mods.audio?.sfx('hurt');
     g.bus.emit('player:hit', { hearts: g.state.hearts });
     if (g.state.hearts <= 0) {
       g.state.stats.naps++; g.mods.effects?.burst(this.x, this.y, 'fur'); g.mods.interaction?.napReset(); this.powers = {};

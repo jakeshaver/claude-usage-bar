@@ -54,7 +54,7 @@ class Interaction implements Module {
   T: Tuning = { d: 0, spitSpeed: 1.5, spitCap: 3, bossSpitCap: 14, fireEvery: 90, diveEvery: 180, diveGroups: 1, diveSpeed: 2.7, entrySpeed: 2.7, diveShots: 1, tell: 22, aimSlop: 50 };
   fireT = 0; diveT = 0; breathMix = 0; entryDone = false; clearHold = 0; total = 0; formTop = FORM_TOP; hurry = 0;
 
-  // showcase staging (?showcase=interaction&stage=capturer|rescue|splitter|tank|dive|tell|boss|bullets|play)
+  // showcase staging (?showcase=interaction&stage=lineup|capturer|rescue|splitter|tank|dive|tell|boss|bullets|play)
   stageReq: string | null = null; staged = false; stageT = 0; stageAt = 0; stagePhase = 0; frozen = false;
 
   init(g: Game) {
@@ -98,7 +98,7 @@ class Interaction implements Module {
     const top = this.formTop = FORM_TOP + (holderWave ? PUP_LIFT : 0);
     this.rowSp = ROW_SP; this.colSp = COL_SP;
     this.shape = shapeFor(areaIdx, i);
-    let n = 0;
+    let n = 0; const first = this.cats.length;
     const slots = layout(w, this.shape, i, id => this.enemy(id)).map(h => ({ def: h.def, slot: [WORLD_W / 2 + h.u * COL_SP, top + h.row * ROW_SP + h.dy] as Pt }));
     // streams of 8: single file for 'loop' (two mirrored groups at once), pairs for the others
     const single = w.entry === 'loop' || !['split', 'swirl-left', 'swirl-right', 'rain'].includes(w.entry);
@@ -120,6 +120,14 @@ class Interaction implements Module {
       const p0 = track.at(0, tp);
       this.cats.push(this.mkCat(def, p0.x, p0.y, 'wait', { slot, track, speed: T.entrySpeed, lat, delay, side, diveSeed: g.rng.next() }));
       n++;
+    }
+    // no two cats may share an entry lane at the same moment (same side + lane offset start at the same
+    // off-screen point and would fly stacked on top of each other): queue a late-comer one stream step behind
+    const lanes = new Map<string, number>();
+    for (const c of this.cats.slice(first).sort((a, b) => a.delay - b.delay)) {
+      const key = c.side + ':' + c.lat; const last = lanes.get(key);
+      if (last !== undefined && c.delay < last + STREAM_STEP) c.delay = last + STREAM_STEP;
+      lanes.set(key, c.delay);
     }
     this.total = this.cats.length;
     // a capturer may carry a lost pup (once per area)
@@ -360,6 +368,9 @@ class Interaction implements Module {
         g.mods.audio?.sfx('bossdown'); this.spawnPickup('pk_heart', b.x, b.y);
         for (const s of this.spits) g.mods.effects?.burst(s.x, s.y, 'sparkle');
         this.spits = []; for (const c of this.cats) if (c.st === 'kdive') { c.st = 'leave'; }
+        // the defeat outranks any phase banner still on screen; the bounty floats up over the explosion
+        const ui = g.mods.ui; if (ui && Array.isArray(ui.toasts)) ui.toasts = ui.toasts.filter((t: { text: string }) => !/GRUMPY/.test(t.text));
+        g.mods.effects?.floatText(b.x, b.y - 30, String(b.def.points));
         g.bus.emit('boss:defeat', { bossId: b.def.id, napped: b.napped });
         this.boss = null; this.active = false; this.mode = 'none';
       } else if (pb && b.touches(pb)) {
@@ -492,7 +503,11 @@ class Interaction implements Module {
       this.startBoss(bossId); this.boss!.stageTell(this.stagePhase);
       return;
     }
-    const F: Record<string, [string, number[]][]> = {
+    // [breed, columns, row?] (row defaults to the entry index, so a row can mix breeds)
+    const F: Record<string, [string, number[], number?][]> = {
+      lineup: [['tabby', [0, 4]], ['tuxedo', [1, 5], 0], ['siamese', [2, 6], 0], ['calico', [3, 7], 0],
+        ['persian', [0, 4], 1], ['sphynx', [1, 5], 1], ['mainecoon', [2, 6], 1], ['russianblue', [3, 7], 1],
+        ['bengal', [0, 2, 5, 7], 2], ['scottishfold', [3], 2]],
       capturer: [['tabby', [0, 1, 2, 3, 4, 5, 6, 7]], ['scottishfold', [1, 3, 5, 7]], ['tuxedo', [0, 1, 2, 3, 4, 5, 6, 7]]],
       rescue: [['tabby', [0, 1, 2, 3, 4, 5, 6, 7]], ['scottishfold', [1, 3, 5, 7]], ['tuxedo', [0, 1, 2, 3, 4, 5, 6, 7]]],
       splitter: [['siamese', [0, 1, 2, 3, 4, 5, 6, 7]], ['calico', [0, 1, 2, 3, 4, 5, 6, 7]], ['tabby', [0, 1, 2, 3, 4, 5, 6, 7]]],
@@ -505,7 +520,7 @@ class Interaction implements Module {
     this.mode = 'wave'; this.active = true; this.entryDone = true; this.breathMix = 1; this.waveT = 100; this.fireT = 1e9; this.diveT = 1e9;
     this.rowSp = 36; this.colSp = COL_SP; const x0 = WORLD_W / 2 - (7 * COL_SP) / 2; this.hurry = 0;
     const top = this.formTop = FORM_TOP + (rows.some(([b]) => this.enemy(b).behavior === 'capturer') ? PUP_LIFT : 0);
-    rows.forEach(([breed, cs], ri) => { const def = this.enemy(breed); for (const c of cs) { const slot: Pt = [x0 + c * COL_SP, top + ri * 36]; this.cats.push(this.mkCat(def, slot[0], slot[1], 'form', { slot })); } });
+    rows.forEach(([breed, cs, row], ri) => { const def = this.enemy(breed); for (const c of cs) { const slot: Pt = [x0 + c * COL_SP, top + (row ?? ri) * 36]; this.cats.push(this.mkCat(def, slot[0], slot[1], 'form', { slot })); } });
     this.total = this.cats.length; this.sway = 40 * Math.PI * 2; // breathing at rest
     const holder = this.cats.find(c => c.def.behavior === 'capturer' && c.slot[0] > WORLD_W / 2 - COL_SP && c.slot[0] < WORLD_W / 2);
     if (holder) holder.pup = true;
@@ -545,6 +560,7 @@ class Interaction implements Module {
         arts.forEach((a, i) => { for (let k = 0; k < 3; k++) this.spits.push({ x: 104 + i * 48, y: 150 + k * 34, vx: 0, vy: 0, kind: 'hairball', t: k * 8, art: a }); });
         return freeze();
       }
+      case 'lineup': if (t >= (at || 4)) return freeze(); break;
       default: this.stageReq = null;
     }
     return false;

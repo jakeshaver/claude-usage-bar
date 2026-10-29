@@ -4,6 +4,8 @@ import type { AreaDef, Scene, Tod } from '../core/types';
 import { evalCond } from '../core/conditions';
 import { Background } from './bg';
 import { text, textWidth } from '../art/font';
+import { headline } from '../ui/numerals';
+import { C } from '../ui/draw';
 
 type Phase = 'intro' | 'wave' | 'between' | 'bonus' | 'boss' | 'outro' | 'nap' | 'done';
 
@@ -22,7 +24,8 @@ class World implements Module {
   init(g: Game) {
     this.g = g;
     g.bus.on('wave:clear', () => this.onWaveClear());
-    g.bus.on('boss:defeat', () => { if (this.phase === 'boss') { this.phase = 'outro'; this.timer = 90; } });
+    // hold ~2.3 s after a boss defeat so the multi-stage explosion and the victory stinger play out before the outro dialogue
+    g.bus.on('boss:defeat', () => { if (this.phase === 'boss') { this.phase = 'outro'; this.timer = 140; } });
     g.bus.on('bonus:end', () => { if (this.phase === 'bonus') { this.phase = 'between'; this.timer = 60; } });
     g.bus.on('player:nap', () => { if (this.phase !== 'wave' && this.phase !== 'boss') return; this.napFromBoss = this.phase === 'boss'; this.phase = 'nap'; this.timer = 150; });
   }
@@ -159,14 +162,16 @@ class World implements Module {
 
   overlay(g: Game, ctx: CanvasRenderingContext2D) {
     const sc = g.state.scene;
-    if ((sc === 'play' || sc === 'dialogue') && this.titleCard > 0) { const a = this.area(); if (a) titleCard(ctx, a.name, a.subtitle ?? '', g.content.areas.indexOf(a) + 1, g.content.areas.length, 150 - this.titleCard, this.titleCard); }
+    // banners and title cards stay hidden under the pause menu (they would bleed through its dither)
+    const menu = !!g.mods.ui?.menuOpen && g.mods.ui.menuOpen !== 'none';
+    if ((sc === 'play' || sc === 'dialogue') && this.titleCard > 0 && !menu) { const a = this.area(); if (a) titleCard(ctx, a.name, a.subtitle ?? '', g.content.areas.indexOf(a) + 1, g.content.areas.length, 150 - this.titleCard, this.titleCard); }
     if (sc === 'play' && this.phase === 'nap') {
       const cx = PF_X + PF_W / 2;
       dither(ctx, PF_X, 0, PF_W, H, 10, '#1d1b33');
-      text(ctx, 'POM IS TAKING A NAP', cx, 150, '#ffd166', { align: 'center', scale: 2, shadow: '#0b0a14' });
+      headline(ctx, 'POM IS TAKING A NAP', cx, 148, C.gold, C.cream, C.burnt);
       text(ctx, 'Z z z . . .  BACK IN A SEC!', cx, 176, '#b9c1f2', { align: 'center' });
     }
-    if (sc === 'play' && this.phase === 'between' && this.g.state.waveIndex > 0) {
+    if (sc === 'play' && this.phase === 'between' && this.g.state.waveIndex > 0 && !menu) {
       const a = this.area();
       if (a && this.timer > 20) {
         const left = a.waves.length - g.state.waveIndex;

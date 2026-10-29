@@ -34,7 +34,11 @@ export class Boss {
     this.tier = ai < 0 ? 0 : ai >= areas.length - 1 ? 3 : ai >= 8 ? 2 : ai >= 3 ? 1 : 0;
     this.r = [26, 28, 32, 36][this.tier];
   }
-  private spit(x: number, y: number, vx: number, vy: number) { this.ix.bossSpit(x, y, vx, vy, this.art); }
+  /** Bullets are born at the sprite's edge, not on top of the boss: push the muzzle out along the shot to ~28px. */
+  private spit(x: number, y: number, vx: number, vy: number) {
+    const m = Math.hypot(vx, vy) || 1; const push = Math.max(0, 28 - Math.hypot(x - this.x, y - this.y));
+    this.ix.bossSpit(x + (vx / m) * push, y + (vy / m) * push, vx, vy, this.art);
+  }
 
   damage(n: number) {
     this.hp -= n; this.flash = 4; this.hitT = 6; if (this.hp <= 0) this.dead = true;
@@ -86,7 +90,7 @@ export class Boss {
       this.phase = want; this.go('phase');
       for (const s of this.ix.spits) g.mods.effects?.burst(s.x, s.y, 'sparkle');
       this.ix.spits = [];
-      g.mods.effects?.shake(5, 24); g.mods.effects?.flash(col('f'), 6); g.mods.audio?.sfx('bark');
+      g.mods.effects?.shake(5, 24); g.mods.effects?.flash('f', 6); g.mods.audio?.sfx('bark');
       g.mods.ui?.toast(`${this.def.name.toUpperCase()} GETS GRUMPY!`);
       g.bus.emit('boss:phase', { bossId: this.def.id, phase: this.phase });
     }
@@ -132,7 +136,7 @@ export class Boss {
   private beginTell(px: number) {
     this.go('tell');
     this.tx = Math.max(60, Math.min(WORLD_W - 60, px));
-    this.g.mods.audio?.sfx('blip');
+    this.g.mods.audio?.sfx('tell');
   }
 
   private attack(px: number, py: number) {
