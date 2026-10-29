@@ -502,25 +502,25 @@
  {
   "id": "taunt-boss_kingpin",
   "speaker": "The Catnip Kingpin",
-  "portrait": "portrait_tabby",
+  "portrait": "portrait_kingpin",
   "text": "Whoa, duuude. Have you ever, like, really looked at a toy mouse?"
  },
  {
   "id": "defeat-boss_kingpin",
   "speaker": "The Catnip Kingpin",
-  "portrait": "portrait_tabby",
+  "portrait": "portrait_kingpin",
   "text": "Bummer, man. I am gonna go stare at a wall for a while."
  },
  {
   "id": "taunt-boss_admiral",
   "speaker": "Admiral Floof",
-  "portrait": "portrait_persian",
+  "portrait": "portrait_admiral",
   "text": "Battle stations! And someone brush my tail, it is a mess."
  },
  {
   "id": "defeat-boss_admiral",
   "speaker": "Admiral Floof",
-  "portrait": "portrait_persian",
+  "portrait": "portrait_admiral",
   "text": "The station is yours. The hairballs in the vents are a gift."
  },
  {

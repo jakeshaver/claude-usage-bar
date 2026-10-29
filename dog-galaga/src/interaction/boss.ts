@@ -11,12 +11,11 @@ import { BOSS_BULLET, bossRig, bossBruises, ditherShadow, ditherRect, bossGlow, 
 const HOT: Record<string, string> = { '6': 'c', '7': 'c', '8': 'c', '9': 'd', 'a': 'e', 'b': 'e', 'o': 'c', 'p': 'd', 'q': 'e', '5': 'c', '4': 'd', '3': 'e', 'g': 'r', 'f': 'c' };
 const GOLD: Record<string, string> = { '6': '6', '7': 'f', '8': 'f', '9': 'g', 'a': 'h', 'b': 'h', 'o': 'f', 'p': 'g', 'q': 'h', '5': 'f', '4': 'g', '3': 'h', 'c': 'f', 'd': 'g' };
 const FLASH: Record<string, string> = Object.fromEntries([...'123456789abcdefghijklmnopqrstuv'].map(k => [k, '12bvqkenu3ahpjm'.includes(k) ? '5' : '6']));
-/** Big Cats that share a sheet with an earlier one wear their own coat (a palette swap, cached per key): the Catnip
- *  Kingpin is a violet tabby in a grey fedora (never a clone of Sergeant Whiskers), the Admiral a blue-grey persian
- *  (never a clone of Duchess Fluffbottom). */
+/** Per-Big-Cat coat swap (cached per key) for a Big Cat drawn on another's sheet. Empty now: the Catnip Kingpin
+ *  (violet tabby, grey fedora) and the Admiral (blue-grey persian) have their own generated sheets, so the HUD
+ *  portrait and the journal match the fight. */
 const SKIN: Record<string, Record<string, string> | undefined> = {
-  boss_kingpin: { g: 't', h: 'u', f: '5', b: '2', a: 'v', j: 'p', k: 'q', '1': '0' },
-  boss_admiral: { '7': '5', '8': '4', '9': '3' },
+  // (Kingpin / Admiral now ship their own sheets, boss_kingpin / boss_admiral from tools/art/gen-cats.mjs)
 };
 /** A palette swap on top of a skin (flash / phase cycle over the coat). */
 function over(skin: Record<string, string> | undefined, top: Record<string, string> | undefined): Record<string, string> | undefined {

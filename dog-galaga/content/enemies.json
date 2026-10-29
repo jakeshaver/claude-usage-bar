@@ -216,7 +216,7 @@
  {
   "id": "boss_kingpin",
   "name": "The Catnip Kingpin",
-  "sprite": "boss_tabby",
+  "sprite": "boss_kingpin",
   "hp": 240,
   "points": 12000,
   "behavior": "boss",
@@ -227,7 +227,7 @@
  {
   "id": "boss_admiral",
   "name": "Admiral Floof",
-  "sprite": "boss_persian",
+  "sprite": "boss_admiral",
   "hp": 248,
   "points": 12000,
   "behavior": "boss",

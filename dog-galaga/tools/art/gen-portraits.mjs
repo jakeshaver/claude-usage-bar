@@ -222,4 +222,8 @@ function bust(key, b) {
 
 const defs = { portrait_pom: pom(), portrait_biscuit: biscuit(), portrait_empress: empress() };
 for (const [k, b] of Object.entries(BREEDS)) defs['portrait_' + k] = bust(k, b);
+// late-route Big Cats in their own coat (same swaps as boss_kingpin / boss_admiral in gen-cats.mjs)
+const recoat = (G, map) => { const n = G.clone(); n.g = n.g.map(r => r.map(c => map[c] ?? c)); return n; };
+defs.portrait_kingpin = recoat(defs.portrait_tabby, { g: 't', h: 'u', f: '5', b: '2', a: 'v', j: 'p', k: 'q', '1': '0' });
+defs.portrait_admiral = recoat(defs.portrait_persian, { '7': '5', '8': '4', '9': '3' });
 console.log(emitModule('PORTRAITS', 'tools/art/gen-portraits.mjs', defs));

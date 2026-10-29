@@ -448,5 +448,10 @@ defs.cat_kitten = [kittenSprite(0), kittenSprite(1)];
 for (const [k, b] of Object.entries(BREEDS)) defs['boss_' + k] = [cat(b, 0, 2), cat(b, 1, 2)];
 const EMP = { key: 'empress', fur: ['6', '6', '5', '4'], light: ['6', '6', '5'], eye: ['t', 'u'], ears: 'tiny', head: 'flat', hw: 9.8, hh: 6.6, body: 'puff', tail: 'plume', tw: 3.2, marks: 'persian', eyeType: 'round', mouth: 'flat', rim: null };
 defs.boss_empress = [cat(EMP, 0, 2, { crown: 1, cape: 1, regal: 1 }), cat(EMP, 1, 2, { crown: 1, cape: 1, regal: 1 })];
+// late-route Big Cats on a sibling's build in their own coat (never a clone in the HUD portrait / journal):
+// the Catnip Kingpin a violet tabby whose helmet reads as a grey fedora, the Admiral a blue-grey persian
+const recoat = (src, map) => src.map(G => { const n = G.clone(); n.g = n.g.map(r => r.map(c => map[c] ?? c)); return n; });
+defs.boss_kingpin = recoat(defs.boss_tabby, { g: 't', h: 'u', f: '5', b: '2', a: 'v', j: 'p', k: 'q', '1': '0' });
+defs.boss_admiral = recoat(defs.boss_persian, { '7': '5', '8': '4', '9': '3' });
 export { BREEDS, cat, EYE };
 if (process.argv[1]?.endsWith('gen-cats.mjs')) console.log(emitModule('CATS', 'tools/art/gen-cats.mjs', defs));
