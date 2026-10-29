@@ -2657,8 +2657,9 @@ function pawHatch(p: Painter, cx: number, cy: number) {
 /** glowing cat-eye porthole: almond eye with a slit pupil, emissive after dusk */
 function catEye(p: Painter, cx: number, cy: number) {
   for (let j = -5; j <= 5; j++) { const hw = Math.round(Math.sqrt(1 - (j / 6) ** 2) * 9 * (1 - Math.abs(j) / 14)); p.r('0', cx - hw - 1, cy + j, hw * 2 + 3, 1); }
-  // the window light carries the hour: pink at dawn, amber at dusk, violet at night (the hull metal itself never changes hue)
-  const [hi, lo] = p.tod === 'dusk' ? ['f', 'g'] : p.tod === 'dawn' ? ['c', 'd'] : ['t', 'u'];
+  // the window light carries the hour: pink at dawn, amber at dusk, a dim lavender by day / at night (the hull metal
+  // itself never changes hue); never bright violet / purple, so the cats' bullets are the only bright small marks in the hall
+  const [hi, lo] = p.tod === 'dusk' ? ['f', 'g'] : p.tod === 'dawn' ? ['c', 'd'] : ['4', '3'];
   for (let j = -4; j <= 4; j++) { const hw = Math.round(Math.sqrt(1 - (j / 5) ** 2) * 8 * (1 - Math.abs(j) / 14)); p.glow('2', j < -1 ? hi : lo, cx - hw, cy + j, hw * 2 + 1, 1, 1.5, 0); }
   p.lateBars.push([cx, cy - 4, 1, 9]); p.lateBars.push([cx - 1, cy - 2, 3, 5]);
 }
@@ -2694,7 +2695,7 @@ const mothership: LayerDef = { speed: 1, paint(p, z) {
     }
     // an armoured rail along the outer rim of the sponson
     const rx = outer ? x0 + 2 : x1 - 6; p.r('v', rx, 0, 4, SEG); p.r('2', outer ? rx : rx + 3, 0, 1, SEG);
-    every(z, 48, outer ? 10 : 34, y => { if (y > 2 && y < SEG - 2) p.glow('1', outer ? 'u' : 't', outer ? x0 + 3 : x1 - 5, y, 2, 2, 1, 0.3); });
+    every(z, 48, outer ? 10 : 34, y => { if (y > 2 && y < SEG - 2) p.glow('1', outer ? '3' : '4', outer ? x0 + 3 : x1 - 5, y, 2, 2, 1, 0.3); });
   }
   // ear-shaped fins along both hull edges (pointing forward, like a cat's ears)
   for (const [x0, dir] of [[L, -1], [R, 1]] as [number, number][]) every(z, 128, 40, y => {
@@ -2708,7 +2709,7 @@ const mothership: LayerDef = { speed: 1, paint(p, z) {
     const kx = r.int(0, 3), x = [140, 200, 268, 300][kx] + r.int(-8, 8), y = r.int(4, SEG - 40);
     const kind = r.int(0, 2);
     if (kind === 0) { p.r('0', x, y, 28, 16); p.r('1', x + 1, y + 1, 26, 14); for (let j = y + 3; j < y + 14; j += 3) p.r('0', x + 3, j, 22, 1); p.r('2', x + 1, y + 1, 26, 1); }
-    else if (kind === 1) { p.r('0', x, y, 10, 36); p.r('1', x + 1, y + 1, 8, 34); p.glow('2', p.tod === 'dusk' ? 'g' : p.tod === 'dawn' ? 'c' : 'u', x + 3, y + 3, 4, 30, 1.5, 0); p.lateBars.push([x + 3, y + 12, 4, 1], [x + 3, y + 23, 4, 1]); }
+    else if (kind === 1) { p.r('0', x, y, 10, 36); p.r('1', x + 1, y + 1, 8, 34); p.glow('2', p.tod === 'dusk' ? 'g' : p.tod === 'dawn' ? 'c' : '3', x + 3, y + 3, 4, 30, 1.5, 0); p.lateBars.push([x + 3, y + 12, 4, 1], [x + 3, y + 23, 4, 1]); }
     else { p.r('2', x, y, 40, 1); p.r('1', x, y + 1, 40, 1); for (let k = 0; k < 4; k++) p.r('2', x + 4 + k * 10, y + 4, 2, 2); }
   }
   // a long seam break so the plates do not read as a perfect grid
