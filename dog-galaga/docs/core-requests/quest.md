@@ -530,3 +530,33 @@ open (shots/q-p1r2-map-gate.png). A forfeit toast now jumps the queue and holds 
   `tools/lint-content.ts` checks expire area ids and conditions. ARCHITECTURE sections 3, 4 and 5 updated.
 - 4 (forwarded): effects' anti-aliased ring at sky dusk goes to effects. The map header CLEAR counter is clear of the
   sound chip in current captures (ui round 2 narrowed the header).
+
+## Polish 2
+
+Round 1 (quest builder). All three requests are optional polish for ui; quest already behaves correctly without them.
+
+1. **ui: toast kinds** (`src/ui/index.ts` `toast(s)`): quest now calls `ui.toast(text, { kind: 'warn' })` for bad-news
+   route toasts (`<Q>: MISSED. NEXT FLIGHT!`, `MOON HOP CLOSES <Q>`, `<Q>: SEALED, n/4 MEMORIES`, `<Q>: THIS HOP CLOSES IT`)
+   and `{ kind: 'good' }` for `NEBULA HOP FINISHES <Q>`. Other toasts are sent with one argument as before. Please accept
+   `toast(s: string, opts?: { kind?: 'good' | 'warn' })`, store `kind` on the toast entry and style it: `warn` = peri
+   flag icon + pink text on the usual plate (same as the NEXT HOP card's CLOSES line), `good` = lime. The extra
+   argument is ignored today, so nothing breaks meanwhile. (`toastPend` should keep the opts too.)
+2. **ui: sector map** (`routeNote`): `quest.routeNote(toAreaId)` now returns
+   `{ kind: 'finishes' | 'closes', questName, text, good, more } | null` (null = the hop changes nothing; `good` is
+   kept, so the current card code keeps working). Suggested: switch the colour test to `rn.kind === 'finishes'`, and
+   when `rn.more > 0` append ` +n` to the line.
+3. **ui: ending stats**: quest completions during the run's wrap-up (final sector clear, or completions whose toast was
+   still waiting when the ending came up) no longer toast; rewards are still paid. `quest.endingRewards()` returns
+   `{ questId, name, score, items: string[], text }[]` (text like `+5,000` or `+5,000, CATNIP X2`), cleared on
+   `game:new`. Optionally list them on the ending card under the stats (e.g. `QUEST: BIG CATS +5,000`). quest also
+   clears toasts already on screen when the scene becomes `'ending'` (via `muteToasts(true)` then restoring the previous
+   mute state); if ui prefers to own that, clear `this.toasts` / `toastPend` in its `scene:change` -> `'ending'` handler
+   and tell me so I can drop the call.
+4. **ARCHITECTURE.md** section 4, quest line: add `endingRewards()`, and change `routeNote(areaId)` to
+   `routeNote(areaId)` (`{kind: finishes|closes, questName, text, good, more}` or null); quest toasts carry
+   `{kind: 'warn'|'good'}` for route news; quest toasts go quiet once the final sector is cleared.
+
+Audit (bot, 8 paths, tools/out/bot.json): all 17 quests start and complete on at least one path; nothing stays
+'active' at the ending on any path. 10 done on 8/8 (first_flight, boop_brigade, scrapbook, big_cats, lost_pups,
+bonanza_star, night_owl, factory_unravel, station_dock, home_again), branch quests done 4/8 and locked on the others
+(park_pals/bodega_respect, cafe_rush/docks_catch, moon_litter/nebula_sober), secret_route done 4 / missed 4.

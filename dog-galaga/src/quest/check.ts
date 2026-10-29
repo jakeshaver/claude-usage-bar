@@ -347,6 +347,27 @@ for (const d of content.dialogue) for (const p of paginate(d.text)) ok(revealLin
     ok(g5.state.quests[open0[0]] === 'done', 'ending sweep touched a done quest');
     ok(open0.slice(1).every(id => g5.state.quests[id] === 'missed'), 'ending sweep did not mark open quests missed');
     ok(Q5.heldToasts().length === toasts0, 'ending sweep queued MISSED toasts behind the ending');
+    // the final sector clear pays its quests quietly: no QUEST COMPLETE / REWARD toast reaches the ending card,
+    // the reward is still paid and listed in endingRewards(); toasts already up are cleared when the ending shows
+    {
+      const gf: any = createGame({ headless: true }); gf.autopilot = false; const Qf = gf.mods.quest;
+      const fin = content.areas.find(a => a.ending);
+      const fq = content.quests.find(q => q.complete.on === 'area:clear' && q.complete.match?.areaId === fin?.id) ?? content.quests.find(q => q.complete.on === 'area:clear');
+      if (fin && fq) {
+        const seenF: string[] = []; const tf = gf.mods.ui.toast.bind(gf.mods.ui); gf.mods.ui.toast = (x: string, o?: any) => { seenF.push(x); tf(x, o); };
+        gf.mods.world.enterArea(fin.id, 0); Qf.skipAll(); gf.ops.setQuest(fq.id, 'active');
+        const score0 = gf.state.score; gf.mods.ui.toast('LEFTOVER TOAST'); seenF.length = 0;
+        gf.bus.emit('area:clear', { areaId: fq.complete.match?.areaId ?? fin.id });
+        gf.state.ending = 'ending_good'; gf.setScene('ending'); gf.bus.emit('ending', { endingId: 'ending_good' }); gf.step(); gf.step();
+        ok(gf.state.quests[fq.id] === 'done', `final clear did not finish ${fq.id}`);
+        ok(!fq.reward?.score || gf.state.score >= score0 + fq.reward.score, `final clear did not pay ${fq.id}'s score`);
+        ok(!seenF.some(t => /QUEST COMPLETE|REWARD/.test(t)) && !Qf.heldToasts().length, `quest toasts reached the ending: ${[...seenF, ...Qf.heldToasts()].join(' | ')}`);
+        ok(!gf.mods.ui.toasts.length, `toasts left over the ending card: ${gf.mods.ui.toasts.map((t: any) => t.text).join(' | ')}`);
+        ok(Qf.endingRewards().some((r: any) => r.questId === fq.id), `endingRewards() does not list ${fq.id}: ${JSON.stringify(Qf.endingRewards())}`);
+        // a fresh flight starts with an empty list and talks again
+        gf.bus.emit('game:new', {}); ok(!Qf.endingRewards().length, 'endingRewards() survived game:new');
+      }
+    }
     // a save from before 'missed' was a state (active + the old marker) loads as missed; a save written at the
     // ending (quests still active: the save runs before the ending event) loads with nothing open
     const g6: any = createGame({ headless: true }); const Q6 = g6.mods.quest;
@@ -382,14 +403,19 @@ for (const d of content.dialogue) for (const p of paginate(d.text)) ok(revealLin
     const ex = gm.mods.world.exitsFrom('sky'); const neb = ex.findIndex((e: any) => e.to === 'nebula');
     ok(neb >= 0, 'memory gate did not open the nebula exit');
     ok(Qm.completes('nebula').some((q: any) => q.id === 'secret_route') && Qm.forfeits('moon').some((q: any) => q.id === 'secret_route'), 'completes()/forfeits() do not name secret_route');
+    ok(Qm.routeNote('nebula')?.kind === 'finishes' && Qm.routeNote('moon')?.kind === 'closes' && Qm.routeNote('moon')?.questName === content.quests.find(q => q.id === 'secret_route')?.name, `routeNote kind/questName: ${JSON.stringify([Qm.routeNote('nebula'), Qm.routeNote('moon')])}`);
+    ok(Qm.routeNote('station') === null && Qm.routeNote('') === null && Qm.routeNote('nope') === null, 'routeNote not null for a hop that changes nothing');
     ok(Qm.routeNote('nebula')?.good === true && Qm.routeNote('moon')?.good === false && /CLOSES/.test(Qm.routeNote('moon')?.text ?? ''), `routeNote: ${JSON.stringify([Qm.routeNote('nebula'), Qm.routeNote('moon')])}`);
     ok(Qm.preferredExit(ex) === neb, `preferredExit = ${Qm.preferredExit(ex)}, not the nebula hop ${neb}`);
-    const seen: string[] = []; const t0 = gm.mods.ui.toast.bind(gm.mods.ui); gm.mods.ui.toast = (x: string) => { seen.push(x); t0(x); };
+    const seen: string[] = []; const warn: string[] = []; const t0 = gm.mods.ui.toast.bind(gm.mods.ui);
+    gm.mods.ui.toast = (x: string, o?: any) => { seen.push(x); if (o?.kind === 'warn') warn.push(x); t0(x, o); };
     gm.state.areasCleared.push('sky'); gm.setScene('map');
     const heads = [...seen, ...Qm.heldToasts()].join(' | ');
     ok(Qm.heldToasts().filter((t: string) => /ROUTE OPEN!$/.test(t) && !/NEBULA|SECRET/.test(t)).length <= 1, `ROUTE OPEN toast repeated per memory: ${Qm.heldToasts().join(' | ')}`);
     ok(/HOP FINISHES/.test(heads) && /HOP CLOSES/.test(heads), `map arrival does not telegraph the route choice: ${heads}`);
     gm.step(); gm.step();
+    for (let i = 0; i < 400 && Qm.heldToasts().length; i++) gm.step();
+    ok(warn.some(t => /HOP CLOSES/.test(t)) && !warn.some(t => /FINISHES/.test(t)), `route toasts not tagged kind 'warn' (bad news only): warn=${warn.join(' | ')}`);
     ok(gm.mods.ui.mapSel === neb, `map cursor starts on ${gm.mods.ui.mapSel}, not the nebula hop`);
     // gate shut: say how far the route is instead
     const gc: any = createGame({ headless: true }); gc.autopilot = false; gc.mods.world.enterArea('sky', 0); gc.mods.quest.skipAll();
