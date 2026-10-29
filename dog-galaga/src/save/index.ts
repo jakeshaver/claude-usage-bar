@@ -3,7 +3,9 @@ import { W, H, PF_X, PF_W } from '../core/game';
 import { sanitizeState, STATE_VERSION } from '../core/state';
 import { decodeEnvelope, encodeEnvelope, fromExportString, toExportString, type Decoded } from './codec';
 import { SafeStore, browserStorage, memStorage, type FallbackReason, type Storage } from './storage';
-import { drawIndicator, IND_FRAMES, IND_W, IND_H } from './indicator';
+import { drawIndicator, indicatorVisible, IND_FRAMES, IND_W, IND_H } from './indicator';
+import { text, textWidth } from '../art/font';
+import { col } from '../core/palette';
 import { drawRecoveryCard } from './recovery';
 
 export { drawFloppy, FLOPPY, FLOPPY7, FLOPPY_W, FLOPPY_H } from './indicator';
@@ -33,8 +35,8 @@ const CARRY = [MAIN, BACKUP, SETTINGS, KEEP], SPARE = [QUARANTINE, FUTURE, BACKU
 export const BURST = 4, REFILL = 60;
 
 export type LoadStatus = 'ok' | 'recovered' | 'corrupt' | 'none';
-/** load() on the recovery screen when nothing is left: first press asks, second press really starts fresh */
-export type RecoveryLoadStatus = LoadStatus | 'confirm';
+/** the two save slots load() can start from (ARCHITECTURE.md: `load(slot)`) */
+export type Slot = 'main' | 'backup';
 const NO_WRITE_SCENES = new Set(['boot', 'recovery']);
 /** short enough for one toast line (<= 26 chars, ~155px) */
 export const FALLBACK_TOAST: Record<FallbackReason, string> = {
@@ -53,14 +55,17 @@ const NOTICE_SCENES = new Set(['play', 'bonus', 'title', 'map']);
  * Where the autosave floppy sits, on the HUD's inner grid. In play the right panel's text column runs
  * x = PF_X+PF_W+10 .. +118; the floppy is right-aligned to that column's edge.
  * - keyboard / gamepad: beside the FLIGHT TIME clock, bottom 6px above the panel's inner frame
- * - touch deck visible: the free slot above the ACTION deck (the clock block is hidden there, and the
- *   bottom-right corner belongs to the TOOT button and the right thumb)
+ * - touch deck visible: docked on the ACTION header's rule, at its right end (where the rule's end tick is),
+ *   with a tiny SAVED / IN RAM caption on the rule, so it reads as part of that panel and not a stray icon
+ *   (the clock block is hidden there, and the bottom-right corner belongs to the TOOT button)
  * - full-screen scenes (title, map): bottom-right, 8px in from the screen edge
  */
+const PLAY_SCENES = new Set(['play', 'bonus', 'dialogue']);
 export function indicatorPos(scene: string, touch: boolean): { x: number; y: number } {
   const colRight = PF_X + PF_W + 118;
-  if (scene === 'play' || scene === 'bonus' || scene === 'dialogue') {
-    return touch ? { x: colRight - IND_W, y: 214 } : { x: colRight - IND_W, y: H - 10 - IND_H };
+  if (PLAY_SCENES.has(scene)) {
+    // touch: centred on the ACTION header rule (TOUCH_TOP 236 + 2 + 3 = y 241), below the deck divider (y 232)
+    return touch ? { x: colRight - IND_W, y: 234 } : { x: colRight - IND_W, y: H - 10 - IND_H };
   }
   return { x: W - 8 - IND_W, y: H - 8 - IND_H };
 }
@@ -76,8 +81,6 @@ class Save implements Module {
   api = this;
   /** draw above every other overlay (ui's HUD and menus). Requested as a core sort key in render.ts (R3-2). */
   overlayZ = 100;
-  /** recovery screen: true after a first "TRY AGAIN" found nothing; the next press starts fresh */
-  confirmFresh = false;
   /** overlay frames drawn, and the last frame anyone but save asked for recoveryOptions() (ui adoption probe) */
   private frameNo = 0;
   private optsFrame = -10;
@@ -177,7 +180,6 @@ class Save implements Module {
 
   update(g: Game) {
     this.clock++;
-    if (this.confirmFresh && (g.state.scene !== 'recovery' || g.input.pressed('up') || g.input.pressed('down') || g.input.pressed('back'))) this.confirmFresh = false;
     if (this.tokens < BURST && this.clock >= this.refillAt) { this.tokens++; this.refillAt = this.clock + REFILL; }
     if (this.pending && this.tokens > 0) this.write();
     if (this.blink > 0 && this.holdBlink === null) this.blink--;
@@ -210,9 +212,18 @@ class Save implements Module {
    */
   overlay(g: Game, ctx: CanvasRenderingContext2D) {
     this.frameNo++;
-    const ov = g.modules.filter(m => m.overlay);
-    if (ov[ov.length - 1] === this || typeof queueMicrotask !== 'function') { this.drawOverlay(g, ctx); return; }
+    if (this.isLastOverlay(g) || typeof queueMicrotask !== 'function') { this.drawOverlay(g, ctx); return; }
     queueMicrotask(() => g.safe('save:overlay', () => this.drawOverlay(g, ctx)));
+  }
+  /** whether save already is the last overlay in module order (cached: the module list never changes after boot) */
+  private lastOv: { list: readonly Module[]; n: number; last: boolean } | null = null;
+  private isLastOverlay(g: Game): boolean {
+    const c = this.lastOv;
+    if (c && c.list === g.modules && c.n === g.modules.length) return c.last;
+    let last: Module | null = null;
+    for (const m of g.modules) if (m.overlay) last = m;
+    this.lastOv = { list: g.modules, n: g.modules.length, last: last === this };
+    return this.lastOv.last;
   }
 
   private drawOverlay(g: Game, ctx: CanvasRenderingContext2D) {
@@ -220,24 +231,41 @@ class Save implements Module {
     // the card's middle with the slot status, the right primary label and the chewed master floppy
     if (g.state.scene === 'recovery' && this.frameNo - this.optsFrame > 2) {
       const ui = g.mods.ui;
-      drawRecoveryCard(ctx, this.options(), ui?.sel ?? 0, ui?.t ?? this.clock, this.confirmFresh, ui?.dev?.() ?? 'keyboard');
+      drawRecoveryCard(ctx, this.options(), ui?.sel ?? 0, ui?.t ?? this.clock, ui?.dev?.() ?? 'keyboard');
     }
     const left = this.holdBlink ?? this.blink;
     // never a "saved" floppy over the recovery screen (it would contradict "a cat chewed your save")
     if (left <= 0 || NO_WRITE_SCENES.has(g.state.scene)) return;
-    const p = indicatorPos(g.state.scene, this.touchDeck(g));
-    drawIndicator(ctx, p.x, p.y, left, this.store.persistent === false);
+    const touch = this.touchDeck(g), memory = this.store.persistent === false;
+    const p = indicatorPos(g.state.scene, touch);
+    if (touch && PLAY_SCENES.has(g.state.scene) && indicatorVisible(left)) {
+      // caption on the ACTION rule: clear the rule under it so the letters stay crisp
+      const cap = memory ? 'IN RAM' : 'SAVED', cx = p.x - 4 - textWidth(cap);
+      ctx.fillStyle = col('1'); ctx.fillRect(cx - 3, 241, p.x - cx + 2, 1);
+      text(ctx, cap, cx, 238, col(memory ? 'f' : 'i'), { shadow: col('0') });
+    }
+    drawIndicator(ctx, p.x, p.y, left, memory);
   }
 
   /**
    * Showcase stages (for critics and the integrator; wired from src/showcase as ?showcase=save&stage=...):
    * - 'indicator': a live play scene, frozen, with the floppy held solid and the storage-fallback toast up
    * - 'indicator-touch': the same with the touch deck on
-   * - 'recovery' (default): the recovery screen
+   * - 'indicator-memory': the memory-only (storage blocked) floppy
+   * - 'recovery' (default): the recovery screen with whatever this browser has (usually both slots gone)
+   * - 'recovery-backup' / 'recovery-nibbled': the card with a safe backup / a patchable main (in-memory store)
    */
   stage(name = 'recovery'): void {
     const g = this.g; this.staged = true;
     if (name === 'indicator-memory') { this.useStorage(null); name = 'indicator'; }
+    if (name === 'recovery-backup' || name === 'recovery-nibbled') {
+      // a throwaway in-memory store, so the showcase never touches the visitor's real save
+      this.store = memStorage(); this.lastRaw = this.lastData = null;
+      const raw = encodeEnvelope({ ...g.state, scene: undefined }, g.tick);
+      if (name === 'recovery-backup') { this.store.set(MAIN, 'chewed'); this.store.set(BACKUP, raw); }
+      else { const env = JSON.parse(raw); env.sum = 'nibbled'; this.store.set(MAIN, JSON.stringify(env)); }
+      g.setScene('recovery'); return;
+    }
     if (name !== 'indicator' && name !== 'indicator-touch') { g.setScene('recovery'); return; }
     if (name === 'indicator-touch') g.state.settings.touch = 'on';
     const W_ = g.mods.world, Q = g.mods.quest;
@@ -375,28 +403,27 @@ class Save implements Module {
   }
 
   /**
-   * Returns 'ok' | 'recovered' | 'corrupt' | 'none'. On success, state is replaced and play resumes.
-   * Main -> backup -> recovery screen. Called again from the recovery screen ("try backup") it also
-   * salvages a save whose checksum fails but whose data still parses.
+   * `load(slot = 'main')`: returns 'ok' | 'recovered' | 'corrupt' | 'none'. On success, state is replaced and
+   * play resumes. 'main' tries main, then backup; 'backup' tries the backup first, then main. Every failure
+   * ends on the recovery screen. Called from the recovery screen it also salvages a save whose checksum fails
+   * but whose data still parses. Legacy form `load(resume: boolean)` (false = load without resuming play).
    */
-  load(resume = true): RecoveryLoadStatus {
+  load(slot: Slot | boolean = 'main', resume = true): LoadStatus {
     try {
-      if (this.g.state.scene === 'recovery' && this.options().doomed) {
-        // "TRY AGAIN" with nothing left to fetch: look once more (another tab may have saved), and if it is
-        // still empty, ask first. The caller's next load() really fails, and ui starts fresh as before.
-        if (!this.confirmFresh) { this.confirmFresh = true; this.g.mods.audio?.sfx?.('blip'); return 'confirm'; }
-        this.confirmFresh = false;
-      }
+      if (typeof slot === 'boolean') { resume = slot; slot = 'main'; }
+      if (slot !== 'backup') slot = 'main';
       const main = this.store.get(MAIN), bak = this.store.get(BACKUP);
       if (!main && !bak) return (this.lastStatus = 'none');
       const salvaging = this.g.state.scene === 'recovery';
-      let d: Decoded | null = decodeEnvelope(main), src = main;
-      if (!d) { d = decodeEnvelope(bak); src = bak; }
-      if (!d && salvaging) { d = decodeEnvelope(main, true); src = main; if (!d) { d = decodeEnvelope(bak, true); src = bak; } }
+      const order = slot === 'backup' ? [bak, main] : [main, bak];
+      let d: Decoded | null = null, src: string | null = null;
+      for (const r of order) if (!d && (d = decodeEnvelope(r))) src = r;
+      if (salvaging) for (const r of order) if (!d && (d = decodeEnvelope(r, true))) src = r;
       if (!d) {
         this.quarantine(main, bak);
         this.lastStatus = 'corrupt'; this.g.setScene('recovery'); return 'corrupt';
       }
+      // 'ok' = exactly the main save; a deliberate load('backup') is 'recovered' too (it becomes main)
       const status: LoadStatus = src === main && decodeEnvelope(main) ? 'ok' : 'recovered';
       const s = sanitizeState(d.data, this.g.state.seed);
       if (!this.g.content.areas.find(a => a.id === s.areaId)) s.areaId = this.g.content.start;
@@ -443,14 +470,16 @@ class Save implements Module {
     try { this.restoreHi(); this.keep(); } catch { /* best effort */ }
     try { this.store.set(SETTINGS, JSON.stringify(this.g.state.settings)); } catch { /* best effort */ }
     this.store.del(MAIN); this.store.del(BACKUP);
-    this.live = false; this.pending = false; this.lastRaw = this.lastData = null; this.confirmFresh = false;
+    this.live = false; this.pending = false; this.lastRaw = this.lastData = null;
   }
 
   /**
-   * Everything the recovery screen needs, worded for players (ui draws it; see docs/core-requests/save.md #3).
-   * - `primary`: label for row 0 ('PATCH UP MY SAVE' | 'TRY BACKUP SAVE' | 'TRY AGAIN')
-   * - `status`: one line for under the subtitle, e.g. 'MAIN: CHEWED  BACKUP: SAFE'
-   * - `doomed`: true when row 0 cannot find anything, so ui should confirm with `confirm` before wiping
+   * Everything the recovery screen needs, worded for players (ui draws it via drawRecoveryCard).
+   * - `rows`: the card's options. Something to fetch: [primary, 'START FRESH'] with primary
+   *   'TRY BACKUP SAVE' (a slot verifies) or 'PATCH UP MY SAVE' (a slot's checksum fails but its data parses).
+   *   Nothing to fetch (both slots gone or chewed beyond salvage): just ['START FRESH'] (no fake retry).
+   * - `primary`: rows[0]; `status`: slot states, e.g. 'MAIN: CHEWED  BACKUP: SAFE'
+   * - `doomed`: nothing can be loaded; ui's row 0 then simply starts fresh (load() answers 'none'/'corrupt')
    */
   recoveryOptions() {
     this.optsFrame = this.frameNo;
@@ -459,12 +488,13 @@ class Save implements Module {
   private options() {
     const i = this.info();
     const word = (s: string) => (s === 'ok' ? 'SAFE' : s === 'damaged' ? 'NIBBLED' : s === 'corrupt' ? 'CHEWED' : 'GONE');
-    const anyDamaged = i.main === 'damaged' || i.backup === 'damaged';
-    const primary = i.main === 'ok' || i.backup === 'ok' ? 'TRY BACKUP SAVE' : anyDamaged ? 'PATCH UP MY SAVE' : 'TRY AGAIN';
+    const anyOk = i.main === 'ok' || i.backup === 'ok', anyDamaged = i.main === 'damaged' || i.backup === 'damaged';
+    const doomed = !anyOk && !anyDamaged;
+    const primary = anyOk ? 'TRY BACKUP SAVE' : anyDamaged ? 'PATCH UP MY SAVE' : 'START FRESH';
     return {
-      primary, status: `MAIN: ${word(i.main)}  BACKUP: ${word(i.backup)}`,
-      doomed: !(i.main === 'ok' || i.backup === 'ok' || anyDamaged),
-      confirm: 'NOTHING LEFT TO FETCH. START FRESH?',
+      primary, rows: doomed ? ['START FRESH'] : [primary, 'START FRESH'],
+      status: `MAIN: ${word(i.main)}  BACKUP: ${word(i.backup)}`,
+      doomed,
       recoveredToast: (slot: string) => (slot === 'salvage' ? 'SAVE PATCHED UP. GOOD AS NEW' : 'SAVE PATCHED UP FROM BACKUP'),
       freshToast: 'STARTING FRESH. HI-SCORE KEPT!',
     };
@@ -492,7 +522,7 @@ class Save implements Module {
       if (cur && decodeEnvelope(cur)) this.store.set(BACKUP, cur);
       this.store.set(MAIN, d.future ? raw : encodeEnvelope(d.data, d.at));
       if (this.g.state.scene === 'recovery') this.g.setScene('title');
-      return this.load() as LoadStatus;
+      return this.load();
     } catch { return 'corrupt'; }
   }
 }

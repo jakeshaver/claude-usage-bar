@@ -186,3 +186,61 @@ other overlay, before paint); when save is already the last overlay it draws in 
 ## Not save-owned, from the critic's sweep (FYI for world/art)
 - docks at dusk fills the playfield with a red/brown 50% checker dither (breaks "no dither on large areas";
   Persian cats turn to mush). FPS 24-36 during parallel captures, 60 alone: worth a perf check.
+
+# Core requests from save (round 4)
+
+Status: still **none** of R3-1..R3-8 is applied in this branch, so CI does not run the save self-test and the
+interim bridges are still live. `src/save/integration.patch` is **regenerated against this branch**
+(8 files, +58/-29) and re-tested: applied in my worktree -> `npm run verify` green with **4 files / 21 tests**
+(the 14 save cases included) -> recovery card, pause menu and toast unfold screenshotted -> reverted.
+
+```sh
+cd /home/user/wt/<integrator> && git apply dog-galaga/src/save/integration.patch && cd dog-galaga && npm run verify
+```
+
+## R4-1 (BLOCKING, integrator): apply the patch, then delete save's bridges
+Pieces (each hunk independent, same as R3 plus the R4 changes marked NEW):
+- `tests/save.selftest.test.ts` (R3-1): the 14-case save self-test in `npm test`.
+- `core/game.ts` + `core/render.ts` (R3-2): `Module.overlayZ`, overlays drawn sorted by it (stable).
+- `showcase/index.ts` (R3-3): `case 'save'` calls `g.mods.save.stage(p.get('stage') ?? 'recovery')`.
+  Stages: `recovery`, `recovery-backup`, `recovery-nibbled` (NEW, in-memory store), `indicator`,
+  `indicator-touch`, `indicator-memory`.
+- `core/api.ts` (R3-4): `__game.exportSave()` / `__game.importSave(code)`.
+- `ui/index.ts` recovery (R3-5, NEW signature): `this.rows = drawRecoveryCard(ctx, S.recoveryOptions(), this.sel,
+  t, this.dev())`; the card now draws its own hint row (ui's `hintRow` line for the card is removed).
+  `recoveryNav()`: when `recoveryOptions().doomed` the up/down toggle is skipped (one row). No more `confirmFresh`.
+- `ui/index.ts` pause (NEW, critic R3 #10): footnote `PROGRESS SAVES AUTOMATICALLY` (was `...EVERY WAVE`, but
+  save also writes on area enter, scene change, pagehide and the throttled path).
+- `ui/index.ts` toasts (NEW, critic R3 #6 = R2-7): no empty chip. Below 30% open nothing is drawn; after that
+  the label is drawn clipped to the pill's inside, so frame and words unfold together
+  (screenshots: `shots/r4p-toast-strip.png`, ages 1/3/5/8/160).
+- `ui/draw.ts` (R3-6): `ICONS.disk = FLOPPY7`. `ui/index.ts` pause: `COPY SAVE CODE` row (R3-7).
+- `ARCHITECTURE.md` (R3-8 + NEW): save line documents `load(slot = 'main')` exactly as the code now takes it.
+
+After the patch, delete these bridges in `src/save/index.ts` (or tell me and I will, next round):
+1. `overlay()`: the `queueMicrotask` branch (keep only `this.drawOverlay(g, ctx)`), plus `isLastOverlay`/`lastOv`.
+2. `drawOverlay()`: the `if (g.state.scene === 'recovery' && this.frameNo - this.optsFrame > 2)` repaint
+   (it already switches itself off when ui calls `recoveryOptions()` each frame), plus `optsFrame`.
+3. `afterBoot()`: the `?showcase=save&stage=` reader and the `api.exportSave ??= / importSave ??=` lines
+   (keep the copy/paste listeners).
+
+## R4-2: API contract now matches ARCHITECTURE.md (critic R3 #2)
+`load(slot: 'main' | 'backup' = 'main')`: `'main'` tries main then backup, `'backup'` tries the backup first
+(it then becomes main, status `'recovered'`). Unknown strings fall back to `'main'`; the legacy boolean
+`load(false)` (load without resuming) still works. Return values: `'ok' | 'recovered' | 'corrupt' | 'none'`
+(the `'confirm'` answer is gone). Covered by the self-test.
+
+## R4-3 (FYI): recovery card when nothing is left (critic R3 #4)
+Both slots gone or chewed beyond salvage: the card shows ONE highlighted row, `START FRESH`, under
+`NOTHING LEFT TO FETCH. NO WORRIES!`, with `SPACE START FRESH   CTRL+V PASTE SAVE CODE` in the hint row
+(touch: `TAP START FRESH`). `TRY BACKUP SAVE` / `PATCH UP MY SAVE` appear only when a slot verifies / parses.
+Both of ui's rows start fresh in that state (row 0's `load()` fails at once), so today's ui needs no change;
+the patch just stops the invisible second row from being selectable.
+
+## R4-4: forwarded from the critic's gameplay sweep (not save's; for world and ui)
+- world: the moon at `--tod=night` renders flat daytime grey with no night tint, while the HUD says
+  `LOCAL TIME: NIGHT` (`--area=moon --tod=night`).
+- ui: right HUD panel, the HOSTILES list with 3 breeds butts directly against `CATS LEFT` with zero spacing
+  (moon, street, rooftops). Needs >= 4px between the last breed row and `CATS LEFT`.
+- world/interaction: the Persian formation at the docks overlaps sprite on sprite (formation spacing smaller
+  than the Persian's 32px sprite).

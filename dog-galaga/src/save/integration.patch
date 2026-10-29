@@ -1,5 +1,5 @@
 diff --git a/dog-galaga/ARCHITECTURE.md b/dog-galaga/ARCHITECTURE.md
-index 35ab2d5..5b96299 100644
+index 35ab2d5..6c927cf 100644
 --- a/dog-galaga/ARCHITECTURE.md
 +++ b/dog-galaga/ARCHITECTURE.md
 @@ -119,7 +119,8 @@ Each module exports a `Module` object:
@@ -12,22 +12,24 @@ index 35ab2d5..5b96299 100644
  ```
  The loop calls `update`/`render` through `safe(moduleId, fn)`.
  
-@@ -128,7 +129,13 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
+@@ -128,7 +129,15 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
  - **world**: `enterArea(id)`, `currentArea()`, `setTod(tod)`, `transition(kind, cb)`, `exitsFrom(id)`
  - **player**: `pos()`, `respawn()`, `setInvuln(ticks)`, `camera: {x}`, `hitbox()`
  - **interaction**: `startWave(areaId, i)`, `startBoss(id)`, `liveCats()`, `clearAll()`, `spawnPickup(id,x,y)`
 -- **save**: `save()`, `load(slot)`, `hasSave()`, `wipe()`, `exportString()`, `importString(s)`
-+- **save**: `save()` (throttled), `flush()`, `load()` (on the recovery screen with nothing left it answers
-+  `'confirm'` first), `hasSave()`, `wipe()` (keeps hi score + settings), `info()` (slot health, `persistent`),
-+  `recoveryOptions()` (recovery card wording), `exportString()` / `importString(s)` (`POODLE1:` save codes),
-+  `stage(name)` (showcase: `recovery` | `indicator` | `indicator-touch` | `indicator-memory`). Draw helpers:
-+  `drawFloppy` (16x16 master floppy; `chewed`, `memory`, `mono`, `plate`), `FLOPPY7` (7x7 menu glyph),
-+  `drawRecoveryCard`, `drawChewMedallion`. Overlay draws at `overlayZ = 100` (on top of ui).
-+  Ctrl/Cmd+C / Ctrl/Cmd+V copy / paste a save code on the title, map, pause menu and recovery screen.
++- **save**: `save()` (throttled), `flush()`, `load(slot = 'main')` (`'main'` | `'backup'`: the slot tried
++  first; returns `'ok'` | `'recovered'` | `'corrupt'` | `'none'`; legacy `load(false)` = load without resuming),
++  `hasSave()`, `wipe()` (keeps hi score + settings), `info()` (slot health, `persistent`), `recoveryOptions()`
++  (recovery card wording: `rows`, `status`, `doomed`, toasts), `exportString()` / `importString(s)`
++  (`POODLE1:` save codes), `stage(name)` (showcase: `recovery` | `recovery-backup` | `recovery-nibbled` |
++  `indicator` | `indicator-touch` | `indicator-memory`). Draw helpers: `drawFloppy` (16x16 master floppy;
++  `chewed`, `memory`, `mono`, `plate`), `FLOPPY7` (7x7 menu glyph), `drawRecoveryCard`, `drawChewMedallion`.
++  Overlay draws at `overlayZ = 100` (on top of ui). Ctrl/Cmd+C / Ctrl/Cmd+V copy / paste a save code on the
++  title, map, pause menu and recovery screen.
  - **ui**: `toast(text)`, `muteToasts(on)`, `openPause()`, `openMap()`, `showDialogue(nodeId)`.
    Escape opens the pause menu in play, bonus, map and dialogue (the conversation is parked while it is open,
    and `quest.update` idles while `g.paused`)
-@@ -153,7 +160,7 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
+@@ -153,7 +162,7 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
  The **public game API** is `window.__game` (used by tools, tests and the bot):
  `ready`, `getState()`, `setState(partial)`, `goto(scene, opts)`, `enterArea(id)`,
  `setTod(tod)`, `step(n)` (advance n fixed ticks, works while paused), `input(keys)`,
@@ -110,7 +112,7 @@ index 21cf882..509ee90 100644
    gift: ['.#.#...', '#######', '#..#..#', '#######', '#..#..#', '#..#..#', '#######'],
    retry: ['..####.', '.#....#', '#......', '#....#.', '#...###', '.#.....', '..###..'],
 diff --git a/dog-galaga/src/ui/index.ts b/dog-galaga/src/ui/index.ts
-index 727a7a8..dae6822 100644
+index 727a7a8..de05b25 100644
 --- a/dog-galaga/src/ui/index.ts
 +++ b/dog-galaga/src/ui/index.ts
 @@ -1,4 +1,5 @@
@@ -153,20 +155,43 @@ index 727a7a8..dae6822 100644
  
    titleNav(g: Game) {
      const I = g.input; const items = this.titleItems(); const off = this.titleDisabled();
-@@ -270,8 +280,10 @@ class UI implements Module {
+@@ -268,10 +278,13 @@ class UI implements Module {
+   }
+   recoveryNav(g: Game) {
      const I = g.input;
-     if (I.pressed('up') || I.pressed('down')) { this.sel = 1 - this.sel; g.mods.audio?.sfx('blip'); }
+-    if (I.pressed('up') || I.pressed('down')) { this.sel = 1 - this.sel; g.mods.audio?.sfx('blip'); }
++    const o = g.mods.save.recoveryOptions?.();
++    // nothing left to fetch: the card shows a single START FRESH row (row 0's load() then fails and starts fresh)
++    if (!o?.doomed && (I.pressed('up') || I.pressed('down'))) { this.sel = 1 - this.sel; g.mods.audio?.sfx('blip'); }
      if (I.pressed('confirm')) {
 -      if (this.sel === 0) { const r = g.mods.save.load(); if (r === 'corrupt' || r === 'none') { g.mods.save.wipe(); g.setScene('title'); this.toast('STARTING FRESH. NO WORRIES!'); } }
 -      else { g.mods.save.wipe(); g.setScene('title'); this.toast('STARTING FRESH. NO WORRIES!'); }
-+      const fresh = g.mods.save.recoveryOptions?.().freshToast ?? 'STARTING FRESH. NO WORRIES!';
-+      // load() answers 'confirm' first when nothing is left to fetch (the card then asks START FRESH?)
++      const fresh = o?.freshToast ?? 'STARTING FRESH. NO WORRIES!';
 +      if (this.sel === 0) { const r = g.mods.save.load(); if (r === 'corrupt' || r === 'none') { g.mods.save.wipe(); g.setScene('title'); this.toast(fresh); } }
 +      else { g.mods.save.wipe(); g.setScene('title'); this.toast(fresh); }
      }
    }
  
-@@ -921,7 +933,7 @@ class UI implements Module {
+@@ -302,10 +315,15 @@ class UI implements Module {
+       const f = Math.min(1, x.age / 12, x.t / 10); const open = 1 - (1 - f) * (1 - f);
+       const full = textWidth(x.text) + 30; const w = Math.max(14, Math.round(full * open)); const bx = Math.round(cx - w / 2);
+       const y = Math.round(x.y);
++      // never an empty chip: below 30% open nothing is drawn; after that the label is revealed together with
++      // the frame (clipped to the pill's inside), so pill and words open and close as one
++      if (open < 0.3) return;
+       frame(ctx, bx, y, w, 14, C.hot, C.night, 4);
+-      if (open < 0.98) { rect(ctx, bx + 4, y + 6, w - 8, 1, C.hot); return; }
+-      icon(ctx, x.text.startsWith('MEMORY') ? 'photo' : x.text.startsWith('PUPPY') ? 'paw' : x.text.includes('QUEST') ? 'flag' : 'star', bx + 7, y + 4, C.gold);
+-      text(ctx, x.text, bx + 18, y + 4, (x.age >> 2) % 2 && x.age < 30 ? C.text : C.gold);
++      const fx = Math.round(cx - full / 2), clip = open < 0.98;
++      if (clip) { ctx.save(); ctx.beginPath(); ctx.rect(bx + 3, y + 2, w - 6, 10); ctx.clip(); }
++      icon(ctx, x.text.startsWith('MEMORY') ? 'photo' : x.text.startsWith('PUPPY') ? 'paw' : x.text.includes('QUEST') ? 'flag' : 'star', fx + 7, y + 4, C.gold);
++      text(ctx, x.text, fx + 18, y + 4, (x.age >> 2) % 2 && x.age < 30 ? C.text : C.gold);
++      if (clip) ctx.restore();
+     });
+   }
+ 
+@@ -921,11 +939,11 @@ class UI implements Module {
      const A = g.mods.world?.area();
      if (A) text(ctx, A.name.toUpperCase(), W / 2, y + 26, C.dim, { align: 'center' });
      rect(ctx, x + 16, y + 38, w - 32, 1, C.indigo);
@@ -175,7 +200,12 @@ index 727a7a8..dae6822 100644
      this.rows = menu(ctx, items, this.sel, W / 2, y + 52, this.t, 20, icons, w - 28);
      const dy = y + 52 + n * 20;
      rect(ctx, x + 16, dy, w - 32, 1, C.indigo);
-@@ -1062,17 +1074,9 @@ class UI implements Module {
+-    text(ctx, this.heldDlg ? 'BRIEFING ON HOLD' : 'PROGRESS SAVES EVERY WAVE', W / 2, dy + 8, C.dim, { align: 'center' });
++    text(ctx, this.heldDlg ? 'BRIEFING ON HOLD' : 'PROGRESS SAVES AUTOMATICALLY', W / 2, dy + 8, C.dim, { align: 'center' });
+     const k = keys(this.dev());
+     hintRow(ctx, [[k.ok, 'SELECT'], [k.back, 'RESUME']], W / 2, y + h - 18, C.line);
+   }
+@@ -1062,19 +1080,9 @@ class UI implements Module {
      scanlines(ctx, x + 2, y + 2, w - 4, h - 4);
      ticks(ctx, x, y, w, h, C.mag, 8, 3);
      chamferFill(ctx, x + 70, y - 8, w - 140, 18, C.hot, 5); text(ctx, 'SAVE RECOVERY', W / 2, y - 3, C.ink, { align: 'center' });
@@ -190,12 +220,14 @@ index 727a7a8..dae6822 100644
 -    headline(ctx, 'UH OH! A CAT CHEWED YOUR SAVE.', W / 2, y + 66, C.gold, C.cream, C.burnt);
 -    text(ctx, 'NOTHING IS BROKEN. PICK AN OPTION:', W / 2, y + 83, C.text, { align: 'center' });
 -    this.rows = menu(ctx, ['TRY BACKUP SAVE', 'START FRESH'], this.sel, W / 2, y + 102, t, 19, ['retry', 'new'], 200, { center: true });
-+    // the culprit chewing the master floppy, the slot status, and the primary row worded by save
-+    const S = this.g.mods.save;
-+    this.rows = drawRecoveryCard(ctx, S.recoveryOptions(), this.sel, t, !!S.confirmFresh, this.dev());
-     const k = keys(this.dev());
-     hintRow(ctx, [[k.move, 'CHOOSE'], [k.ok, 'CONFIRM']], W / 2, y + h - 14, C.hot);
+-    const k = keys(this.dev());
+-    hintRow(ctx, [[k.move, 'CHOOSE'], [k.ok, 'CONFIRM']], W / 2, y + h - 14, C.hot);
++    // the culprit chewing the master floppy, the slot status, the options worded by save, and the hint row
++    // (TAP AN OPTION on touch, CTRL+V SAVE CODE on keyboards)
++    this.rows = drawRecoveryCard(ctx, this.g.mods.save.recoveryOptions(), this.sel, t, this.dev());
      // Pom peeks over the garden fence, waiting to fly again
+     this.peekPom(ctx, HZ, 1, t);
+   }
 diff --git a/dog-galaga/tests/save.selftest.test.ts b/dog-galaga/tests/save.selftest.test.ts
 new file mode 100644
 index 0000000..d6c1b6e

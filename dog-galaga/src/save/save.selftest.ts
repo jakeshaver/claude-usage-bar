@@ -135,7 +135,7 @@ const CASES: [string, () => void][] = [
     eq(g2.state.hiScore, 48200, 'title shows the kept hi score before CONTINUE');
     eq(S(g2).load(), 'corrupt', 'recovery');
     let o = S(g2).recoveryOptions();
-    eq([o.primary, o.status, o.doomed], ['TRY AGAIN', 'MAIN: CHEWED  BACKUP: CHEWED', true], 'nothing left: confirm before wiping');
+    eq([o.primary, o.rows, o.status, o.doomed], ['START FRESH', ['START FRESH'], 'MAIN: CHEWED  BACKUP: CHEWED', true], 'nothing left: START FRESH is the only option');
     S(g2).wipe(); g2.setScene('title');
     eq(g2.state.hiScore, 48200, 'hi score survives START FRESH');
     const g3 = relaunch(store); eq([g3.state.hiScore, g3.state.settings.music], [48200, 0.25], 'hi score and settings survive a relaunch after the wipe');
@@ -145,7 +145,7 @@ const CASES: [string, () => void][] = [
     const g4 = relaunch(store); eq(g4.state.hiScore, 48200, 'hi score read from a damaged slot');
     eq(S(g4).load(), 'corrupt', 'still needs the recovery screen');
     o = S(g4).recoveryOptions();
-    eq([o.primary, o.status, o.doomed], ['PATCH UP MY SAVE', 'MAIN: NIBBLED  BACKUP: GONE', false], 'damaged slot: patch up');
+    eq([o.primary, o.rows, o.status, o.doomed], ['PATCH UP MY SAVE', ['PATCH UP MY SAVE', 'START FRESH'], 'MAIN: NIBBLED  BACKUP: GONE', false], 'damaged slot: patch up');
     eq(o.recoveredToast('salvage'), 'SAVE PATCHED UP. GOOD AS NEW', 'salvage toast');
     // a good backup: try backup
     const g5 = fresh(); g5.mods.world.newGame(); S(g5).save(); g5.state.score = 3; S(g5).save();
@@ -171,7 +171,8 @@ const CASES: [string, () => void][] = [
     const col = PF_X + PF_W + 118;
     const kb = indicatorPos('play', false), tc = indicatorPos('play', true), ti = indicatorPos('title', false);
     eq([kb.x + IND_W, kb.y + IND_H], [col, H - 10], 'keyboard: beside FLIGHT TIME, above the inner frame');
-    eq(tc.x + IND_W, col, 'touch: same column'); check(tc.y + IND_H <= 236, 'touch: above the ACTION deck (TOUCH_TOP 236)');
+    eq(tc.x + IND_W, col, 'touch: same column'); eq(tc.y + IND_H / 2, 242, 'touch: centred on the ACTION header rule (y 241)');
+    check(tc.y > 232 && tc.y + IND_H + 1 < 252, 'touch: between the deck divider (232) and the PAUSE pill (252)');
     eq([ti.x + IND_W, ti.y + IND_H], [W - 8, H - 8], 'title: bottom-right corner');
     eq([IND_W, IND_H], [16, 16], '16px grid');
   }],
@@ -280,24 +281,32 @@ const CASES: [string, () => void][] = [
     g.mods.world.newGame(); S(g).flush(); g.state.score = 1; S(g).save(); check(S(g).blink > 0, 'a real save blinks');
   }],
 
-  ['recovery: TRY AGAIN with nothing left asks first; moving away cancels; second press starts fresh', () => {
+  ['recovery: nothing left -> one START FRESH row; load(slot) as documented; salvage in one press', () => {
     const g = fresh(); g.mods.world.newGame(); S(g).save();
     const store = S(g).store; store.set(KEYS.MAIN, 'chewed'); store.set(KEYS.BACKUP, 'chewed too');
     const g2 = relaunch(store);
     eq(S(g2).load(), 'corrupt', 'recovery'); check(S(g2).recoveryOptions().doomed, 'doomed');
-    eq(S(g2).load(), 'confirm', 'first press only asks'); eq(g2.state.scene, 'recovery', 'still on the recovery screen');
-    eq(store.get(KEYS.MAIN), 'chewed', 'nothing wiped by asking');
-    g2.input.synthetic = new Set(['down'] as any); g2.step(); g2.input.synthetic = new Set(); g2.step();
-    check(!S(g2).confirmFresh, 'moving the selection cancels the question');
-    eq(S(g2).load(), 'confirm', 'asks again'); eq(S(g2).load(), 'corrupt', 'second press really fails (ui starts fresh)');
-    // ui's existing recovery path on that result: wipe + title, hi score kept
-    S(g2).wipe(); g2.setScene('title'); check(!S(g2).hasSave() && !S(g2).confirmFresh, 'fresh start');
+    eq(S(g2).recoveryOptions().rows, ['START FRESH'], 'no TRY AGAIN when nothing can be fetched');
+    // ui's row 0 on a doomed card: load() fails at once (no two-press confirm), ui wipes and goes to the title
+    eq(S(g2).load(), 'corrupt', 'row 0 = start fresh'); eq(g2.state.scene, 'recovery', 'still on the card until ui wipes');
+    S(g2).wipe(); g2.setScene('title'); check(!S(g2).hasSave(), 'fresh start');
+    eq(S(g2).recoveryOptions().status, 'MAIN: GONE  BACKUP: GONE', 'both gone');
+    // load(slot): 'backup' starts from the backup; 'main' (default) prefers main; legacy boolean still works
+    const g5 = fresh(); g5.mods.world.newGame(); g5.state.score = 10; S(g5).save(); S(g5).flush();
+    g5.state.score = 20; S(g5).save(); S(g5).flush();
+    const src5 = S(g5).store;
+    // every relaunch gets its own copy (a resumed game autosaves on area enter and would rotate the slots)
+    const st5 = () => { const m = memStorage(); for (const k of [KEYS.MAIN, KEYS.BACKUP]) { const v = src5.get(k); if (v) m.set(k, v); } return m; };
+    const gm = relaunch(st5()); eq([S(gm).load('main'), gm.state.score], ['ok', 20], "load('main')");
+    const gb = relaunch(st5()); eq([S(gb).load('backup'), gb.state.score], ['recovered', 10], "load('backup')");
+    const gl = relaunch(st5()); eq([S(gl).load(false), gl.state.score], ['ok', 20], 'load(false): legacy resume flag');
+    const gx = relaunch(st5()); eq(S(gx).load('nonsense' as any), 'ok', 'unknown slot name = main');
     // a salvageable slot is never doomed: one press patches it up
     const g3 = fresh(); g3.mods.world.newGame(); g3.state.score = 99; S(g3).save();
     const env = JSON.parse(S(g3).store.get(KEYS.MAIN)!); env.sum = 'x'; S(g3).store.set(KEYS.MAIN, JSON.stringify(env)); S(g3).store.del(KEYS.BACKUP);
     const g4 = relaunch(S(g3).store); eq(S(g4).load(), 'corrupt', 'needs recovery');
     eq(S(g4).load(), 'recovered', 'patched in one press'); eq(g4.state.score, 99, 'score back');
-    eq([...g2.errors, ...g4.errors], [], 'no errors');
+    eq([...g2.errors, ...g4.errors, ...gm.errors, ...gb.errors, ...gl.errors], [], 'no errors');
   }],
 
   ['storage notices fit one toast line; memory-only saves are flagged for the grey floppy; one floppy sprite', () => {
@@ -309,8 +318,25 @@ const CASES: [string, () => void][] = [
     eq([FLOPPY7.length, ...new Set(FLOPPY7.map(r => r.length))], [7, 7], '7x7 glyph');
     eq(FLOPPY.filter(r => r.includes('7')).length, 7, '7-row label');
     eq([FLOPPY[0].slice(13), FLOPPY[1].slice(13), FLOPPY[2].slice(13)], ['0..', '30.', '330'], 'clean 2px diagonal notch');
+    // paw: 3 toes + 1 pad, each a separate blob (4-connected components of 'P'), so it never reads as a face
+    eq(blobs(FLOPPY, 'P'), 4, 'paw = 3 toes + 1 pad');
   }],
 ];
+
+/** number of 4-connected blobs of `ch` in a sprite */
+function blobs(rows: readonly string[], ch: string): number {
+  const seen = new Set<string>(); let n = 0;
+  for (let r = 0; r < rows.length; r++) for (let c = 0; c < rows[r].length; c++) {
+    if (rows[r][c] !== ch || seen.has(r + ',' + c)) continue;
+    n++; const q = [[r, c]];
+    while (q.length) {
+      const [y, x] = q.pop()!; const k = y + ',' + x;
+      if (seen.has(k) || rows[y]?.[x] !== ch) continue;
+      seen.add(k); q.push([y + 1, x], [y - 1, x], [y, x + 1], [y, x - 1]);
+    }
+  }
+  return n;
+}
 
 /** Runs every case; never throws. */
 export function saveSelftest(only?: string): SelftestCase[] {
