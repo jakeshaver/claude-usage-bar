@@ -121,8 +121,13 @@ class UI implements Module {
   /** Staged showcases mute HUD toasts (presentational only). */
   toastsMuted = false;
   muteToasts(on: boolean) { this.toastsMuted = on; if (on) this.toasts = []; }
+  /** extra toast hold (on top of the automatic hold while memories' reveal card is up) */
+  private toastHold = false; private toastPend: string[] = [];
+  holdToasts(on: boolean) { this.toastHold = on; }
+  private toastsHeld() { const sc = this.g?.state.scene; return this.toastHold || (!!this.g?.mods.memories?.revealing?.() && (sc === 'play' || sc === 'bonus')); }
   toast(s: string) {
     if (this.toastsMuted) return;
+    if (this.toastsHeld()) { if (this.toastPend.length < 4) this.toastPend.push(s); return; }
     // power pickups: name the HUD slot the item lights up, so the bay labels and pickups tie together
     const it = this.g?.content?.items?.find(i => i.name.toUpperCase() === s);
     const pw = it && POWERS.find(p => p[0] === it.effect.kind);
@@ -168,7 +173,10 @@ class UI implements Module {
   update(g: Game) {
     this.t++;
     // toasts hold while a menu is open (they sit under the dim layer and resume afterwards)
-    if (this.menuOpen === 'none') { for (const x of this.toasts) { x.t--; x.age++; } this.toasts = this.toasts.filter(x => x.t > 0); }
+    // ...and while a memory reveal card is up (held toasts play the tick it leaves)
+    const held = this.toastsHeld();
+    if (!held && this.toastPend.length) { const q = this.toastPend; this.toastPend = []; for (const s of q) this.toast(s); }
+    if (this.menuOpen === 'none' && !held) { for (const x of this.toasts) { x.t--; x.age++; } this.toasts = this.toasts.filter(x => x.t > 0); }
     if (this.resumeHold > 0) {
       const I0 = g.input;
       if ((I0.held('fire') || I0.held('confirm')) && this.resumeHold < 30 && this.menuOpen === 'none') { this.resumeHold++; g.paused = true; }
@@ -292,6 +300,8 @@ class UI implements Module {
   // ---------------- drawing ----------------
   overlay(g: Game, ctx: CanvasRenderingContext2D) {
     const sc = g.state.scene; this.rows = []; this.bossBarOn = false;
+    // the journal paints a full-bleed backdrop: skip the scene underneath (saves ~5 ms a frame)
+    if (this.menuOpen === 'journal' && g.mods.journal?.draw) { g.mods.journal.draw(g, ctx); this.touch.draw(g, ctx, this.t); return; }
     if (sc === 'play' || sc === 'bonus' || sc === 'dialogue') { this.hud(g, ctx); if (sc === 'dialogue') this.dialogueBox(g, ctx); }
     else if (sc === 'title') this.title(g, ctx);
     else if (sc === 'map') this.map(g, ctx);
@@ -309,7 +319,8 @@ class UI implements Module {
   /** Toasts unfold horizontally from their own center at a fixed y (>= 8): never clipped by the screen edge. */
   drawToasts(ctx: CanvasRenderingContext2D) {
     const cx = PF_X + PF_W / 2;
-    const top = this.bossBarOn ? 24 : 8; // stack from the top (under the boss bar when it is up)
+    // stack from the top (under the boss bar when it is up); on title/recovery just above the hint row, clear of the logo and menu
+    const sc = this.g?.state.scene; const top = sc === 'title' || sc === 'recovery' ? 327 : this.bossBarOn ? 24 : 8;
     this.toasts.forEach((x, i) => {
       const target = top + i * 17;
       x.y = x.y < 0 ? target : x.y + Math.sign(target - x.y) * Math.min(2, Math.abs(target - x.y));
@@ -436,12 +447,10 @@ class UI implements Module {
       if (nl.length === 1 && A.subtitle) text(ctx, this.clip(A.subtitle.toUpperCase(), 18), x1, 30, C.dim);
       const tot = A.waves.length + (A.boss ? 1 : 0); const cur = Math.min(tot, s.waveIndex + 1);
       const MB = g.state.scene === 'bonus' && !B0 ? g.mods.minigames?.def : null;
-      header(ctx, MB ? 'BONUS' : 'WAVE', x1, 44, w0, MB ? C.gold : C.hot, t);
+      header(ctx, MB ? `BONUS STAGE ${String(g.content.bonus.indexOf(MB) + 1).padStart(2, '0')}` : 'WAVE', x1, 44, w0, MB ? C.gold : C.hot, t);
       const wy = 55;
-      if (MB) {
-        text(ctx, `BONUS STAGE ${String(g.content.bonus.indexOf(MB) + 1).padStart(2, '0')}`, x1, wy, C.gold, { shadow: C.ink });
-        text(ctx, this.clip(String(MB.name).toUpperCase(), 18), x1, wy + 9, C.dim);
-      } else if (B0) {
+      if (MB) text(ctx, this.clip(String(MB.name).toUpperCase(), 18), x1, wy + 2, C.gold, { shadow: C.ink });
+      else if (B0) {
         chamferFill(ctx, x1, wy - 1, w0, 13, C.mag, 3); chamferFill(ctx, x1 + 1, wy - 1, w0 - 2, 12, (t >> 4) % 2 ? C.hot : C.mag, 3);
         icon(ctx, 'cat', x1 + 6, wy + 2, C.text); text(ctx, 'BIG CAT WAVE', x1 + 16, wy + 2, C.text);
         arrow(ctx, x1 + w0 - 8, wy + 5, 'l', 3, C.text);
@@ -632,16 +641,16 @@ class UI implements Module {
     const p = node.portrait ?? '';
     if (SHEETS['portrait_' + p]) return 'portrait_' + p;
     if (p && SHEETS[p]) return p;
-    return /pom|poodle/i.test(p + ' ' + (node.speaker ?? '')) ? 'poodle' : 'pup';
+    return /pom|poodle/i.test(p + ' ' + (node.speaker ?? '')) ? (SHEETS.pom ? 'pom' : 'poodle') : 'pup';
   }
   /** Dialogue: a compact comm panel docked flush to the bottom of the playfield, leaving the cat formation up top in view. */
-  dialogueBox(g: Game, ctx: CanvasRenderingContext2D) {
+  dialogueBox(g: Game, ctx: CanvasRenderingContext2D, dock?: 'top' | 'bottom') {
     const d = g.mods.quest?.dlg ?? this.heldDlg; if (!d) return;
     const t = this.t;
     const isPom = /pom/i.test(d.node.speaker); const isBoss = /empress|boss|sergeant|madame|duchess/i.test(d.node.speaker + (d.node.portrait ?? ''));
     const accent = isPom ? C.pink : isBoss ? C.hot : C.line;
     // docks to the top while Pom sits in the bottom band the box would cover (quest.dock)
-    const x = PF_X + 1, w = PF_W - 2, h = DLG_H, y = g.mods.quest?.dock?.(h + 3) === 'top' ? 4 : H - h - 1;
+    const x = PF_X + 1, w = PF_W - 2, h = DLG_H, y = (dock ?? g.mods.quest?.dock?.(h + 3)) === 'top' ? 4 : H - h - 1;
     // solid backing flush with the playfield edges (no world pixels peek through the chamfers)
     rect(ctx, x, y - 2, w, h + 3, C.ink);
     rect(ctx, x, y - 2, w, 1, darkOf(accent));
@@ -766,7 +775,7 @@ class UI implements Module {
     const hov = Math.round(Math.sin(t / 12) * 2);
     const shw = 12 - hov; dither(ctx, W / 2 - shw, 220, shw * 2, 3, C.ink, 'check'); rect(ctx, W / 2 - shw + 3, 221, shw * 2 - 6, 1, C.ink);
     for (let i = 0; i < 3; i++) { const ly2 = 206 + hov + i * 3 + ((t >> 2) + i) % 3; rect(ctx, W / 2 - 1, ly2, 2, 1, i ? C.plum : C.purple); }
-    drawSprite(ctx, 'poodle', W / 2, 186 + hov, { frame: (t >> 3) % 2 });
+    drawSprite(ctx, SHEETS.pom ? 'pom' : 'poodle', W / 2, 186 + hov, { frame: (t >> 3) % 2 });
     // menu: chamfered neon frame with targeting ticks, like the HUD
     const items = this.titleItems(); const off = this.titleDisabled();
     const mh = items.length * 15 + 14; const my = 230; const mw = 176, mx = W / 2 - mw / 2;
@@ -1027,7 +1036,7 @@ class UI implements Module {
   }
   /** Pom's front-facing bust peeking over the picket fence at the horizon (rise 0..1 pops her up). */
   peekPom(ctx: CanvasRenderingContext2D, HZ: number, rise: number, t: number) {
-    const spr = SHEETS.portrait_pom ? 'portrait_pom' : 'poodle';
+    const spr = SHEETS.portrait_pom ? 'portrait_pom' : SHEETS.pom ? 'pom' : 'poodle';
     const sc = spriteCanvas(spr, 0); if (!sc) return;
     const cx = W / 2, top = Math.round(HZ - 4 - sc.height + (1 - rise) * 40 + (rise >= 1 ? (t >> 4) % 2 : 0));
     ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, HZ - 3); ctx.clip();

@@ -62,7 +62,7 @@ export function drawSheet(g: Game, ctx: CanvasRenderingContext2D, slots: SheetSl
       const y = top + i * (BOX_H + gap);
       E.dlg = s.d;
       ctx.save(); ctx.translate(0, y - BOX_TOP);
-      try { ui.dialogueBox(g, ctx); } finally { ctx.restore(); }
+      try { ui.dialogueBox(g, ctx, 'bottom'); } finally { ctx.restore(); }
       // state tag, bottom right inside the panel (below the third text line, left of the NEXT arrow)
       const tw = textWidth(s.tag) + 8; const tx = PF_X + PF_W - 22 - tw; const ty = y + BOX_H - 12;
       chamferFill(ctx, tx, ty, tw, 9, C.indigo, 2);

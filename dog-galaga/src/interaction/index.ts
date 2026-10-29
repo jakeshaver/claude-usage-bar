@@ -155,9 +155,9 @@ class Interaction implements Module {
     const ed = this.enemy(def.breed);
     for (let gi = 0; gi < def.groups; gi++) {
       const track = new Track(bonusPath(def.pattern, gi)); const p0 = track.at(0, tp);
-      // one single-file train per squadron: 8 ticks x 2.5 px = 20 px of arc between cats, squadrons 150 ticks apart
+      // one single-file train per squadron: 9 ticks x 2.5 px = 22 px of arc between cats, squadrons 150 ticks apart
       for (let k = 0; k < 8; k++) {
-        const c = this.mkCat({ ...ed, hp: 1 }, p0.x, p0.y, 'wait', { track, speed: 2.5, lat: 0, delay: gi * 150 + k * 8 });
+        const c = this.mkCat({ ...ed, hp: 1 }, p0.x, p0.y, 'wait', { track, speed: 2.5, lat: 0, delay: gi * 150 + k * 9 });
         c.bgroup = gi; this.cats.push(c);
       }
     }

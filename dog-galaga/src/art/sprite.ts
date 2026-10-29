@@ -17,7 +17,7 @@ export function spriteRows(name: string, frame = 0): string[] | null {
 }
 export function frameCount(name: string): number { return 1 + (SHEETS[name]?.frames?.length ?? 0); }
 
-/** Rasterize once to an offscreen canvas. flash=true renders a white silhouette (hit flash). */
+/** Rasterize once to an offscreen canvas. flash=true renders a white silhouette that keeps the ink outline (hit flash). */
 export function spriteCanvas(name: string, frame = 0, flash = false, recolor?: Record<string, string>): HTMLCanvasElement | null {
   const key = `${name}|${frame}|${flash ? 1 : 0}|${recolor ? JSON.stringify(recolor) : ''}`;
   const hit = cache.get(key); if (hit) return hit;
@@ -28,7 +28,7 @@ export function spriteCanvas(name: string, frame = 0, flash = false, recolor?: R
   rows.forEach((r, y) => [...r].forEach((ch, i) => {
     if (ch === '.' || ch === ' ') return;
     const k = recolor?.[ch] ?? ch; const pi = KEY.indexOf(k); if (pi < 0) return;
-    x.fillStyle = flash ? '#ffffff' : PALETTE[pi]; x.fillRect(i, y, 1, 1);
+    x.fillStyle = flash && k !== '0' ? '#ffffff' : PALETTE[pi]; x.fillRect(i, y, 1, 1);
   }));
   cache.set(key, c); return c;
 }
