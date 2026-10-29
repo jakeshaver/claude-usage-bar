@@ -11,6 +11,20 @@ import { BOSS_BULLET, bossRig, bossBruises, ditherShadow, ditherRect, bossGlow, 
 const HOT: Record<string, string> = { '6': 'c', '7': 'c', '8': 'c', '9': 'd', 'a': 'e', 'b': 'e', 'o': 'c', 'p': 'd', 'q': 'e', '5': 'c', '4': 'd', '3': 'e', 'g': 'r', 'f': 'c' };
 const GOLD: Record<string, string> = { '6': '6', '7': 'f', '8': 'f', '9': 'g', 'a': 'h', 'b': 'h', 'o': 'f', 'p': 'g', 'q': 'h', '5': 'f', '4': 'g', '3': 'h', 'c': 'f', 'd': 'g' };
 const FLASH: Record<string, string> = Object.fromEntries([...'123456789abcdefghijklmnopqrstuv'].map(k => [k, '12bvqkenu3ahpjm'.includes(k) ? '5' : '6']));
+/** Big Cats that share a sheet with an earlier one wear their own coat (a palette swap, cached per key): the Catnip
+ *  Kingpin is a violet tabby in a grey fedora (never a clone of Sergeant Whiskers), the Admiral a blue-grey persian
+ *  (never a clone of Duchess Fluffbottom). */
+const SKIN: Record<string, Record<string, string> | undefined> = {
+  boss_kingpin: { g: 't', h: 'u', f: '5', b: '2', a: 'v', j: 'p', k: 'q', '1': '0' },
+  boss_admiral: { '7': '5', '8': '4', '9': '3' },
+};
+/** A palette swap on top of a skin (flash / phase cycle over the coat). */
+function over(skin: Record<string, string> | undefined, top: Record<string, string> | undefined): Record<string, string> | undefined {
+  if (!skin) return top; if (!top) return skin;
+  const out: Record<string, string> = {};
+  for (const k of '0123456789abcdefghijklmnopqrstuv') { const a = skin[k] ?? k; const b = top[a] ?? a; if (b !== k) out[k] = b; }
+  return out;
+}
 const PHASE_CYCLE: ({ map: Record<string, string>; key: string } | undefined)[] = [{ map: HOT, key: 'ph-hot' }, { map: GOLD, key: 'ph-gold' }, { map: HOT, key: 'ph-hot' }, undefined];
 const BOSS_LIMIT = 150 * 60; // a boss that isn't beaten in 150s dozes off (counts as cleared): no softlocks
 const HOME_Y = 76;
@@ -45,6 +59,19 @@ function plate(ctx: CanvasRenderingContext2D, x: number, y: number, R: number) {
   if (cv) ctx.drawImage(cv, Math.round(x) - R - 2, Math.round(y) - R - 2);
 }
 
+/** Attack tell glyph: a ray of inked red/orange chevrons marching outward along the line the shots will fly (never a
+ *  white dash or a '+': those read as sparkle fx). `len` px long, chevrons every 12px, scrolled by `t`. */
+function chevronRay(ctx: CanvasRenderingContext2D, x0: number, y0: number, a: number, len: number, t: number, hot: boolean) {
+  const ux = Math.cos(a), uy = Math.sin(a), px = -uy, py = ux;
+  const dot = (x: number, y: number, k: string, sz: number) => { ctx.fillStyle = col(k); ctx.fillRect(Math.round(x) - (sz >> 1), Math.round(y) - (sz >> 1), sz, sz); };
+  for (let d = 14 + (t % 12); d < len; d += 12) {
+    const cx = x0 + ux * d, cy = y0 + uy * d;
+    for (const pass of [0, 1]) for (let s = 0; s <= 3; s++) for (const w of [-1, 1]) {
+      const x = cx - ux * s * 1.2 + px * w * s, y = cy - uy * s * 1.2 + py * w * s;
+      if (pass === 0) dot(x, y, '0', 4); else dot(x, y, s === 0 ? 'f' : hot ? 'r' : 'g', 2);
+    }
+  }
+}
 type BState = 'enter' | 'idle' | 'tell' | 'attack' | 'recover' | 'phase' | 'ko';
 type Atk = 'fan' | 'charge' | 'spiral' | 'summon' | 'volley' | 'ring' | 'curtain';
 
@@ -61,7 +88,7 @@ export class Boss {
   tx = WORLD_W / 2; ty = HOME_Y; ox = 0; oy = 0; aim = 0; jit = 0; enterFrom = -1;
   pattern: string; art: string;
   /** 0 none, 1 hover jets, 2 saucer, 3 the Empress's throne: later Big Cats are bigger, wider silhouettes. */
-  tier: number; hitT = 0;
+  tier: number; hitT = 0; flashCd = 0;
   /** home altitude (the Empress's throne rides higher, so her escort V has air under the saucer) */
   hy = HOME_Y;
   /** background emitters (phase 2+): their own clock, the paired-fan sweep, and the curtain's gap centres */
@@ -72,6 +99,8 @@ export class Boss {
     // boss fight (~40 s and up with the escort squad in the way), not a 15-second speed bump
     this.hp = this.maxHp = Math.max(def.hp, ai < 0 ? 0 : Math.max(230, 160 + 8 * ai)); this.pattern = def.bossPattern ?? 'sweep';
     this.art = BOSS_BULLET[this.pattern] ?? 'blt_paw';
+    // a purple orb melts into the navy of space: the dark arenas get the warm ember orb instead
+    if (this.art === 'blt_paw' && (g.state.areaId === 'station' || g.state.areaId === 'nebula')) this.art = 'blt_ember';
     this.enterFrom = g.rng.chance(0.5) ? -1 : 1;
     this.tier = ai < 0 ? 0 : ai >= areas.length - 1 ? 3 : ai >= 8 ? 2 : ai >= 3 ? 1 : 0;
     this.r = [26, 28, 32, 36][this.tier];
@@ -121,7 +150,8 @@ export class Boss {
   formK() { return this.entering ? 1 - this.enterK : 0; }
 
   damage(n: number) {
-    this.hp -= n; this.flash = 4; this.hitT = 6;
+    // a steady stream of turds flashes the Big Cat briefly once in a while (never a face washed white all fight)
+    this.hp -= n; this.hitT = 6; if (this.flashCd <= 0) { this.flash = 3; this.flashCd = 16; }
     if (this.hp <= 0 && this.st !== 'ko') { this.hp = 0; this.go('ko'); this.ix.bossKO?.(this.x, this.y); }
     this.g.bus.emit('boss:hp', { hp: Math.max(0, this.hp), max: this.maxHp });
   }
@@ -160,12 +190,13 @@ export class Boss {
     if (this.phase === 1) return ([prim, 'ring', prim, sec] as Atk[])[s % 4];
     // the Empress's last stand: full-lane curtains and clean rings take turns (her spiral and fan in between), and
     // under 15% armor it is curtain / ring back to back with a spiral breather
-    if (this.tier >= 3) return this.hp <= this.maxHp * 0.15 ? (['curtain', 'ring', 'curtain', prim] as Atk[])[s % 4] : (['curtain', 'ring', prim, 'curtain', sec, 'ring'] as Atk[])[s % 6];
+    // (only curtains and rings: one readable pattern on screen at a time, no aimed scatter between them)
+    if (this.tier >= 3) return (['curtain', 'ring'] as Atk[])[s % 2];
     return ([prim, 'curtain', sec, prim, 'ring'] as Atk[])[s % 5];
   }
 
   update() {
-    const g = this.g; this.t++; this.stT++; if (this.flash > 0) this.flash--; if (this.hitT > 0) this.hitT--; if (this.puffT > 0) this.puffT--;
+    const g = this.g; this.t++; this.stT++; if (this.flash > 0) this.flash--; if (this.flashCd > 0) this.flashCd--; if (this.hitT > 0) this.hitT--; if (this.puffT > 0) this.puffT--;
     if (this.t > BOSS_LIMIT && this.st !== 'enter' && this.st !== 'ko') { this.dead = true; this.napped = true; return; }
     const P = g.mods.player; const px = P?.x ?? WORLD_W / 2, py = P?.y ?? 300;
     const lastX = this.x, lastY = this.y;
@@ -254,6 +285,8 @@ export class Boss {
   private bgEvery(): number {
     const ph = this.phase, tier = this.tier;
     if (ph === 0) return tier >= 1 ? 170 - tier * 10 : 0;
+    // the Empress's final phase is pure choreography (curtain, ring, curtain...): no background scatter under it
+    if (ph >= 2 && tier >= 3) return 0;
     return ph === 1 ? 128 - tier * 12 : 104 - tier * 10;
   }
   /** Where the paired fans come from: the Big Cat's flanks (its jets / saucer rim / throne wings). */
@@ -370,7 +403,10 @@ export class Boss {
         for (let w = 0; w < rings; w++) if (T === 1 + w * 28) {
           const a0 = this.aim + Math.PI / n + (w * Math.PI) / n;
           for (let i = 0; i < n; i++) {
-            const a = a0 + (i * TAU) / n; if (Math.sin(a) < (this.tier >= 3 ? 0.12 : -0.2) || esc.some(e => Math.abs(((a - e) % TAU + TAU + Math.PI) % TAU - Math.PI) < 0.26)) continue;
+            const a = a0 + (i * TAU) / n; const da = (x: number) => Math.abs(((a - x) % TAU + TAU + Math.PI) % TAU - Math.PI);
+            if (Math.sin(a) < (this.tier >= 3 ? 0.12 : -0.2) || esc.some(e => da(e) < 0.26)) continue;
+            // the Empress's dense rings open a wide door (three steps) where the tell's lime notch pointed
+            if (this.tier >= 3 && da(this.aim) < (TAU / n) * 1.05) continue;
             const [rx, ry, oy] = this.ringR();
             this.spit(this.x + Math.cos(a) * rx, this.y + oy + Math.sin(a) * ry, Math.cos(a) * v, Math.sin(a) * v);
           }
@@ -382,7 +418,7 @@ export class Boss {
       case 'curtain': { // crossing curtains: walls of bullets spanning the whole lane, wall to wall, each with the 2-3
         // marked gaps, shed one after another and drifting alternately left and right, so the rows cross into a
         // lattice while every gap stays a clear 38px door a poodle can slip through
-        const vol = this.tier === 0 ? 3 : this.tier === 1 ? 4 : this.tier >= 3 && this.hp <= this.maxHp * 0.15 ? 6 : 5, gap = 30;
+        const vol = this.tier === 0 ? 3 : this.tier === 1 ? 4 : 5, gap = 30;
         if ((T - 1) % gap === 0 && (T - 1) / gap < vol) {
           // straight walls (no drift: a wall-to-wall row never frays at the walls); the doors alternate between the
           // two sets row by row, so Pom weaves from door to door
@@ -435,7 +471,7 @@ export class Boss {
     if (this.ix.grounded()) r.push(1, y, (ctx: CanvasRenderingContext2D) => ditherShadow(ctx, x + 8, y + 30 + tier * 3, 44 + tier * 10, 10));
     // telegraphs (drawn under the boss)
     if (this.st === 'tell') {
-      const k = this.stT / this.tellLen(); const blink = (this.stT >> 2) & 1; const c = blink ? 'r' : '6'; const big = this.big();
+      const k = this.stT / this.tellLen(); const blink = (this.stT >> 2) & 1; const c = blink ? 'r' : 'g'; const big = this.big();
       // every telegraph sits under the cats (escorts are never crossed by a ring or a dash line)
       r.push(1, y + 1, (ctx: CanvasRenderingContext2D) => {
         switch (this.atk) {
@@ -450,14 +486,14 @@ export class Boss {
             }
             break;
           }
-          case 'fan': { // the edges of the coming fan
+          case 'fan': { // the edges of the coming fan: chevron rays growing out of the Big Cat
             const L = 110 * big + (ph >= 2 ? 30 : 0);
-            for (const s of [-1, 1]) { const a = Math.PI / 2 + s * 0.75; pxDash(ctx, x, y + 20, x + Math.cos(a) * L * k, y + 20 + Math.sin(a) * L * k, c, 4, 3, -this.stT, 2); }
-            if (ph >= 2) pxDash(ctx, x, y + 20, x, y + 20 + L * k, c, 4, 3, -this.stT, 2);   // two fans: they cross down the middle
+            for (const s of [-1, 1]) chevronRay(ctx, x, y + 20, Math.PI / 2 + s * 0.75, L * k, this.stT, !!blink);
+            if (ph >= 2) chevronRay(ctx, x, y + 20, Math.PI / 2, L * k, this.stT, !!blink);   // two fans: they cross down the middle
             break;
           }
-          case 'volley': // aim line toward Pom
-            pxDash(ctx, x, y + 20, x + Math.cos(this.aim) * 120 * big * k, y + 20 + Math.sin(this.aim) * 120 * big * k, c, 4, 3, -this.stT, 2);
+          case 'volley': // aim ray toward Pom
+            chevronRay(ctx, x, y + 20, this.aim, 120 * big * k, this.stT, !!blink);
             break;
           case 'spiral': // a ring contracting onto the boss
             ringC(ctx, x, y + 6, Math.round((60 + tier * 4) * big - 26 * k), '0', 6, this.stT / 10);
@@ -494,7 +530,12 @@ export class Boss {
           }
           case 'summon': { // sparkles where the kittens will pop out
             const sx = 38 + tier * 6; const rr = Math.round(18 * big);
-            for (const s of [-1, 1]) { ringC(ctx, x + s * sx, y + 6, Math.round(rr - 12 * k), blink ? 'd' : '6', 4, this.stT / 8); ringC(ctx, x + s * sx, y + 6, Math.round(rr + 1 - 12 * k), '0', 4, this.stT / 8); pxSpark(ctx, x + s * sx, y + 6, blink ? '6' : 'f', 2); pxSpark(ctx, x + s * (sx + 8 + 6 * k), y - 10, 'f', 1); }
+            // (a contracting dashed ring around a solid inked pip: no '+' sparkles, which read as hit fx)
+            for (const s of [-1, 1]) {
+              const qx = Math.round(x + s * sx), qy = Math.round(y + 6);
+              ringC(ctx, qx, qy, Math.round(rr - 12 * k), blink ? 'd' : 'g', 4, this.stT / 8); ringC(ctx, qx, qy, Math.round(rr + 1 - 12 * k), '0', 4, this.stT / 8);
+              ctx.fillStyle = col('0'); ctx.fillRect(qx - 3, qy - 3, 7, 7); ctx.fillStyle = col(blink ? 'r' : 'g'); ctx.fillRect(qx - 2, qy - 2, 5, 5); ctx.fillStyle = col('f'); ctx.fillRect(qx - 1, qy - 1, 2, 2);
+            }
             break;
           }
         }
@@ -530,11 +571,11 @@ export class Boss {
     // knock-out: 3 frames of a solid radial wipe bursting off the Big Cat (white disc, then a white-and-gold band
     // racing out past the screen edges), palette-exact: a flash, never a screen-door dither
     if (this.st === 'ko' && this.stT <= 3 && this.g.state.settings?.flash !== false && !this.g.state.settings?.reduceMotion) {
-      const k = this.stT; r.push(4, 9990, (ctx: CanvasRenderingContext2D) => {
+      const k = this.stT; r.push(4, 9990, (ctx: CanvasRenderingContext2D) => this.ix.inLaneClip(ctx, () => {
         if (k <= 1) { annulus(ctx, x, y, 0, 84, '6'); annulus(ctx, x, y, 84, 88, 'f'); }
         else if (k === 2) { annulus(ctx, x, y, 44, 200, '6'); annulus(ctx, x, y, 44, 52, 'f'); annulus(ctx, x, y, 200, 206, 'f'); }
         else { annulus(ctx, x, y, 190, 340, '6'); annulus(ctx, x, y, 182, 190, 'f'); }
-      });
+      }));
     }
     r.push(2, y, (ctx: CanvasRenderingContext2D) => {
       // phase change: 3 frames of white (inked outline kept), then the boss palette-cycles red-hot / gold while it
@@ -552,7 +593,8 @@ export class Boss {
       // the flash is a white-hot palette swap, not a flat silhouette: the sprite's own ink outline stays, the shadows
       // turn pale lavender and everything else white, so the Big Cat keeps its face and shape while it flashes
       // small Big Cats wear a crisp 1px white outline outside their ink line (a sticker edge that reads on any floor)
-      drawCombat(ctx, this.def.sprite, x, y + bob, { frame, rim: flash ? '0' : tier <= 1 ? '6' : this.ix.rimKey(), recolor: flash ? FLASH : cyc?.map, tintKey: flash ? 'flash' : cyc?.key });
+      const skin = SKIN[this.def.id], top = flash ? FLASH : cyc?.map, tk = flash ? 'flash' : cyc?.key;
+      drawCombat(ctx, this.def.sprite, x, y + bob, { frame, rim: flash ? '0' : tier <= 1 ? '6' : this.ix.rimKey(), recolor: over(skin, top), tintKey: skin ? `${this.def.id}:${tk ?? ''}` : tk });
       if (!flash) bossBruises(ctx, x, y + bob, t, ph);
       bossRig(ctx, tier, x, y, t, ph, false);
       if (this.st === 'ko') { // dizzy stars circling its head

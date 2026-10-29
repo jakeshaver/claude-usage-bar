@@ -64,6 +64,9 @@ const orb = (body: string, hi: string, lo: string, r = 3.6): Paint => (dx, dy) =
 };
 /** Boss sweep: a purple orb (the hairball's colour family). */
 const paw: Paint = orb('u', 't', 'v');
+/** Boss sweep on the dark space arenas (nebula, station): an ember-orange orb, a warm core that reads on navy without
+ *  leaning on its white ring. */
+const ember: Paint = orb('g', 'f', 'h');
 /** Boss charge: a fish-bone capsule dropping head first (a solid cyan capsule with a hot core). */
 const bone: Paint = (dx, dy) => {
   if (Math.abs(dx) > 2 || Math.abs(dy) > 5 || (Math.abs(dx) === 2 && Math.abs(dy) >= 4)) return null;
@@ -88,6 +91,7 @@ defineSprites({
   blt_fur: { rows: bullet(9, 9, fur(0), '6'), frames: [bullet(9, 9, fur(1), 't'), bullet(9, 9, fur(2), '6'), bullet(9, 9, fur(3), 't')] },
   blt_yarn: { rows: bullet(7, 7, yarn(0), '6'), frames: [bullet(7, 7, yarn(1), 's')] },
   blt_paw: { rows: bullet(9, 9, paw, '6'), frames: [bullet(9, 9, paw, 'r')] },
+  blt_ember: { rows: bullet(9, 9, ember, '6'), frames: [bullet(9, 9, ember, 'r')] },
   blt_bone: { rows: bullet(7, 13, bone, '6'), frames: [bullet(7, 13, bone, 'r')] },
   blt_yarnbig: { rows: bullet(9, 9, yarnBig, '6'), frames: [bullet(9, 9, yarnBig, 'r')] },
   blt_star: { rows: bullet(9, 9, star(false), '6'), frames: [bullet(9, 9, star(true), 'r')] },

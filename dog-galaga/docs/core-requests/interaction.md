@@ -481,3 +481,40 @@ Please update the ARCHITECTURE interaction entry:
    - Arena dressing: backyard (Sergeant Whiskers) a clothesline across the top of the lane whose laundry drops off one
      piece at a time (decor, under cats and bullets); nebula (Catnip Kingpin) two drifting catnip clouds that halve the
      speed of enemy bullets inside them (`CATNIP_RX/RY` 34 / 16).
+
+### Polish 6, round 2 (interaction)
+
+4. **ui: nothing required any more for the KO panel.** `interaction.boss` is now a getter: the live Big Cat, or (while
+   `interaction.ko`) the knocked-out one with `hp` 0 and `dead` true, until `KO_HOLD` 140 ticks after `boss:defeat`.
+   The right panel therefore keeps `bossBlock` (ARMOR 0%, FURIOUS) through the finale with no ui change. Request 1
+   above is superseded. Everything that means "a live fight" should test `boss && !boss.dead` (ui `bossIntro` already
+   does). The top boss bar now shows an empty bar under the name during the KO; hide it with `!B0.dead` if preferred.
+5. **quest: hold the quest switch until the knock-out has played (critic: KO HUD).** On `boss:defeat` the QUEST line
+   jumps to the next quest at once (Empress: HOME AGAIN 2/10 -> LOST PUPS 0/6) while the explosion is still on screen.
+   Suggest quest (or ui's quest row) keeps showing the completed quest, ticked, while `g.mods.interaction?.ko` is true.
+6. **content / art: Kingpin and Admiral sheets.** The Catnip Kingpin uses `boss_tabby` (Sergeant Whiskers' sheet) and
+   the Admiral uses `boss_persian` (Duchess). interaction now draws both in their own coat (palette swap in
+   `boss.ts` `SKIN`: Kingpin a violet tabby in a grey fedora, Admiral a blue-grey persian), but the HUD portrait and
+   journal still show the clone. Either give them their own sheets (`boss_kingpin`, `boss_admiral` in
+   `tools/art/gen-cats.mjs`), or ui / journal can apply the same swap.
+7. **world: keep the escort band clear of tall decor in Big Cat arenas (critic: escorts parked on decor).** Escorts
+   ride in wing slots around the Big Cat (world y ~50..140, across the lane), and the ground keeps scrolling under
+   them, so in park (bench / planters / grill), station (solar grid, truss, module roofs) and backyard (patio block,
+   veggie bed) they periodically sit on top of props. interaction has no way to see decor. Suggest the world thins
+   props in the top 150px of the screen while `phase === 'boss'` (ground texture only), or exposes
+   `decorAt(x, y): boolean` so interaction can nudge slots off it.
+8. **memories: a memory carrier escort in a Big Cat fight.** The carried polaroid plus crown and white twinkle on an
+   escort reads as a big white glowing orb next to the Big Cat (critic: station "white orb with no clear role"). Consider
+   not marking escorts as carriers (`markGlow` picks any cat; interaction can skip escorts if memories prefers).
+9. **ARCHITECTURE (interaction entry), polish 6 round 2:**
+   - `boss` getter (see 4); internal live Big Cat is `big`.
+   - KO shockwaves and the KO radial wipe are clipped to the lane (`inLaneClip`).
+   - Big Cat hits: one splat per 30 ticks, dabbed on the body / craft rim; the white hit flash has a 16-tick cooldown.
+   - Attack tells: inked red / orange chevron rays (fan, volley) and solid orange pips (summon), no white dashes or
+     '+' sparks; cat wind-up tells lost their white spark.
+   - Boss bullets: `blt_ember` (orange orb) replaces the purple `blt_paw` on the dark nebula / station arenas.
+   - Empress final phase (under 33% armor): curtain / ring alternating only, no background emitters; her rings open
+     a three-step door where the tell's lime notch points; curtains are 5 volleys.
+   - Escorts: each wing compacts into its innermost slots when a cat is booped; a lopsided squad refills within 36 ticks.
+   - Arena dressing: backyard clothesline removed (the world already has one); nebula catnip is a translucent dithered
+     haze, and an orb slowed inside it wears a turning lime ring and a lime mote trail.
