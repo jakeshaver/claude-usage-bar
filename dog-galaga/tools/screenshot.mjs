@@ -1,7 +1,7 @@
 // Headless-Chrome screenshot tool.
 // node tools/screenshot.mjs --url=http://127.0.0.1:4173/ --out=shots/x --area=rooftops --tod=night --wave=2
 //   --showcase=interaction --state='{"score":5}' --advance=300 --zoom=2 --wait=1500 --keys=ArrowLeft,Space
-//   --showcase=interaction --stage=lineup|capturer|rescue|splitter|tank|dive|tell|boss|bullets|play [--at=N] [--phase=1|2]
+//   --showcase=interaction --stage=lineup|capturer|rescue|splitter|tank|dive|tell|boss|bullets|play [--at=N] [--phase=1|2] [--atk=ring|curtain|fan|...]
 //   --showcase=effects --fx=grid|strip|boss[-world] --fxt=N      --showcase=audio (waits until every render is done)
 //   --skipDialogue: close any open dialogue (deep links open the intro) and only then run --advance ticks
 // Writes <out>.png and <out>.json (console errors, page errors, game errors, fps, failed/external requests).
@@ -16,7 +16,7 @@ const base = args.url ?? 'http://127.0.0.1:4173/';
 const out = args.out ?? `shots/${args.showcase ?? args.area ?? args.scene ?? 'title'}-${args.tod ?? 'default'}`;
 const zoom = +(args.zoom ?? 2);
 const q = new URLSearchParams();
-for (const k of ['area', 'wave', 'tod', 'showcase', 'scene', 'advance', 'seed', 'autopilot', 'node', 'menu', 'tab', 'filter', 'ending', 'ticks', 'freeze', 'fx', 'fxt', 'touch', 'stage', 'at', 'phase', 'sheet', 'viewer', 'hits', 'jdemo', 'pups']) if (args[k]) q.set(k, args[k]);
+for (const k of ['area', 'wave', 'tod', 'showcase', 'scene', 'advance', 'seed', 'autopilot', 'node', 'menu', 'tab', 'filter', 'ending', 'ticks', 'freeze', 'fx', 'fxt', 'touch', 'stage', 'at', 'phase', 'atk', 'sheet', 'viewer', 'hits', 'jdemo', 'pups']) if (args[k]) q.set(k, args[k]);
 if (args.skipDialogue) { q.delete('advance'); q.delete('freeze'); }
 if (args.state) q.set('state', Buffer.from(args.state).toString('base64'));
 const url = base + (base.includes('?') ? '&' : '?') + q.toString();
