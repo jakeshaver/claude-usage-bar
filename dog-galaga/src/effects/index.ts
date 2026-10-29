@@ -173,8 +173,8 @@ class Effects implements Module {
       case 'bigboop': this.bossExplode(x, y); break;
       case 'poof': { // buddy knocked away: soft fur puffs and a couple of tiny stars
         // a cloud bursting: a quick ring + a big central puff that deflates, outer puffs drifting upward
-        this.ring(x, y, 6, 22, 10, P('7'), CIRCLE_RING, 0);
-        this.spawn(x, y, 0, -0.3, 0, 0.95, 14, P('7'), SEQ.puffBig, 0);
+        this.ring(x, y, 6, 22, 10, P('5'), CIRCLE_DASH, 0);                       // dashed pale-lavender ring (no second flat white shape)
+        this.spawn(x, y, 0, -0.3, 0, 0.95, 14, P('7'), SEQ.puffBig, 0);          // shaded multi-lobe cloud (cloud0..5) deflating
         const cols = [P('7'), P('6'), P('8'), P('5')];
         for (let i = 0; i < 10; i++) {
           const a = (i / 10) * 6.283 + r.range(-0.2, 0.2), s = r.range(1.1, 1.9);

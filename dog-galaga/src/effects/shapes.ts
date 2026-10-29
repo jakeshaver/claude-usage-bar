@@ -4,7 +4,7 @@ import { PALETTE, KEY } from '../core/palette';
  * Pixel-art particle shapes and hand-composed effect frames. Each is a tiny palette-indexed bitmap:
  *   x = main (tint) color, o = shade (darker step of the tint), h / w = white highlight,
  *   l = cream light (warm highlight, used on turd crumbs), p = pink, q = hot pink (pink shade),
- *   k = ink, . = clear.
+ *   k = ink, g = lavender-grey (palette 4), s = pale lavender (palette 5), . = clear.
  * Shapes are rasterized once per (shape, palette color) into a cached canvas, so drawing a particle
  * is a single integer-aligned drawImage. Circles (rings / discs) use the midpoint algorithm: no ctx.arc,
  * no anti-aliasing.
@@ -77,6 +77,35 @@ function star(g: Grid, R: number, r: number, core: number) {
     put(g, BS + dx, BS + dy, ch);
   }
 }
+/** shaded cloud puff from overlapping round lobes [dx, dy, r] (later lobes sit in front): cream body `x`,
+ *  pale-lavender shade crescent `s` on each lobe's lower right, white highlight `w` on the upper-left lobes,
+ *  1px lavender-grey outline `g` (palette 4) baked in, so the poof never reads as one flat white disc */
+function cloudBitmap(lobes: [number, number, number][]): string[] {
+  let x0 = 0, x1 = 0, y0 = 0, y1 = 0;
+  for (const [dx, dy, r] of lobes) { x0 = Math.min(x0, dx - r - 1); x1 = Math.max(x1, dx + r + 1); y0 = Math.min(y0, dy - r - 1); y1 = Math.max(y1, dy + r + 1); }
+  const w = x1 - x0 + 1, h = y1 - y0 + 1, g: string[][] = Array.from({ length: h }, () => Array(w).fill('.'));
+  const inside = (px: number, py: number, dx: number, dy: number, r: number) => (px - dx) ** 2 + (py - dy) ** 2 <= r * r + r * 0.8;
+  const minSum = Math.min(...lobes.map(([dx, dy]) => dx + dy));
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const px = x + x0, py = y + y0;
+    for (let i = lobes.length - 1; i >= 0; i--) {
+      const [dx, dy, r] = lobes[i];
+      if (!inside(px, py, dx, dy, r)) continue;
+      const upperLeft = dx + dy <= minSum + 2;
+      let ch = 'x';
+      if (!inside(px, py, dx - r * 0.35, dy - r * 0.35, r)) ch = 's';
+      else if (upperLeft && r >= 3 && inside(px, py, dx - r * 0.4, dy - r * 0.4, Math.max(1, r * 0.35))) ch = 'w';
+      g[y][x] = ch; break;
+    }
+  }
+  const src = g.map(r => r.slice());
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (src[y][x] !== '.') continue;
+    const on = (i: number, j: number) => j >= 0 && j < h && i >= 0 && i < w && src[j][i] !== '.';
+    if (on(x - 1, y) || on(x + 1, y) || on(x, y - 1) || on(x, y + 1)) g[y][x] = 'g';
+  }
+  return g.map(r => r.join(''));
+}
 const HEART7P = ['.pp.pp.', 'pwppppp', 'pwppppq', 'ppppppq', '.ppppq.', '..ppq..', '...q...'];
 const HEART5P = ['pp.pp', 'pwppp', 'ppppq', '.ppq.', '..q..'];
 const SPARK5W = ['..w..', '..w..', 'wwwww', '..w..', '..w..'];
@@ -139,6 +168,13 @@ const DEFS: Record<string, string[]> = {
   strA: ['x.', 'x.', '.x', '.x', 'x.', 'x.', '.x', '.o', 'o.'], strB: ['.x', '.x', 'x.', 'x.', '.x', '.x', 'x.', 'o.', '.o'],
   puff1: circleBitmap(1), puff2: circleBitmap(2), puff3: circleBitmap(3), puff4: circleBitmap(4),
   puff5: circleBitmap(5), puff6: circleBitmap(6),
+  // the poof's big central cloud: four lobes that deflate into three, then two smaller ones
+  cloud0: cloudBitmap([[-5, 1, 5], [5, 1, 5], [0, 3, 5], [-1, -4, 6]]),
+  cloud1: cloudBitmap([[-6, 1, 5], [6, 2, 5], [0, 3, 5], [-1, -4, 6]]),
+  cloud2: cloudBitmap([[-5, 1, 4], [4, 2, 4], [-1, -3, 5]]),
+  cloud3: cloudBitmap([[-4, 1, 3], [3, 1, 3], [-1, -2, 4]]),
+  cloud4: cloudBitmap([[-3, 0, 3], [2, 1, 3]]),
+  cloud5: cloudBitmap([[-2, 0, 2], [2, 1, 2]]),
   boop0: boopFrame(0), boop1: boopFrame(1), boop2: boopFrame(2), boop3: boopFrame(3), boop4: boopFrame(4), boop5: boopFrame(5), boop6: boopFrame(6),
 };
 /** shapes that get a 1px dark outline so they pop off busy backgrounds (Galaga-crisp) */
@@ -164,7 +200,7 @@ export const SEQ = {
   heartBig: seq('heart9', 'heart9', 'heart9', 'heart9', 'heart76', 'heart76', 'heart5'),
   heartMid: seq('heart76', 'heart76', 'heart76', 'heart76', 'heart5', 'heart5'),
   heartHold5: seq('heart5', 'heart5', 'heart5', 'heart5', 'heart3'),
-  puffBig: seq('puff6', 'puff6', 'puff5', 'puff4', 'puff3', 'puff2'),
+  puffBig: seq('cloud0', 'cloud1', 'cloud2', 'cloud3', 'cloud4', 'cloud5'),
   furUp: seq('puff3', 'puff4', 'puff4', 'puff3', 'puff3', 'puff2', 'puff1'),
   fur: seq('puff2', 'puff3', 'puff3', 'puff2', 'puff2', 'puff1'),
   chunk: seq('chunk5', 'chunk4', 'chunk4', 'chunk3', 'chunk3', 'dot2'),
@@ -202,7 +238,7 @@ export function shapeCanvas(shape: number, color: number, mode = 0): HTMLCanvasE
   if (mode === 0) for (let y = 0; y < h; y++) for (let i = 0; i < w; i++) {
     const ch = rows[y][i]; if (ch === '.') continue;
     x.fillStyle = ch === 'x' ? main : ch === 'o' ? shade : ch === 'h' || ch === 'w' ? PALETTE[6] : ch === 'l' ? PALETTE[7]
-      : ch === 'p' ? PALETTE[12] : ch === 'q' ? PALETTE[13] : ch === 'k' ? INK : main;
+      : ch === 'p' ? PALETTE[12] : ch === 'q' ? PALETTE[13] : ch === 'k' ? INK : ch === 'g' ? PALETTE[P('4')] : ch === 's' ? PALETTE[P('5')] : main;
     x.fillRect(i + pad, y + pad, 1, 1);
   }
   shapeCache[key] = c; return c;
