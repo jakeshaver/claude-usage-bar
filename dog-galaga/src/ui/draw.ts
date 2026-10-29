@@ -224,6 +224,7 @@ const ICONS: Record<string, string[]> = {
   back: ['...#...', '..##...', '.######', '#######', '.######', '..##...', '...#...'],
   pup: ['#.....#', '##...##', '.#####.', '.#.#.#.', '.#####.', '..#.#..', '.......'],
   cross: ['#.....#', '##...##', '.##.##.', '..###..', '.##.##.', '##...##', '#.....#'],
+  tick: ['.......', '......#', '.....##', '#...##.', '##.##..', '.###...', '..#....'],
 };
 export function icon(ctx: CanvasRenderingContext2D, name: string, x: number, y: number, color: string, shadow?: string) {
   const g = ICONS[name]; if (!g) return;

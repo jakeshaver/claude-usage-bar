@@ -879,7 +879,11 @@ class UI implements Module {
       header(ctx, MB ? `BONUS STAGE ${String(g.content.bonus.indexOf(MB) + 1).padStart(2, '0')}` : 'WAVE', x1, HUD_Y.wave, w0, MB ? C.gold : C.hot, t);
       const wy = HUD_Y.wave + 12;
       if (MB) this.fitText(ctx, String(MB.name), x1, wy + 2, w0, C.gold, C.ink);
-      else if (B0) {
+      else if (A.boss && g.mods.interaction?.bossDown === A.boss) {
+        // the Big Cat was just knocked out: the plate says so through the finale and outro (never a stale 8/8)
+        chamferFill(ctx, x1, wy - 1, w0, 13, C.ink, 3); chamferFill(ctx, x1 + 1, wy - 1, w0 - 2, 12, C.lime, 3);
+        icon(ctx, 'tick', x1 + 6, wy + 2, C.ink); text(ctx, 'BIG CAT BOOPED', x1 + 16, wy + 2, C.ink);
+      } else if (B0) {
         chamferFill(ctx, x1, wy - 1, w0, 13, C.mag, 3); chamferFill(ctx, x1 + 1, wy - 1, w0 - 2, 12, (t >> 4) % 2 ? C.hot : C.mag, 3);
         icon(ctx, 'cat', x1 + 6, wy + 2, C.text); text(ctx, 'BIG CAT WAVE', x1 + 16, wy + 2, C.text);
         arrow(ctx, x1 + w0 - 8, wy + 5, 'l', 3, C.text);
@@ -1178,9 +1182,11 @@ class UI implements Module {
     const cleared = s.areasCleared.includes(A.id);
     const pup = this.hasPup(g, A.id), safe = !!s.flags['pup_' + A.id];
     const B0 = g.mods.interaction?.boss;
+    const booped = !!A.boss && g.mods.interaction?.bossDown === A.boss;
     return [
       ['photo', 'MEMORIES', mems.length ? `${got}/${mems.length}` : 'NONE', mems.length ? (got === mems.length ? C.gold : C.text) : C.peri, got && got === mems.length ? C.gold : C.violet],
       ['paw', 'LOST PUP', !pup ? 'NONE' : safe ? 'SAVED' : 'CAGED', !pup ? C.peri : safe ? C.lime : (t >> 4) % 2 ? C.hot : C.pink, pup ? (safe ? C.lime : C.pink) : C.peri],
+      booped && !cleared ? ['tick', 'BIG CAT', 'BOOPED', C.lime, C.lime] :
       ['cat', 'BIG CAT', !A.boss ? 'NONE' : cleared ? 'NAPPING' : B0 ? 'AWAKE' : 'AHEAD', !A.boss ? C.peri : cleared ? C.line : B0 ? C.hot : C.orange, A.boss ? (cleared ? C.line : C.hot) : C.peri],
     ];
   }
