@@ -560,3 +560,50 @@ Audit (bot, 8 paths, tools/out/bot.json): all 17 quests start and complete on at
 'active' at the ending on any path. 10 done on 8/8 (first_flight, boop_brigade, scrapbook, big_cats, lost_pups,
 bonanza_star, night_owl, factory_unravel, station_dock, home_again), branch quests done 4/8 and locked on the others
 (park_pals/bodega_respect, cafe_rush/docks_catch, moon_litter/nebula_sober), secret_route done 4 / missed 4.
+
+### Polish 2, round 2 (quest builder)
+
+Quest changes this round: the finale (quiet quest news) now starts on `boss:defeat` of the final Big Cat (current area
+has `ending`, or the payload's bossId is that area's boss), not only on the final `area:clear`. home_again and big_cats
+pay +28,000 quietly under the victory dialogue and are listed in `endingRewards()`. Entering the finale also drops
+quest toasts still queued, toasts already on screen, and **ui's `toastPend`**. The map no longer toasts
+`NEBULA HOP FINISHES <Q>` (the NEXT HOP card says it); only the `MOON HOP CLOSES <Q>` warning is still a toast.
+Proof: shots/q-p2r2-end21000.png (victory dialogue, no toasts), shots/q-p2r2-end23500.png (ending, no toasts),
+shots/q-p2r2-map40.png (one CLOSES toast, FINISHES only on the card). check.ts drives boss:defeat in the mothership.
+
+1. **ui, REQUIRED: ending card lists the quiet quest rewards** (critic: "+28,000 and is never told"). These rewards are
+   paid but invisible until this is done. In `endingCard()` (src/ui/index.ts), once the stats are up
+   (`shown > lines.length`), draw the list between the story panel and the stats block (the story panel ends at
+   `py + ph` <= 192, the stats start at 276):
+   ```ts
+   const qr: { name: string; text: string }[] = g.mods.quest?.endingRewards?.() ?? [];
+   qr.slice(0, 3).forEach((r, i) => {
+     const s = `QUEST ${r.name.toUpperCase()} ${r.text}`;
+     const y = 254 - (Math.min(3, qr.length) - 1 - i) * 11;
+     icon(ctx, 'flag', W / 2 - numWidth(s) / 2 - 10, y, C.lime);
+     text(ctx, s, W / 2, y, C.gold, { align: 'center', shadow: C.ink });
+   });
+   ```
+   (With more than 3 entries, show the first 2 plus `+n MORE QUESTS`.) In a real run this lists HOME AGAIN +20,000
+   and BIG CATS +8,000.
+2. **ui: ownership of `toastPend` at the finale (decision)**: quest owns the clear for now. `enterFinale()` sets
+   `ui.toastPend = []` (the field is TS-private but reachable at runtime) together with `muteToasts(true)`, on the final
+   boss defeat and again on `scene:change` to 'ending'. If ui prefers to own it, add a public `clearToasts()` that empties
+   `toasts` and `toastPend`, call it from ui's `scene:change` -> 'ending' handler, and tell me; quest will call
+   `clearToasts()` only on the boss defeat.
+3. **ui, REQUIRED (no longer optional): toast kinds** (round 1 request 1). `ui.toast(s)` takes one argument, so
+   `MOON HOP CLOSES FOLLOW THE CATNIP` still shows a gold star like good news (shots/q-p2r2-map40.png). Please accept
+   `toast(s: string, opts?: { kind?: 'good' | 'warn' })`, keep `kind` on the entry and in `toastPend`, and for `warn`
+   draw the peri flag icon with pink text on the usual plate (the NEXT HOP card's CLOSES colours). Also change
+   `g.toastFn = (s, o) => this.toast(s, o)`.
+4. **ui, map card nits**: test `rn.kind === 'finishes'` instead of `rn.good` (still returned, will be dropped later),
+   and append ` +${rn.more}` when `rn.more > 0`.
+5. **tools/bot (optional): a 'lazy' path** that skips pups, memories and bonus perfects, to prove end to end that the
+   run-end sweep closes open quests (e.g. boop_brigade, lost_pups) as missed, so nothing reads 'active' at the
+   ending. check.ts covers this headless today (ending sweep case).
+6. **Forwarded (not quest)**: ending/ui: the ending card reads `PUPS HOME 0/1` while the HUD showed RESCUED X1 and
+   LOST PUP SAVED (shots/q-p2r2-end23500.png, autopilot from the mothership). effects: soft translucent purple
+   smoke circles in street mid-play look anti-aliased (critic's street.png).
+
+Audit (tools/out/bot.json, 8 paths, all ending_true, no softlocks, no errors): all 17 quests done on at least one path
+(10 on 8/8, 6 branch quests and secret_route on 4/8); no quest 'active' at the end of any path.

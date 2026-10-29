@@ -346,7 +346,7 @@ for (const d of content.dialogue) for (const p of paginate(d.text)) ok(revealLin
     ok(!left.length, `quests still active after the ending event: ${left.join(', ')}`);
     ok(g5.state.quests[open0[0]] === 'done', 'ending sweep touched a done quest');
     ok(open0.slice(1).every(id => g5.state.quests[id] === 'missed'), 'ending sweep did not mark open quests missed');
-    ok(Q5.heldToasts().length === toasts0, 'ending sweep queued MISSED toasts behind the ending');
+    ok(Q5.heldToasts().length <= toasts0 && !Q5.heldToasts().some((t: string) => /MISSED/.test(t)), 'ending sweep queued MISSED toasts behind the ending');
     // the final sector clear pays its quests quietly: no QUEST COMPLETE / REWARD toast reaches the ending card,
     // the reward is still paid and listed in endingRewards(); toasts already up are cleared when the ending shows
     {
@@ -366,6 +366,39 @@ for (const d of content.dialogue) for (const p of paginate(d.text)) ok(revealLin
         ok(Qf.endingRewards().some((r: any) => r.questId === fq.id), `endingRewards() does not list ${fq.id}: ${JSON.stringify(Qf.endingRewards())}`);
         // a fresh flight starts with an empty list and talks again
         gf.bus.emit('game:new', {}); ok(!Qf.endingRewards().length, 'endingRewards() survived game:new');
+      }
+    }
+    // the final Big Cat going down is the climax: quests it finishes (home_again, big_cats) pay quietly, nothing
+    // stacks over the victory dialogue, and ui's parked toasts (toastPend) never reach the ending card either
+    {
+      const fin = content.areas.find(a => a.ending);
+      if (fin?.boss) {
+        const gb: any = createGame({ headless: true }); gb.autopilot = false; const Qb = gb.mods.quest; const UIb = gb.mods.ui;
+        const seenB: string[] = []; const tb = UIb.toast.bind(UIb); UIb.toast = (x: string, o?: any) => { seenB.push(x); tb(x, o); };
+        gb.mods.world.enterArea(fin.id, 0); Qb.skipAll();
+        const hq = content.quests.filter(q => q.complete.on === 'boss:defeat' && q.complete.match?.bossId === fin.boss).map(q => q.id);
+        for (const id of hq) if (gb.state.quests[id] !== 'done') gb.ops.setQuest(id, 'active');
+        for (let i = 0; i < 400 && Qb.heldToasts().length; i++) gb.step();
+        UIb.toast('LEFTOVER TOAST'); if (Array.isArray(UIb.toastPend)) UIb.toastPend.push('PARKED TOAST');
+        seenB.length = 0; const score0 = gb.state.score;
+        gb.bus.emit('boss:defeat', { bossId: fin.boss }); gb.step(); gb.step();
+        ok(hq.length > 0 && hq.every(id => gb.state.quests[id] === 'done'), `final boss did not finish ${hq.join(', ')}: ${hq.map(id => gb.state.quests[id]).join(', ')}`);
+        ok(!seenB.some(t => /QUEST COMPLETE|REWARD/.test(t)), `climax quest toasts sent over the victory dialogue: ${seenB.join(' | ')}`);
+        ok(!Qb.heldToasts().length, `climax quest toasts held for later: ${Qb.heldToasts().join(' | ')}`);
+        ok(!UIb.toasts.length, `toasts left over the victory dialogue: ${UIb.toasts.map((t: any) => t.text).join(' | ')}`);
+        ok(!UIb.toastPend?.length, `ui toastPend kept parked toasts past the final boss: ${(UIb.toastPend ?? []).join(' | ')}`);
+        ok(hq.every(id => Qb.endingRewards().some((r: any) => r.questId === id)), `endingRewards() misses the climax quests: ${JSON.stringify(Qb.endingRewards())}`);
+        const paid = content.quests.filter(q => hq.includes(q.id)).reduce((a, q) => a + (q.reward?.score ?? 0), 0);
+        ok(gb.state.score >= score0 + paid, `climax rewards not paid (${gb.state.score - score0} < ${paid})`);
+        // the run then clears the sector and the ending comes up: still quiet, the list survives, ui stays empty
+        gb.bus.emit('area:clear', { areaId: fin.id }); gb.state.ending = 'ending_good'; gb.setScene('ending'); gb.bus.emit('ending', { endingId: 'ending_good' });
+        if (Array.isArray(UIb.toastPend)) UIb.toastPend.push('LATE PARKED');
+        gb.setScene('play'); gb.setScene('ending'); gb.step(); gb.step();
+        ok(!UIb.toasts.length && !UIb.toastPend?.length, `toasts on the ending card: ${[...UIb.toasts.map((t: any) => t.text), ...(UIb.toastPend ?? [])].join(' | ')}`);
+        ok(hq.every(id => Qb.endingRewards().some((r: any) => r.questId === id)), 'endingRewards() lost the climax quests at the ending');
+        // a save loaded into a fresh sector afterwards (same session, no game:new) talks again
+        gb.state.ending = null; gb.mods.world.enterArea(content.start, 0);
+        ok(!Qb.endingRewards().length, 'finale stayed on after entering a fresh sector');
       }
     }
     // a save from before 'missed' was a state (active + the old marker) loads as missed; a save written at the
@@ -412,7 +445,8 @@ for (const d of content.dialogue) for (const p of paginate(d.text)) ok(revealLin
     gm.state.areasCleared.push('sky'); gm.setScene('map');
     const heads = [...seen, ...Qm.heldToasts()].join(' | ');
     ok(Qm.heldToasts().filter((t: string) => /ROUTE OPEN!$/.test(t) && !/NEBULA|SECRET/.test(t)).length <= 1, `ROUTE OPEN toast repeated per memory: ${Qm.heldToasts().join(' | ')}`);
-    ok(/HOP FINISHES/.test(heads) && /HOP CLOSES/.test(heads), `map arrival does not telegraph the route choice: ${heads}`);
+    // the NEXT HOP card carries FINISHES (routeNote); a toast only adds the bad news about the other hop
+    ok(!/HOP FINISHES/.test(heads) && /HOP CLOSES/.test(heads), `map arrival: want only the CLOSES toast (FINISHES is on the card): ${heads}`);
     gm.step(); gm.step();
     for (let i = 0; i < 400 && Qm.heldToasts().length; i++) gm.step();
     ok(warn.some(t => /HOP CLOSES/.test(t)) && !warn.some(t => /FINISHES/.test(t)), `route toasts not tagged kind 'warn' (bad news only): warn=${warn.join(' | ')}`);
