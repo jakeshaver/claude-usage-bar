@@ -100,7 +100,9 @@ const PUP_COATS: Record<string, string>[] = [
   { '8': 'p', '9': 'q', 'a': '1', 'b': '0', '7': 'o', 'r': 'f' },
 ];
 /** Toasts: at most TOAST_CAP on screen, wrapped to TOAST_COLS glyphs so a pill never outgrows the playfield. */
-type Toast = { text: string; t: number; age: number; y: number };
+type ToastKind = 'good' | 'warn';
+type ToastOpts = { kind?: ToastKind };
+type Toast = { text: string; t: number; age: number; y: number; kind?: ToastKind };
 const TOAST_CAP = 2, TOAST_COLS = Math.floor((PF_W - 8 - 30 + 1) / 6);
 /** News that costs the player something: drawn with a peri frame and a pink cross, never the gold star. */
 const BAD_NEWS = /MISSED|EXPIRED|CLOSED|CLOSES|FORFEIT|SEALED|LOCKED|BLOCKED|CONTENT ISSUE|CHEWED/;
@@ -146,7 +148,7 @@ class UI implements Module {
 
   init(g: Game) {
     this.g = g;
-    g.toastFn = (s) => this.toast(s);
+    g.toastFn = (s, o) => this.toast(s, o);
     g.bus.on('scene:change', (p: any) => {
       this.sel = p.to === 'title' && !this.g.mods.save?.hasSave() ? 1 : 0; this.mapSel = 0;
       // the ending owns the screen: quest / reward news still in flight is flushed, not stamped on the title card
@@ -167,20 +169,21 @@ class UI implements Module {
   toastsMuted = false;
   muteToasts(on: boolean) { this.toastsMuted = on; if (on) this.toasts = []; }
   /** extra toast hold (on top of the automatic hold while memories' reveal card is up) */
-  private toastHold = false; private toastPend: string[] = [];
+  private toastHold = false; private toastPend: { s: string; o?: ToastOpts }[] = [];
   holdToasts(on: boolean) { this.toastHold = on; }
   /** In a live wave or boss fight toasts play one at a time (a stack would cover the formation's top rows). */
   private toastsSingle() { const g = this.g; const m = g?.mods.interaction?.mode; return g?.state.scene === 'play' && (m === 'wave' || m === 'boss'); }
   private toastsHeld() { const sc = this.g?.state.scene; return this.toastHold || (!!this.g?.mods.memories?.revealing?.() && (sc === 'play' || sc === 'bonus')); }
-  toast(s: string) {
+  /** opts.kind: 'warn' = bad news (peri frame, pink cross), 'good' = lime text; omitted = matched from the text. */
+  toast(s: string, opts?: ToastOpts) {
     if (this.toastsMuted) return;
     if (this.g?.state.scene === 'ending') return; // the ending is a set piece: no quest / reward pills over it
-    if (this.toastsHeld()) { if (this.toastPend.length < 4) this.toastPend.push(s); return; }
+    if (this.toastsHeld()) { if (this.toastPend.length < 4) this.toastPend.push({ s, o: opts }); return; }
     // power pickups: name the HUD slot the item lights up, so the bay labels and pickups tie together
     const it = this.g?.content?.items?.find(i => i.name.toUpperCase() === s);
     const pw = it && POWERS.find(p => p[0] === it.effect.kind);
     if (pw) s = `${s}: ${pw[4]}`;
-    this.toasts.push({ text: s.toUpperCase(), t: 170, age: 0, y: -1 });
+    this.toasts.push({ text: s.toUpperCase(), t: 170, age: 0, y: -1, kind: opts?.kind });
     if (this.toasts.length > 8) this.toasts.splice(this.toastCap(), 1); // a long backlog drops its oldest waiting news
   }
   /** How many toasts are on screen at once: two, or one at a time in a live wave / boss fight. */
@@ -227,7 +230,7 @@ class UI implements Module {
     // toasts hold while a menu is open (they sit under the dim layer and resume afterwards)
     // ...and while a memory reveal card is up (held toasts play the tick it leaves)
     const held = this.toastsHeld();
-    if (!held && this.toastPend.length) { const q = this.toastPend; this.toastPend = []; for (const s of q) this.toast(s); }
+    if (!held && this.toastPend.length) { const q = this.toastPend; this.toastPend = []; for (const p of q) this.toast(p.s, p.o); }
     if (this.menuOpen === 'none' && !held) {
       // at most TOAST_CAP on screen (one at a time in combat); the rest queue. A waiting queue shortens the front
       // toast so the news stays fresh.
@@ -406,7 +409,7 @@ class UI implements Module {
       if (i >= cap) return; // waiting its turn
       // clamp to the playfield: wrap onto as many lines as it takes (never wider than the playfield, never cut).
       // Wrapped at draw time: interaction bumps a pickup's counter by rewriting its text in place.
-      const lines = wrap(x.text, TOAST_COLS); const bad = BAD_NEWS.test(x.text);
+      const lines = wrap(x.text, TOAST_COLS); const bad = x.kind ? x.kind === 'warn' : BAD_NEWS.test(x.text); const good = x.kind === 'good';
       const h = 14 + (lines.length - 1) * 9;
       const target = up ? base - acc - h : base + acc; acc += h + 3;
       x.y = x.y < 0 ? target : x.y + Math.sign(target - x.y) * Math.min(2, Math.abs(target - x.y));
@@ -420,7 +423,7 @@ class UI implements Module {
       if (bad) { if (x.age >= 3) chamferLine(ctx, bx, y, full, h, C.pink, 4); chamferLine(ctx, bx + 2, y + 2, full - 4, h - 4, C.peri, 3); }
       const ic = bad ? (/SEALED|LOCKED|BLOCKED/.test(x.text) ? 'lock' : 'cross') : x.text.startsWith('MEMORY') ? 'photo' : x.text.startsWith('PUPPY') ? 'paw' : x.text.includes('QUEST') ? 'flag' : x.text.includes('SOUND') ? 'speaker' : 'star';
       icon(ctx, ic, bx + 7, y + 4, bad ? C.pink : C.gold);
-      lines.forEach((l, k) => text(ctx, l, bx + 18, y + 4 + k * 9, bad ? (blink ? C.text : C.pink) : blink ? C.text : C.gold));
+      lines.forEach((l, k) => text(ctx, l, bx + 18, y + 4 + k * 9, bad ? (blink ? C.text : C.pink) : blink ? C.text : good ? C.lime : C.gold));
     });
   }
 
@@ -551,7 +554,7 @@ class UI implements Module {
     chamferFill(ctx, x1, 98, 52, 18, C.night, 2); drawSprite(ctx, 'pup', x1 + 9, 107);
     text(ctx, `X${s.inventory.pups ?? 0}`, x1 + 20, 103, C.gold);
     chamferFill(ctx, x1 + 56, 98, w0 - 56, 18, C.night, 2); drawSprite(ctx, 'pk_memory', x1 + 65, 107);
-    text(ctx, `${s.memories.length}/${g.content.memories.length}`, x1 + 76, 103, C.text);
+    text(ctx, `${g.mods.memories?.albumShown?.() ?? s.memories.length}/${g.content.memories.length}`, x1 + 76, 103, C.text);
     header(ctx, 'QUEST', x1, 122, w0, C.violet, t);
     // quest.tracked() returns null while a NEW QUEST toast is still held: no find() fallback then
     const Q = g.mods.quest;
@@ -1100,11 +1103,11 @@ class UI implements Module {
     }
   }
   /** quest.routeNote for a hop, worded 'VERB: QUEST' ('CLOSES: FOLLOW THE CATNIP'), or null. */
-  routeNote(g: Game, areaId: string | undefined): { text: string; good: boolean } | null {
+  routeNote(g: Game, areaId: string | undefined): { text: string; good: boolean; more: number } | null {
     if (!areaId) return null;
-    let rn: { text: string; good: boolean } | null = null;
+    let rn: { kind?: string; text: string; good: boolean; more?: number } | null = null;
     try { rn = g.mods.quest?.routeNote?.(areaId, 60) ?? null; } catch { rn = null; }
-    return rn ? { text: rn.text.replace(/^(FINISHES|CLOSES) /, '$1: '), good: !!rn.good } : null;
+    return rn ? { text: rn.text.replace(/^(FINISHES|CLOSES) /, '$1: ') + ((rn.more ?? 0) > 0 ? ` +${rn.more}` : ''), good: rn.kind ? rn.kind === 'finishes' : !!rn.good, more: rn.more ?? 0 } : null;
   }
   /** Centred one-liner that always fits whole: regular font, else the narrow tier, else two narrow lines. */
   fitCentered(ctx: CanvasRenderingContext2D, s: string, cx: number, y: number, w: number, c: string) {
@@ -1647,6 +1650,15 @@ class UI implements Module {
         chamferFill(ctx, cx + 2, cy + 2, 18, 14, darkOf(c), 3); icon(ctx, ic, cx + 7, cy + 5, c === C.pale ? C.text : lighter(c));
         text(ctx, v, cx + 26, cy + 6, C.text, { shadow: C.night }); text(ctx, l, cx + cw - 8, cy + 6, c, { align: 'right' });
         cx += cw + gapX;
+      });
+      // quiet quest rewards paid during the finale (quest.endingRewards), listed under the stats
+      let qr: { name: string; text: string }[] = [];
+      try { qr = g.mods.quest?.endingRewards?.() ?? []; } catch { qr = []; }
+      const rows = qr.length > 3 ? [...qr.slice(0, 2).map(r => `QUEST ${r.name.toUpperCase()} ${r.text}`), `+${qr.length - 2} MORE QUESTS`] : qr.map(r => `QUEST ${r.name.toUpperCase()} ${r.text}`);
+      rows.forEach((r, i) => {
+        const y = cy + 24 + i * 11; const rw = textWidth(r);
+        icon(ctx, 'flag', Math.round(W / 2 - rw / 2 - 12), y, C.lime);
+        text(ctx, r, W / 2, y, C.gold, { align: 'center', shadow: C.ink });
       });
     }
     // prompt: plate and caption appear together once everything has been revealed (never an empty frame)

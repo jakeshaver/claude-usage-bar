@@ -53,7 +53,7 @@ export class Game {
   autopilot = false;
   /** set by the playthrough bot so it, not the UI autopilot, picks map exits */
   botDrivesMap = false;
-  toastFn: (t: string) => void = () => {};
+  toastFn: (t: string, opts?: { kind?: 'good' | 'warn' }) => void = () => {};
 
   constructor(opts: { headless?: boolean; seed?: number; content?: Record<string, unknown> } = {}) {
     this.headless = !!opts.headless;
