@@ -5,6 +5,7 @@
 import { PALETTE, KEY } from '../core/palette';
 import type { Tod } from '../core/types';
 
+export { remap };
 export const RGB: [number, number, number][] = PALETTE.map(h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]);
 
 /**
@@ -31,32 +32,36 @@ export const SHADE = ramp('1:0 2:1 3:2 4:3 5:4 6:5 7:8 8:9 9:a a:b b:v c:d d:e e
 /** Cast shadows per time of day: cool lavender-blue at dawn, plum at dusk, deep navy at night. Never dithered. */
 export const SHADE_TOD: Record<Tod, Ramp> = {
   day: SHADE,
-  night: ramp('2:1 q:1 3:2 k:1 n:1 p:2 4:3 u:2 o:q 9:b a:v 8:p', SHADE),
-  dawn: ramp('k:2 j:k q:2 p:3 o:4 7:5 8:4 9:3 a:2 b:1 h:a v:1 i:m 3:2', SHADE),
-  dusk: ramp('k:vk/8 j:k q:v p:q o:p 8:a 9:b a:v b:v h:b g:h 4:u 3:2 2:v n:v m:n 1:0', SHADE),
+  night: remap('2:1 q:1 3:2 k:0 n:1 p:2 4:3 u:2 o:q 9:b a:v 8:p 1:0', SHADE),
+  dawn: remap('k:2 j:k q:2 p:3 o:4 7:5 8:4 9:3 a:2 b:1 h:a v:1 i:m 3:2 n:2 m:n c:d', SHADE),
+  dusk: remap('k:v j:k q:v p:q o:p 8:a 9:b a:v b:v h:b g:h 4:u 3:2 2:v n:v m:n 1:0 e:v u:v', SHADE),
 };
 // ---------------------------------------------------------------- lighting
 // Time of day is a PALETTE REMAP: each time of day is a palette index -> palette index table applied once,
-// when a segment is cached. Every pixel maps to exactly one palette entry (no global dither, so the band
-// behind the formation stays calm and flat); each material keeps its hue family and only value and
-// temperature move. Dither is only used for small local light falloff (lamp pool rings, beam edges).
+// when a segment is cached. Every pixel maps to exactly ONE palette entry: there is no dither between two
+// time-of-day colours anywhere (so the band behind the formation stays calm and flat); each material keeps
+// its hue family and two value steps while value and temperature move. Dither is only used for small local
+// light falloff (lamp pool rings, beam edges).
 //   day   brightest, most neutral (identity: backgrounds are authored in day colours)
-//   dawn  a little lower, cool slate neutrals, whites go pale lavender, creams and yellows go peach-pink
-//   dusk  lower and warm: creams to tan, woods one step deeper, greys into plum, greens flatten
-//   night dark navy: only emissives (windows, lamps) and lamp pools stay bright
-/** a full remap from "from:to" pairs (missing keys map to themselves) */
-const remap = (map: string, base?: Ramp) => ramp(map, base);
+//   dawn  cool and a little lower: lawns cool teal-green, greys to slate-lavender, creams/yellows to peach-pink
+//   dusk  warm and lower: lawns olive-dark with ochre tips, woods a step deeper, greys to plum, blues to violet
+//   night dark navy: lawns deep teal-navy, greys to indigo, creams to periwinkle; emissives and lamp pools stay bright
+/** a strict remap from "from:to" pairs (missing keys map to themselves); mixes are refused */
+function remap(map: string, base?: Ramp): Ramp {
+  if (map.includes('/')) throw new Error('time-of-day remaps map each palette index to exactly one index: ' + map);
+  return ramp(map, base);
+}
 const ID = ramp('');
-/** outdoor time-of-day remaps. A big material may map to a 50% mix of two palette entries of nearly equal
- * lightness (k/n, k/b, p/a ... dL <= 10), which reads as one flat in-between colour, never as a checker. */
+/** outdoor time-of-day remaps (single index -> single index) */
 export const TOD_RAMP: Record<Tod, Ramp> = {
   day: ID,
-  // cool and a step lower: greens toward teal, greys toward slate, creams and yellows toward peach-pink
-  dawn: remap('6:7 7:8 8:8c/8 f:fc/8 g:gc/8 h:9 r:d i:jm/8 j:jq/8 k:kq/8 l:m o:4o/8 p:3p/8 q:2q/8 s:5 v:v'),
-  // warm and 15-20% lower: greens to olive with ochre/orange highlights, woods a step deeper, greys to warm taupe, shadows plum
-  dusk: remap('1:v 2:v 3:2 4:3 5:4 6:7 7:8 8:9g/8 9:ah/8 a:ab/8 c:d d:e f:g g:h r:h i:9g/8 j:ja/8 k:kb/8 l:m m:n n:nv/8 o:pa/8 p:qb/8 q:vb/8 s:o t:u u:e'),
-  // dark, but every material keeps its hue and two value steps: teal-green grass, brown wood, slate stone, blue water
-  night: remap('2:1 3:2 4:3 5:3 6:4 7:p 8:a 9:a a:b b:v c:e d:e e:v f:9 g:a h:b i:k j:k k:vk/8 l:m m:n n:2n/8 o:p p:q q:2 r:e s:4 t:u u:2 v:1'),
+  // lawns cool to a dewy teal-blue (green tufts on top read teal-green), stone to indigo-slate, creams/yellows to peach-pink
+  dawn: remap('6:5 7:c 8:c 9:9 f:c g:c h:d r:d i:j j:k k:n l:s m:m n:2 o:4 p:3 q:2 s:5'),
+  // lawns warm to a dark olive-brown with green tufts and ochre tips, woods a step deeper, stone cools to indigo for
+  // contrast against the warm ground, blues to violet
+  dusk: remap('6:7 7:8 8:9 9:a a:b b:v c:d f:g g:h h:b r:h i:g j:k k:b l:t s:t m:u n:2 o:9 p:q q:2 1:v 2:v 3:2 4:3 5:4 t:u u:e'),
+  // dark but legible: lawns indigo with blue-teal tufts, stone periwinkle/indigo a step above the ground, creams to periwinkle
+  night: remap('6:5 7:4 8:3 9:a a:b b:v c:e d:e e:v f:9 g:a h:b r:e i:m j:n k:2 l:m m:n n:2 s:4 o:4 p:3 q:2 1:0 2:1 3:2 4:3 5:4 t:u u:2'),
 };
 /** Low sun on the sunward faces: warm amber at dusk (west faces), peach-pink at dawn (top / east edges). */
 export const RIM_RAMP: Partial<Record<Tod, Ramp>> = {
@@ -64,16 +69,16 @@ export const RIM_RAMP: Partial<Record<Tod, Ramp>> = {
   dawn: ramp('q:p p:8 o:c v:q 1:v 2:3 3:4 4:c 5:c a:9 b:a 9:8 8:c 7:c k:j j:8 n:m m:4 h:g e:d u:t'),
 };
 /** Inside a lamp pool at night: the lit pixels are simply BRIGHTER (day colours; greys and whites warmed toward sodium cream). */
-export const LAMP_RAMP = remap('6:7 s:7 5:7 o:8 p:9 q:a v:b 1:v 2:3');
+export const LAMP_RAMP = remap('6:7 s:7 5:7 o:8 p:o q:p v:b 1:v 2:3 j:k');
 /** Falloff ring of a lamp pool: halfway between lamplight and moonlight, same hue families. */
-export const LAMP_EDGE = remap('6:5 7:8 8:9 9:a a:b b:v c:d d:e e:v f:g g:h h:a i:j j:k k:kv/4 l:m m:n n:2 o:9 p:a q:b v:v r:e s:5 t:u u:2 1:1 2:2');
+export const LAMP_EDGE = ramp('6:5 7:8 8:9 9:a a:b b:v c:d d:e e:v f:g g:h h:a i:j j:k k:k l:m m:n n:2 o:9 p:a q:b v:v r:e s:5 t:u u:2 1:1 2:2');
 /** Interiors: the lights are on, so the room dims and warms instead of going black (pendant pools stay at day colours). */
 export const INDOOR_RAMP: Record<Tod, Ramp> = {
   day: ID,
-  // early: the room is cooler and a step dimmer (woods toward grey-brown); the peach comes from the low sunbeams only
-  dawn: remap('6:5 7:8 8:9 9:ap/8 a:qa/8 b:bv/8 o:4o/8 p:3p/8 q:2q/8 s:5 f:9 g:9 c:t'),
-  // golden hour: woods warm and a step deeper, greys to warm taupe, shadows plum; amber beams and the first pools on top
-  dusk: remap('6:7 7:8 8:9g/8 9:ah/8 a:ab/8 b:bv/8 o:pa/8 p:qb/8 q:vb/8 5:4 4:3 3:2 2:v 1:v s:o f:g g:h c:d d:e'),
+  // early: the room is cooler and a step dimmer (woods toward grey-brown, greys toward slate); peach from the low sunbeams
+  dawn: remap('6:5 7:8 8:9 9:a a:a b:b o:4 p:3 q:2 s:5 f:9 g:9 c:t'),
+  // golden hour: woods warm and a step deeper, greys to warm brown, shadows plum; amber beams and the first pools on top
+  dusk: remap('6:7 7:8 8:9 9:h a:a b:b o:9 p:a q:b 5:4 4:3 3:2 2:v 1:v s:o f:g g:h c:d d:e'),
   // closing time: a dim room that keeps its dark wood planks and slate tiles; only the pendant pools stay warm
   night: remap('6:4 7:3 8:9 9:a a:b b:v o:3 p:2 q:1 5:3 4:2 3:2 2:1 1:0 v:1 s:4 f:9 g:a h:b c:u d:e e:v k:1 j:k i:k n:2 m:n'),
 };
@@ -90,10 +95,10 @@ export const DUSK_SUN = ramp('0:1 1:b v:b b:a a:h 9:9 q:b p:a 2:e 3:u n:2 k:k');
 export const SPACE_RAMP: Record<Tod, Ramp> = {
   // sunlit: the void lifts to a deep indigo haze and hull plates catch white light
   day: ramp('0:1 1:2 v:2 2:3'),
-  // a sunrise over the planet's rim: plum void, pink and violet highlights
-  dawn: ramp('0:v 1:v 2:u o:8 5:c 4:t 6:7'),
-  // sunset glare: warm brown-magenta void, amber highlights
-  dusk: ramp('0:v 1:v v:b 2:b 3:e u:e o:g 5:c 4:t 6:f'),
+  // a sunrise over the planet's rim: plum void, hull metal stays slate, pink and violet glints on the edges
+  dawn: remap('0:v 1:v v:2 o:5 5:c 4:t 6:7'),
+  // sunset glare: the hull stays metal (never brown); only the edges catch warm tan / cream light
+  dusk: remap('0:1 1:v v:2 o:8 5:8 6:7 4:3 p:q'),
   night: ramp('o:p 5:4 6:5 4:3 3:2 8:9 7:8'),
 };
 
@@ -118,7 +123,7 @@ export class Painter {
   shadow: Uint8Array;
   pools: Pool[] = [];
   /** skewed sunbeam parallelograms (interiors at dawn/day) */
-  beams: { x: number; y: number; w: number; h: number; skew: number }[] = [];
+  beams: { x: number; y: number; w: number; h: number; skew: number; x0?: number; x1?: number }[] = [];
   /** low-sun rim light rows [x, y, w] (west faces at dusk, east faces at dawn) */
   rims: number[] = [];
   glows: { lit: number; x: number; y: number; w: number; h: number; on: boolean }[] = [];
@@ -217,7 +222,7 @@ export class Painter {
   /** draw this after the ground shadows are applied */
   obj(fn: () => void) { this.objs.push(fn); }
   /** a sunbeam: parallelogram lit with SUN_RAMP (only shown when the caller decides it is daytime) */
-  beam(x: number, y: number, w: number, h: number, skew: number) { this.beams.push({ x, y, w, h, skew }); }
+  beam(x: number, y: number, w: number, h: number, skew: number, x0?: number, x1?: number) { this.beams.push({ x, y, w, h, skew, x0, x1 }); }
   /** a light source: lamp pool at night */
   pool(x: number, y: number, r: number, clip?: [number, number, number, number], spill = false) { this.pools.push({ x, y, r, clip, spill }); }
   /** emissive rect: shows `day` normally, `lit` (unaffected by darkness) when the light is on */
@@ -232,7 +237,7 @@ export class Painter {
     const sh = SHADE_TOD[this.tod];
     for (let i = 0; i < w * h; i++) if (this.shadow[i]) {
       const v = buf[i];
-      if (v === CLEAR) { if (((i % w) + ((i / w) | 0)) & 1) buf[i] = 1; continue; }
+      if (v === CLEAR) { buf[i] = 1; continue; } // a shadow cast onto the layer below: one solid deep tone (never a checker)
       buf[i] = sh.lv[v] > BAYER[(((i / w) | 0) & 3) * 4 + ((i % w) & 3)] ? sh.b[v] : sh.a[v];
     }
     for (const f of this.objs) f();
@@ -243,19 +248,18 @@ export class Painter {
       for (let k = 0; k < R.length; k += 3) { const x = R[k], y = R[k + 1]; if (y < 0 || y >= h) continue; for (let i = Math.max(0, x); i < Math.min(w, x + R[k + 2]); i++) mask[y * w + i] = 3; }
     }
     if (pools && this.pools.length) {
-      // a lamp pool centred on its source: solid lit core, then an ordered falloff in rings
-      // (core/edge 50% -> solid edge -> edge/dark 50% -> 25%), so it reads as light, not a stain
+      // a lamp pool centred on its source: one solid lit colour per material, with a 2px falloff ring
       mask = mask ?? new Uint8Array(w * h);
       for (const p of this.pools) {
         let R = Math.max(6, Math.round(p.r * this.poolScale));
         // a pool whose source lives in this segment only must not be cut by the segment edge: it shrinks to fit instead
         if (!p.spill) R = Math.min(R, Math.floor(Math.min(p.y, h - 1 - p.y) * 1.15));
         if (R < 5) continue;
+        // one solid lit core, a 1px solid falloff ring and a 1px 50% ring; never clipped to a tile or path edge
         for (let y = Math.max(0, p.y - R); y < Math.min(h, p.y + R + 1); y++) for (let x = Math.max(0, p.x - R); x < Math.min(w, p.x + R + 1); x++) {
-          if (p.clip && (x < p.clip[0] || y < p.clip[1] || x >= p.clip[0] + p.clip[2] || y >= p.clip[1] + p.clip[3])) continue;
-          const d = Math.hypot(x + 0.5 - (p.x + 0.5), (y + 0.5 - (p.y + 0.5)) * 1.15) / R; if (d > 1) continue;
-          const o = y * w + x; const b = bayer(x, y);
-          const v = d <= 0.42 ? 1 : d <= 0.56 ? (b < 8 ? 1 : 4) : d <= 0.72 ? 4 : d <= 0.86 ? (b < 8 ? 4 : 0) : (b < 4 ? 4 : 0);
+          const d = Math.hypot(x + 0.5 - (p.x + 0.5), (y + 0.5 - (p.y + 0.5)) * 1.15); if (d > R) continue;
+          const o = y * w + x;
+          const v = d <= R - 2 ? 1 : d <= R - 1 ? 4 : ((x + y) & 1 ? 4 : 0);
           if (v === 1 || (v === 4 && mask[o] !== 1)) mask[o] = v;
         }
       }
@@ -264,7 +268,8 @@ export class Painter {
       mask = mask ?? new Uint8Array(w * h);
       for (const b of this.beams) for (let y = Math.max(0, b.y); y < Math.min(h, b.y + b.h); y++) {
         const x0 = b.x + Math.round((y - b.y) * b.skew);
-        for (let x = Math.max(0, x0); x < Math.min(w, x0 + b.w); x++) { const e = Math.min(x - x0, x0 + b.w - 1 - x, y - b.y, b.y + b.h - 1 - y); if (e >= 3 || bayer(x, y) < (e + 1) * 4) { const o = y * w + x; if (mask[o] !== 1) mask[o] = 2; } }
+        // crisp beams: solid inside, one 50% pixel row on the edge (no wide halftone falloff)
+        for (let x = Math.max(0, x0, b.x0 ?? 0); x < Math.min(w, x0 + b.w, b.x1 ?? w); x++) { const e = Math.min(x - x0, x0 + b.w - 1 - x, y - b.y, b.y + b.h - 1 - y); if (e >= 1 || ((x + y) & 1) === 0) { const o = y * w + x; if (mask[o] !== 1) mask[o] = 2; } }
       }
     }
     if (!todRamp.id || mask) {

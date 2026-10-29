@@ -148,3 +148,20 @@ night with day-coloured pendant pools); sky and space tilesets keep their own ba
   material mixes, per-hour character, lamp pools under a visible head, all layers incl. fg in the z -10 pass).
 - Verified: npm run verify green after the merge; title / map / docks autopilot / memories / ending shots have zero
   console, page or game errors.
+
+## Polish 3
+
+- ARCHITECTURE.md section 2, time-of-day paragraph: please replace the sentence "A large material can map to a fixed
+  50% mix of two entries of nearly equal lightness (for example dark green + dark brown for the olive dusk lawn, or
+  dark green + plum for the night lawn), which reads as one in-between colour, so every material keeps its hue and at
+  least two value steps at every hour." with: "Every time-of-day table maps each palette index to exactly ONE palette
+  index (`remap()` in `world/paint.ts` refuses two-entry mixes), so no pixel of the playfield is a two-colour
+  checkerboard at any hour; dither is only allowed for small local light falloff (lamp pool rings, beam edges).
+  `src/world/tools/checker-share.mjs` measures the strict 1px checker share for all 13 areas x 4 times of day
+  against a running preview (target < 5%)." Also: "shadows cast onto a lower parallax layer are one solid deep tone".
+- Round 2 (ARCHITECTURE.md section 2, time-of-day paragraph, optional wording update): "Lamp pools are one solid lit
+  colour per material with a 2px falloff ring (1px solid, 1px 50%), never clipped to a path or tile edge. Low-light
+  lawns keep one index per pixel: the ground remaps to one colour per hour and, at dawn/dusk only, a carpet of short
+  vertical grass blades (remapping to dark green) sits on it, so lawns read teal-green at dawn and olive at dusk.
+  Space tilesets have their own milder remaps (metal never turns brown); sky gradients are stepped solid bands." No
+  code changes are needed outside src/world/.
