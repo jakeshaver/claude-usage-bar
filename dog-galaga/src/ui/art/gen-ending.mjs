@@ -96,42 +96,62 @@ function pomFly(f) {
   return g;
 }
 
-// ---------------- Captain Pom sitting on the lawn (side view, facing right), 26x28, 2 frames (tail wag) -------------
+// ---------------- Captain Pom sitting on the lawn (side view, facing right), 34x36, 2 frames (tail wag + blink) -------
+// Built from separately inked parts (tail pom, haunch, foot poms, clipped leg + bracelet, chest mane, scarf, head, long
+// muzzle, topknot, ear, goggles) so the poodle silhouette reads at 1x and 2x: clean rim light, no interior banding.
+function part(W, H, inside, { hi = '6', mid = '7', lo = '5', lo2 = '4', ink = true } = {}) {
+  // rim light: flat coat, a white rim where the part faces the upper left, a lavender rim (and a deeper corner) where it
+  // turns away to the lower right: clean reads at 1x, no noisy interior banding
+  const p = new Grid(W, H); const In = (x, y) => x >= 0 && y >= 0 && x < W && y < H && inside(x + 0.5, y + 0.5);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (!In(x, y)) continue;
+    const up = !In(x, y - 1), lf = !In(x - 1, y), dn = !In(x, y + 1), rt = !In(x + 1, y), dn2 = !In(x, y + 2), rt2 = !In(x + 1, y + 1);
+    p.g[y][x] = (dn && rt) ? lo2 : (dn || (rt && !up)) ? lo : (dn2 && rt2) ? lo : (up || lf) ? hi : mid;
+  }
+  if (ink) p.outline('0');
+  return p;
+}
+const puff = (cx, cy, rx, ry, n = 8, amp = 0.45, ph = 0) => (x, y) => { const dx = (x - cx) / rx, dy = (y - cy) / ry; const a = Math.atan2(dy, dx); return Math.hypot(dx, dy) < 1 + amp / Math.max(rx, ry) * Math.cos(a * n + ph); };
+const polyIn = (pts) => (x, y) => { let c = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; };
 function pomSit(f) {
-  const W = 26, H = 28, g = new Grid(W, H);
-  // tail pompom up behind
-  g.overS(shaved(W, H, [[5, 16], [7, 16], [4, 10 + f], [3, 11 + f]]));
-  g.overS(curly(W, H, 3.6, 8.5 + f, 3, 3, { n: 7, br: 1.3, phase: 0.3 }));
-  // haunch puff (sitting) + back paw
-  g.overS(curly(W, H, 9, 20.5, 6, 5.6, { n: 10, br: 1.8, phase: 0.4 }));
-  g.overS(curly(W, H, 12, 25.5, 3, 1.8, { n: 6, br: 1, tones: FUR }));
-  // shaved torso rising to the chest
-  g.overS(shaved(W, H, [[9, 12], [15, 10], [17, 18], [10, 20]]));
-  // harness strap
-  for (let k = 0; k < 7; k++) { g.px(11 + Math.round(k * 0.5), 12 + k, 'l'); g.px(12 + Math.round(k * 0.5), 12 + k, 'm'); }
-  // front leg straight down, ankle puff on the lawn
-  g.overS(shaved(W, H, [[15, 15], [18, 15], [18, 24], [16, 24]]));
-  g.overS(curly(W, H, 17.5, 25.2, 2.6, 2.2, { n: 6, br: 1.1, phase: 0.4 }));
-  // chest mane
-  g.overS(curly(W, H, 15.5, 12.5, 4.6, 4.8, { n: 9, br: 1.7, phase: 0.5 }));
-  // scarf knot under the chin
-  const sc = new Grid(W, H); for (let x = 13; x <= 19; x++) { sc.px(x, 8, 'r'); sc.px(x, 9, x > 17 ? 'e' : 'r'); }
-  sc.rect(13, 10, 2, 4, 'r'); sc.px(14, 13, 'e'); sc.outline('0'); g.over(sc);
-  // head, topknot, muzzle (facing right)
-  g.overS(curly(W, H, 16.5, 5.5, 4.6, 4.2, { n: 10, br: 1.6, phase: 0.6 }));
-  g.overS(curly(W, H, 15.5, 1.8 + 0.5, 3.8, 2.6, { n: 8, br: 1.3, phase: 0.2 }));
-  const mz = new Grid(W, H).poly([[19, 4.5], [25, 5.5], [25, 8], [20, 8.5]], '7'); mz.relight('7', { hi: '6', lo: '8' }); mz.outline('0'); g.over(mz);
-  g.rect(24, 5, 2, 2, '0'); g.px(24, 5, 'q');
-  g.px(21, 8, '0'); g.px(22, 8, '0'); g.px(20, 7, 'c');
-  // goggles on the topknot
-  for (let x = 12; x <= 19; x++) g.px(x, 3, 'm');
-  g.rect(17, 2, 3, 3, '0'); g.px(18, 3, 'l'); g.px(18, 2, 's');
-  // eye: open (frame 0) / happy arc (frame 1)
-  if (f) { g.px(19, 5, '0'); g.px(20, 4, '0'); g.px(21, 5, '0'); } else { g.rect(19, 4, 2, 2, '0'); g.px(19, 4, '6'); }
-  // floppy ear hanging down the side of the head
-  g.overS(curly(W, H, 13.6, 8.8, 2, 3.4, { n: 6, br: 1, tones: EAR, phase: 1.57 }));
+  const W = 34, H = 36, g = new Grid(W, H); const add = (p) => g.over(p);
+  // tail stalk + pom-pom (wags)
+  add(part(W, H, polyIn([[7, 23], [9.5, 23], [5.6, 12.5 + f], [3.6, 13.5 + f]])));
+  add(part(W, H, puff(4.2, 9.8 + f, 3.7, 3.5, 7, 0.5)));
+  // haunch
+  add(part(W, H, puff(11.5, 26.2, 7.2, 6.8, 10, 0.5, 0.3)));
+  // hind foot pom
+  add(part(W, H, puff(15.5, 33.2, 3.8, 2.4, 6, 0.4)));
+  // clipped front leg + bracelet pom
+  add(part(W, H, polyIn([[20.6, 21], [23.8, 21], [23.6, 31], [21, 31]])));
+  add(part(W, H, puff(22.5, 32.4, 3.3, 2.4, 6, 0.4, 1)));
+  // chest mane (one big puff from the scarf down to the leg)
+  add(part(W, H, puff(20.5, 20.2, 5, 5.2, 9, 0.5, 0.6)));
+  // scarf band + tail flapping back
+  const sc = new Grid(W, H);
+  for (let x = 16; x <= 24; x++) { sc.px(x, 15, 'r'); sc.px(x, 16, 'r'); sc.px(x, 17, x > 21 ? 'e' : 'r'); }
+  const wv = (x) => Math.round(Math.sin(x * 0.9 + f * 2.2) * 0.6);
+  for (let x = 10; x <= 16; x++) { const y = 16 + wv(x) + (x < 13 ? 1 : 0); sc.px(x, y, 'r'); sc.px(x, y + 1, x < 13 ? 'e' : 'r'); }
+  for (let x = 17; x <= 21; x++) sc.px(x, 15, 'c');
+  sc.outline('0'); add(sc);
+  // head (round skull)
+  add(part(W, H, puff(19.6, 11.2, 4.8, 4.2, 9, 0.35, 0.4)));
+  // long tapered muzzle
+  add(part(W, H, polyIn([[24, 9.6], [31.6, 10.8], [31.6, 13.6], [24.5, 14.8]]), { lo: '5', lo2: '5' }));
+  // topknot pom-pom (tall)
+  add(part(W, H, puff(18.2, 4.2, 5, 4, 9, 0.45, 0.1)));
+  // ear hanging down the side of the head
+  add(part(W, H, puff(16.4, 14, 2.5, 4.6, 7, 0.4, 1.2)));
+  // goggles on the topknot: teal strap, cyan lens on the brow
+  for (let x = 13; x <= 21; x++) { g.px(x, 7, 'm'); g.px(x, 8, 'n'); }
+  g.rect(20, 5, 4, 4, '0'); g.rect(21, 6, 2, 2, 'l'); g.px(21, 6, 's');
   g.outline('0');
-  return g;
+  // face: nose, eye, smile, blush
+  g.rect(30, 10, 2, 2, '0'); g.px(31, 10, 'q');
+  if (f) { g.px(21, 11, '0'); g.px(22, 10, '0'); g.px(23, 11, '0'); } else { g.rect(21, 10, 2, 2, '0'); g.px(21, 10, '6'); }
+  g.px(27, 14, '0'); g.px(28, 14, '0'); g.px(29, 13, '0');
+  g.px(25, 13, 'c');
+  const o = new Grid(W, H); o.over(g, 1, 0); return o;
 }
 
 // ---------------- a rescued pup sitting (side view, facing right), 16x16, 2 frames (tail wag / ear perk) -------------

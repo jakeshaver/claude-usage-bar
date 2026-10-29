@@ -11,7 +11,7 @@ import { logoWord, drawLogo, PINK, CYAN, GOLD } from './logo';
 import { glyph } from './glyphs';
 import { Touch } from './touch';
 import { num, numWidth, headline } from './numerals';
-import { tiny, tinyWidth } from './tiny';
+import { tiny, tinyWidth, wrapPx, balancePx } from './tiny';
 import { ENDING_ART } from './ending-art';
 import { defineSprites } from '../art/sprite';
 defineSprites(ENDING_ART);
@@ -89,9 +89,9 @@ const SND_ON = ['...#...w.', '..##.w..w', '####..w.w', '####..w.w', '####..w.w',
 const SND_X = 613, SND_Y = 7;
 const SND_OFF = ['...#.....', '..##.....', '####.x.x.', '####..x..', '####.x.x.', '..##.....', '...#.....'];
 /** Ending timeline: Pom's flight takes END_FLY ticks, each pup trails END_LAG ticks behind the previous one. */
-const END_FLY = 360, END_LAG = 26, END_MAX_PUPS = 16, END_WIN = 186, END_WIN_TOP = 4, END_LINE = 24;
+const END_FLY = 360, END_LAG = 26, END_MAX_PUPS = 16, END_WIN = 204, END_WIN_TOP = 4, END_LINE = 24, END_FADE = 12;
 /** Ending diorama: Pom's spot on the lawn (2x sitting pose centre). */
-const END_POM_X = 320, END_POM_Y = 294;
+const END_POM_X = 320, END_POM_Y = 292;
 /** Coats for the rescued pups (recolours of the apricot end_pup_sit / end_pup_fly sheets), collars included. */
 const PUP_COATS: Record<string, string>[] = [
   {}, { '8': '6', '9': '7', 'a': '8', 'b': '9', '7': '6', 'r': 'm' }, { '8': 'g', '9': 'h', 'a': 'b', 'b': 'b', 'r': 'l' },
@@ -103,7 +103,7 @@ const PUP_COATS: Record<string, string>[] = [
 type Toast = { text: string; t: number; age: number; y: number };
 const TOAST_CAP = 2, TOAST_COLS = Math.floor((PF_W - 8 - 30 + 1) / 6);
 /** News that costs the player something: drawn with a peri frame and a pink cross, never the gold star. */
-const BAD_NEWS = /MISSED|EXPIRED|CLOSED|CLOSES|FORFEIT|CONTENT ISSUE|CHEWED/;
+const BAD_NEWS = /MISSED|EXPIRED|CLOSED|CLOSES|FORFEIT|SEALED|LOCKED|BLOCKED|CONTENT ISSUE|CHEWED/;
 /** Settings rows: label, icon, settings key ('' = BACK). */
 const SETTINGS_ROWS: [string, string, 'music' | 'sfx' | 'amb' | 'shake' | 'flash' | 'reduceMotion' | 'touch' | ''][] = [
   ['MUSIC', 'note', 'music'], ['SFX', 'speaker', 'sfx'], ['AMBIENCE', 'speaker', 'amb'], ['SCREEN SHAKE', 'shake', 'shake'],
@@ -117,6 +117,11 @@ function draw2x(ctx: CanvasRenderingContext2D, name: string, cx: number, cy: num
   ctx.imageSmoothingEnabled = false;
   if (o.flipX) { ctx.save(); ctx.translate(x + w, y); ctx.scale(-1, 1); ctx.drawImage(c, 0, 0, w, h); ctx.restore(); }
   else ctx.drawImage(c, x, y, w, h);
+}
+/** Centred credits text with a full 1px ink outline (reads over any sky band). */
+function inked(ctx: CanvasRenderingContext2D, s: string, cx: number, y: number, c: string) {
+  for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1], [1, 1]]) text(ctx, s, cx + dx, y + dy, C.ink, { align: 'center' });
+  text(ctx, s, cx, y, c, { align: 'center' });
 }
 const smooth = (v: number) => { const e = v < 0 ? 0 : v > 1 ? 1 : v; return e * e * (3 - 2 * e); };
 
@@ -409,8 +414,11 @@ class UI implements Module {
       const full = Math.min(PF_W - 8, Math.max(...lines.map(l => textWidth(l))) + 30); const bx = Math.round(cx - full / 2);
       const y = Math.round(x.y) - Math.max(0, 4 - x.age);
       const blink = (x.age >> 2) % 2 && x.age < 30;
-      frame(ctx, bx, y, full, h, x.age < 3 ? C.text : bad ? C.peri : C.hot, C.night, 4);
-      const ic = bad ? 'cross' : x.text.startsWith('MEMORY') ? 'photo' : x.text.startsWith('PUPPY') ? 'paw' : x.text.includes('QUEST') ? 'flag' : x.text.includes('SOUND') ? 'speaker' : 'star';
+      // bad news inverts the good pill: a bright pink frame with a peri inner trim on a plum fill (good news: hot frame,
+      // night fill, gold text), so a warning reads at a glance in combat
+      frame(ctx, bx, y, full, h, x.age < 3 ? C.text : bad ? C.pink : C.hot, bad ? C.plum : C.night, 4);
+      if (bad) { if (x.age >= 3) chamferLine(ctx, bx, y, full, h, C.pink, 4); chamferLine(ctx, bx + 2, y + 2, full - 4, h - 4, C.peri, 3); }
+      const ic = bad ? (/SEALED|LOCKED|BLOCKED/.test(x.text) ? 'lock' : 'cross') : x.text.startsWith('MEMORY') ? 'photo' : x.text.startsWith('PUPPY') ? 'paw' : x.text.includes('QUEST') ? 'flag' : x.text.includes('SOUND') ? 'speaker' : 'star';
       icon(ctx, ic, bx + 7, y + 4, bad ? C.pink : C.gold);
       lines.forEach((l, k) => text(ctx, l, bx + 18, y + 4 + k * 9, bad ? (blink ? C.text : C.pink) : blink ? C.text : C.gold));
     });
@@ -432,13 +440,6 @@ class UI implements Module {
     rect(ctx, x + PW - 3, H - 24 - p, 1, 8, lighter(accent)); rect(ctx, x + PW - 3, H - 16 - p, 1, 4, accent);
     // rivets
     for (const yy of [12, H - 13]) { rect(ctx, x + 6, yy, 2, 2, C.indigo); rect(ctx, x + PW - 8, yy, 2, 2, C.indigo); }
-  }
-  /** Wrap a name into at most `max` lines of `chars` characters (the last line ends in '.' if cut). */
-  lines(s: string, chars: number, max = 2) {
-    const nl = wrap(s.toUpperCase(), chars);
-    if (nl.length <= max) return nl;
-    const head = nl.slice(0, max - 1); const rest = nl.slice(max - 1).join(' ');
-    return [...head, rest.slice(0, chars - 1).trimEnd() + '.'];
   }
   hud(g: Game, ctx: CanvasRenderingContext2D) {
     const s = g.state; const P = g.mods.player; const A = g.mods.world?.area(); const t = this.t;
@@ -636,12 +637,6 @@ class UI implements Module {
     const H8: [number, number][][] = [[[3, 1], [3, 2]], [[5, 1], [4, 2]], [[5, 3], [4, 3]], [[5, 5], [4, 4]], [[3, 5], [3, 4]], [[1, 5], [2, 4]], [[1, 3], [2, 3]], [[1, 1], [2, 2]]];
     rect(ctx, x + 3, y + 3, 1, 1, c); for (const [dx, dy] of H8[step & 7]) rect(ctx, x + dx, y + dy, 1, 1, c === C.line ? C.ice : C.text);
   }
-  /** Fit a phrase into `chars` columns at a word boundary, ending in '...' when cut. */
-  clip(s: string, chars: number) {
-    if (s.length <= chars) return s;
-    let out = ''; for (const w of s.split(' ')) { const n = out ? out + ' ' + w : w; if (n.length > chars - 3) break; out = n; }
-    return out.replace(/[,.;:!-]+$/, '') + '...';
-  }
   /** Threat slot (64px): live breed roster with a cats-left bar, or the next formation preview when the sky is empty. */
   roster(g: Game, ctx: CanvasRenderingContext2D, x: number, y: number, w: number) {
     const cats = (g.mods.interaction?.cats ?? []) as { def?: { id: string; name: string; sprite: string } }[];
@@ -722,7 +717,7 @@ class UI implements Module {
     const u = s.toUpperCase(); const o = shadow ? { shadow } : {};
     if (textWidth(u) <= w) { text(ctx, u, x, y, c, o); return; }
     if (tinyWidth(u) <= w) { tiny(ctx, u, x, y + 1, c, o); return; }
-    const two = this.balance(u, Math.floor((w + 1) / 4)) ?? [u];
+    const two = balancePx(u, w, tinyWidth) ?? wrapPx(u, w, tinyWidth).slice(0, 2);
     two.forEach((l, i) => tiny(ctx, l, x, y - 2 + i * 6, c, o));
   }
   /** Split a phrase at the word boundary that gives the most even two lines, each at most `cols` glyphs (or null). */
@@ -736,27 +731,21 @@ class UI implements Module {
     return best;
   }
   /**
-   * Sector name + subtitle in a fixed slot (y .. y+31), static and always whole: the name on one line or two balanced
-   * lines, the subtitle word-wrapped under it. Up to 3 rows sit 9px apart, 4 rows 8px apart; a subtitle that would
-   * need a 5th row drops to the narrow 3x5 tier (27 columns) instead. Never a marquee, never truncated.
+   * Sector name + subtitle in a fixed slot (y .. y+31), static and always whole. The name sits on one line or two
+   * balanced lines of the main face (9px pitch: 7px glyphs, the 1px drop shadow, then 2px clear to the next row);
+   * the subtitle takes one main-face line when it fits, else the small-caps tier on one line (or two balanced lines,
+   * 7px pitch) so the block ends at least 6px above the WAVE header. Never a marquee, never truncated.
    */
   areaTitle(ctx: CanvasRenderingContext2D, A: { name: string; subtitle?: string }, x: number, y: number, w: number) {
-    const cols = Math.floor((w + 1) / 6);
-    const name = A.name.toUpperCase();
-    const nl = this.balance(name, cols);
-    if (!nl) { this.fitText(ctx, name, x, y, w, C.text, C.ink); return; }
-    const sub = A.subtitle ? wrap(A.subtitle.toUpperCase(), cols) : [];
-    const n = nl.length + sub.length;
-    if (n <= 4) {
-      const step = n <= 3 ? 9 : 8;
-      // 4 rows sit 8px apart: the name drops its drop shadow so no row touches the next
-      nl.forEach((l, i) => text(ctx, l, x, y + i * step, C.text, step === 9 ? { shadow: C.ink } : {}));
-      sub.forEach((l, i) => text(ctx, l, x, y + (nl.length + i) * step, C.dim));
-      return;
-    }
-    nl.forEach((l, i) => text(ctx, l, x, y + i * 9, C.text, { shadow: C.ink }));
-    const tl = wrap(A.subtitle!.toUpperCase(), Math.floor((w + 1) / 4));
-    tl.forEach((l, i) => tiny(ctx, l, x, y + nl.length * 9 + 1 + i * 7, C.dim));
+    const name = A.name.toUpperCase(); const sub = (A.subtitle ?? '').toUpperCase();
+    let yy = y;
+    const nl = balancePx(name, w, textWidth);
+    if (nl) for (const l of nl) { text(ctx, l, x, yy, C.text, { shadow: C.ink }); yy += 9; }
+    else for (const l of balancePx(name, w, tinyWidth) ?? wrapPx(name, w, tinyWidth)) { tiny(ctx, l, x, yy + 1, C.text, { shadow: C.ink }); yy += 7; }
+    if (!sub) return;
+    yy += 1;
+    if (textWidth(sub) <= w) { text(ctx, sub, x, yy, C.dim); return; }
+    (balancePx(sub, w, tinyWidth) ?? wrapPx(sub, w, tinyWidth)).forEach((l, i) => tiny(ctx, l, x, yy + i * 7, C.dim));
   }
   /** Sectors whose waves carry a capturer hold one lost pup (flag pup_<area> once rescued); cached per area. */
   private pupHere = new Map<string, boolean>();
@@ -947,8 +936,10 @@ class UI implements Module {
     // seconds one peels off on a looping dive and slots back in
     const N = 7; const breathe = Math.round(Math.sin(t / 24) * 2);
     const cyc = 200, active = Math.floor(t / cyc) % N, u = (t % cyc) / 130; const diving = u < 1;
-    const order = [1, 5, 3, 0, 6, 2, 4]; const diver = order[active];
+    // the centre slot stays open: that is Pom's lane, so no cat ever sits on the hero's topknot
+    const order = [1, 5, 2, 0, 6, 4, 1]; const diver = order[active];
     for (let i = 0; i < N; i++) {
+      if (i === 3) continue;
       const sx0 = W / 2 + (i - 3) * (46 + breathe), sy0 = 130 + Math.abs(i - 3) * 7 + ((t >> 4) + i) % 2;
       let x = sx0, y = sy0;
       if (i === diver && diving) {
@@ -966,7 +957,7 @@ class UI implements Module {
     // hero: chase-cam view of Pom flying toward the sun at an exact 2x of her in-game sprite, her shadow on the grid
     const hov = Math.round(Math.sin(t / 12) * 2);
     const shw = 22 - hov; dither(ctx, W / 2 - shw, 221, shw * 2, 4, C.ink, 'check'); rect(ctx, W / 2 - shw + 5, 222, shw * 2 - 10, 2, C.ink);
-    this.heroPom(ctx, W / 2, 181 + hov, t);
+    this.heroPom(ctx, W / 2, 171 + hov, t);
     // menu: chamfered neon frame with targeting ticks, like the HUD
     const items = this.titleItems(); const off = this.titleDisabled();
     const mh = items.length * 15 + 14; const my = 230; const mw = 176, mx = W / 2 - mw / 2;
@@ -1120,7 +1111,7 @@ class UI implements Module {
     const u = s.toUpperCase();
     if (textWidth(u) <= w) { text(ctx, u, cx, y, c, { align: 'center' }); return; }
     if (tinyWidth(u) <= w) { tiny(ctx, u, cx, y + 1, c, { align: 'center' }); return; }
-    (this.balance(u, Math.floor((w + 1) / 4)) ?? [u]).forEach((l, i) => tiny(ctx, l, cx, y - 2 + i * 6, c, { align: 'center' }));
+    (balancePx(u, w, tinyWidth) ?? wrapPx(u, w, tinyWidth).slice(0, 2)).forEach((l, i) => tiny(ctx, l, cx, y - 2 + i * 6, c, { align: 'center' }));
   }
   /** Sector log: every sector by number and name with its status, so the chart itself can stay numbers-only. */
   sectorLog(g: Game, ctx: CanvasRenderingContext2D, selTo: string | undefined, exits: { to: string }[]) {
@@ -1141,20 +1132,22 @@ class UI implements Module {
       // the status icon owns a reserved column at the right; a long name is abbreviated to whole glyphs before it
       // (the NEXT HOP panel always shows the full name of the selected sector)
       const ix = x + w - 15; const tw = ix - 6 - (x + 25);
+      const nc = sel ? C.gold : here ? C.text : cleared ? C.pale : reach ? C.text : C.dim;
       const nm = secret ? '? ? ?' : this.fitName(a.name, tw);
-      text(ctx, nm, x + 25, yy, sel ? C.gold : here ? C.text : cleared ? C.pale : reach ? C.text : C.dim);
+      if (nm) text(ctx, nm, x + 25, yy, nc); else tiny(ctx, a.name, x + 25, yy + 1, nc);
       if (here) icon(ctx, 'paw', ix, yy, (t >> 4) % 2 ? C.hot : C.pink);
       else if (cleared) checkMark(ctx, ix, yy - 1);
       else if (reach) arrow(ctx, ix + 5, yy + 3, 'l', 4, sel ? C.gold : C.pink);
       else icon(ctx, 'lock', ix, yy, C.indigo);
     });
   }
-  /** A sector name that fits `px` wide in whole glyphs: drop a leading 'THE', then cut the tail and end in '.'. */
+  /** A sector name for the main face in `px`: whole, or without a leading 'THE'; '' when it needs the small-caps tier
+   *  (the row then draws the full name in tiny, never a cut-off name). */
   fitName(name: string, px: number) {
-    let s = name.toUpperCase(); const n = Math.floor((px + 1) / 6);
-    if (s.length > n && s.startsWith('THE ')) s = s.slice(4);
-    if (s.length > n) s = s.slice(0, n - 1).replace(/[\s-]+$/, '') + '.';
-    return s;
+    const s = name.toUpperCase();
+    if (textWidth(s) <= px) return s;
+    if (s.startsWith('THE ') && textWidth(s.slice(4)) <= px) return s.slice(4);
+    return '';
   }
   /** Constellation layout: columns by graph depth, rows spread vertically and offset per column so the route zig-zags across the chart. */
   layout(g: Game): Record<string, [number, number]> {
@@ -1266,13 +1259,14 @@ class UI implements Module {
   }
   /** Ending timeline: flight home (riders + a trailing ribbon of pups), credits roll, then the story card. Cached. */
   endPlan(g: Game) {
-    const e = g.content.endings.find(x => x.id === g.state.ending) ?? g.content.endings[0];
-    const kind: 'true' | 'good' = e?.id === 'ending_true' ? 'true' : 'good';
-    // the pup count the diorama shows always agrees with the ending: EVERY PUP HOME never shows fewer pups than the
-    // Lost Pups quest asks for, and the hopeful ending always has someone still out there
+    // every number on screen is the save's own: the diorama, the PUPS HOME counter and the stat chip all show
+    // inventory.pups. EVERY PUP HOME (the block party) is staged only when that count really is the full Lost Pups
+    // roster; a true-ending flag with fewer pups home plays the hopeful search-party ending (its title and story too)
     const need = Math.max(1, (g.content.quests.find(q => q.id === 'lost_pups') as any)?.complete?.count ?? 6);
-    const have = Math.max(0, g.state.inventory.pups ?? 0);
-    const pups = kind === 'true' ? Math.max(have, need) : Math.min(have, need - 1);
+    const pups = Math.max(0, g.state.inventory.pups ?? 0);
+    const want = g.content.endings.find(x => x.id === g.state.ending) ?? g.content.endings[0];
+    const kind: 'true' | 'good' = want?.id === 'ending_true' && pups >= need ? 'true' : 'good';
+    const e = kind === 'good' && want?.id === 'ending_true' ? (g.content.endings.find(x => x.id === 'ending_good') ?? want) : want;
     const shown = Math.min(END_MAX_PUPS, pups);
     const key = `${shown}|${e?.id}`;
     if (this.plan && this.plan.key === key) return this.plan;
@@ -1292,10 +1286,10 @@ class UI implements Module {
     const cx = W / 2; const items: { h: number; draw: (ctx: CanvasRenderingContext2D, y: number, t: number) => void }[] = [];
     const gap = (h: number) => items.push({ h, draw: () => {} });
     const title = (s: string, c: string, hi: string, sh: string) => items.push({ h: 24, draw: (ctx, y) => headline(ctx, s, cx, y + 4, c, hi, sh) });
-    const small = (s: string, c = C.dim) => items.push({ h: 14, draw: (ctx, y) => text(ctx, s, cx, y + 3, c, { align: 'center', shadow: C.ink }) });
+    const small = (s: string, c = C.pale) => items.push({ h: 14, draw: (ctx, y) => inked(ctx, s, cx, y + 3, c) });
     items.push({ h: 64, draw: (ctx, y) => { drawLogo(ctx, logoWord('POODLE', 2, PINK, 3, 2, 3), cx, y + 6); drawLogo(ctx, logoWord('PATROL', 2, CYAN, 3, 2, 3), cx, y + 36); } });
     gap(18); small('STARRING');
-    items.push({ h: 74, draw: (ctx, y, t) => { draw2x(ctx, 'end_pom_sit', cx, y + 28, { frame: (t >> 5) % 2 }); text(ctx, 'CAPTAIN POM', cx, y + 62, C.gold, { align: 'center', shadow: C.burnt }); } });
+    items.push({ h: 92, draw: (ctx, y, t) => { draw2x(ctx, 'end_pom_sit', cx, y + 38, { frame: (t >> 5) % 2 }); text(ctx, 'CAPTAIN POM', cx, y + 80, C.gold, { align: 'center', shadow: C.burnt }); } });
     gap(10);
     if (shown > 0) {
       small(shown === 1 ? 'AND THE PUP SHE BROUGHT HOME' : `AND THE ${shown} PUPS SHE BROUGHT HOME`);
@@ -1315,8 +1309,9 @@ class UI implements Module {
         items.push({ h: sh + 26, draw: (ctx, y, t) => row.forEach((e, i) => {
           const x = cx + (i - (row.length - 1) / 2) * cell;
           drawSprite(ctx, e.sprite, x, y + sh / 2, { frame: frameCount(e.sprite) > 1 ? ((t >> 4) + i) % 2 : 0 });
-          e.lines.forEach((l, k) => text(ctx, l, x, y + sh + 3 + k * 9, C.text, { align: 'center', shadow: C.ink }));
-          if (e.role) text(ctx, e.role, x, y + sh + 3 + e.lines.length * 9, C.dim, { align: 'center', shadow: C.ink });
+          // names and role lines carry a full 1px ink outline, so they read on every band of either sky
+          e.lines.forEach((l, k) => inked(ctx, l, x, y + sh + 3 + k * 9, C.text));
+          if (e.role) inked(ctx, e.role, x, y + sh + 3 + e.lines.length * 9, C.gold);
         }) });
       }
     };
@@ -1580,10 +1575,11 @@ class UI implements Module {
       rect(ctx, x, Math.round(y), (i + (T >> 3)) % 2 ? 2 : 1, (i + (T >> 3)) % 2 ? 1 : 2, cs[i % cs.length]);
     }
   }
-  /** Credits roll in the sky window: drawn to an offscreen, then cut by a 14px ordered-dither fade at both edges. */
+  /** Credits roll in the sky window (y 4..208, its lower edge down over the dark skyline, below where the portraits
+   *  pass): drawn to an offscreen, then cut by a 12px ordered-dither fade at both edges. */
   private credCv: HTMLCanvasElement | null = null; private credMask: HTMLCanvasElement | null = null;
   creditsWindow(ctx: CanvasRenderingContext2D, P: NonNullable<UI['plan']>, off: number, t: number) {
-    const top = END_WIN_TOP, h = END_WIN; const FADE = 14;
+    const top = END_WIN_TOP, h = END_WIN; const FADE = END_FADE;
     if (typeof document === 'undefined') return;
     if (!this.credCv) { this.credCv = document.createElement('canvas'); this.credCv.width = W; this.credCv.height = h; }
     if (!this.credMask) {
@@ -1601,8 +1597,20 @@ class UI implements Module {
     c.globalCompositeOperation = 'destination-in'; c.drawImage(this.credMask, 0, 0); c.globalCompositeOperation = 'source-over';
     ctx.drawImage(this.credCv, 0, top);
   }
-  /** The closing card: title, the typed story, one row of stat chips, then the CONTINUE prompt. Stays above the lawn
-   *  so the diorama keeps playing underneath. */
+  /** Ordered-dither fade (0 = gone .. 16 = solid): cached 4x4 Bayer patterns used as a destination-in mask. */
+  private fadePats: (CanvasPattern | null)[] = [];
+  fadePattern(ctx: CanvasRenderingContext2D, lv: number) {
+    if (this.fadePats[lv] !== undefined) return this.fadePats[lv];
+    const c = document.createElement('canvas'); c.width = 4; c.height = 4; const x = c.getContext('2d')!; x.fillStyle = '#000';
+    for (let i = 0; i < 16; i++) if (BAYER[i] < lv) x.fillRect(i & 3, i >> 2, 1, 1);
+    return (this.fadePats[lv] = ctx.createPattern(c, 'repeat'));
+  }
+  private cardCv: HTMLCanvasElement | null = null;
+  /**
+   * The closing card: title, the typed story in a window, one row of stat chips, then the CONTINUE prompt. Once the
+   * story has been read (END_CARD_HOLD ticks after the last line) the window dithers out and the stat row rises under
+   * the title plate, so the diorama (sky, moon or sun, search lights or party) gets a clean final beat.
+   */
   endingCard(g: Game, ctx: CanvasRenderingContext2D, P: NonNullable<UI['plan']>, T: number) {
     const e = P.e; if (!e) return;
     const title = e.title.toUpperCase();
@@ -1612,15 +1620,27 @@ class UI implements Module {
     const lines = P.lines;
     const py = 38, ph = Math.min(150, lines.length * 11 + 14);
     const shown = Math.floor(T / END_LINE);
-    frame(ctx, PF_X - 20, py, PF_W + 40, ph, C.gold, C.night, 6);
-    ticks(ctx, PF_X - 20, py, PF_W + 40, ph, C.burnt, 7, 3);
-    lines.slice(0, shown + 1).forEach((l, i) => { if (py + 8 + i * 11 < py + ph - 8) text(ctx, l, W / 2, py + 8 + i * 11, C.text, { align: 'center', shadow: C.ink }); });
+    const HOLD = 210, OUT = 32; const fo = Math.max(0, Math.min(1, (T - P.reveal - HOLD) / OUT));
+    const wx = PF_X - 20, ww = PF_W + 40;
+    if (!this.cardCv && typeof document !== 'undefined') { this.cardCv = document.createElement('canvas'); this.cardCv.width = ww; this.cardCv.height = 152; }
+    const c = fo < 1 ? this.cardCv?.getContext('2d') : null;
+    if (c && this.cardCv) {
+      // the story window is composed offscreen so it can dither out as one piece
+      c.globalCompositeOperation = 'source-over'; c.imageSmoothingEnabled = false; c.clearRect(0, 0, ww, 152);
+      frame(c, 0, 0, ww, ph, C.gold, C.night, 6);
+      ticks(c, 0, 0, ww, ph, C.burnt, 7, 3);
+      lines.slice(0, shown + 1).forEach((l, i) => { if (8 + i * 11 < ph - 8) text(c, l, ww / 2, 8 + i * 11, C.text, { align: 'center', shadow: C.ink }); });
+      const lv = Math.round(16 * (1 - fo));
+      if (lv < 16) { const pat = this.fadePattern(c, lv); c.globalCompositeOperation = 'destination-in'; c.fillStyle = pat ?? 'rgba(0,0,0,0)'; c.fillRect(0, 0, ww, 152); c.globalCompositeOperation = 'source-over'; }
+      ctx.drawImage(this.cardCv, wx, py);
+    }
     const s = g.state;
     if (shown > lines.length) {
       const stats: [string, string, string, string][] = [['star', String(s.score), 'PTS', C.gold], ['cat', String(s.stats.catsBooped), 'BOOPED', C.hot], ['paw', String(P.pups), 'PUPS', C.line],
         ['photo', `${s.memories.length}/${g.content.memories.length}`, 'MEMORIES', C.violet], ['clock', String(Math.floor(s.stats.playTicks / 3600)), 'MIN', C.lime], ['moon', String(s.stats.naps), 'NAPS', C.pale]];
       const ws = stats.map(([, v, l]) => 26 + textWidth(v) + 6 + textWidth(l) + 8); const gapX = 5;
-      let cx = Math.round(W / 2 - (ws.reduce((a, b) => a + b, 0) + gapX * (ws.length - 1)) / 2); const cy = py + ph + 5;
+      let cx = Math.round(W / 2 - (ws.reduce((a, b) => a + b, 0) + gapX * (ws.length - 1)) / 2);
+      const cy = Math.round(py + ph + 5 + (38 - (py + ph + 5)) * smooth(fo));
       stats.forEach(([ic, v, l, c], i) => {
         const cw = ws[i];
         chamferFill(ctx, cx, cy, cw, 18, C.ink, 4); chamferLine(ctx, cx, cy, cw, 18, darkOf(c), 4);
@@ -1644,7 +1664,7 @@ class UI implements Module {
     // Captain Pom (the in-game sprite) hovers over the garden gate against the sun, waiting to fly again
     const hov = Math.round(Math.sin(t / 14) * 2);
     const shw = 20 - hov; dither(ctx, W / 2 - shw, HZ + 8, shw * 2, 4, C.ink, 'check'); rect(ctx, W / 2 - shw + 5, HZ + 9, shw * 2 - 10, 2, C.ink);
-    this.heroPom(ctx, W / 2, HZ - 35 + hov, t);
+    this.heroPom(ctx, W / 2, HZ - 29 + hov, t);
     const w = 340, h = 160, x = Math.round(W / 2 - w / 2), y = 70;
     frame(ctx, x, y, w, h, C.hot, C.night, 8);
     scanlines(ctx, x + 2, y + 2, w - 4, h - 4);
