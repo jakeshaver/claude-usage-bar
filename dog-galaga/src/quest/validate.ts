@@ -18,7 +18,7 @@ export interface NQuest extends QuestDef {
 }
 
 const COND_KEYS = ['flag', 'notFlag', 'quest', 'item', 'cleared', 'memories', 'all', 'any', 'not'];
-const QSTATES = ['locked', 'active', 'done'];
+const QSTATES = ['locked', 'active', 'done', 'missed'];
 
 /** Returns a reason string when the condition is malformed, or null when it is fine. */
 export function condProblem(c: unknown, depth = 0): string | null {
@@ -29,7 +29,7 @@ export function condProblem(c: unknown, depth = 0): string | null {
   if (!k) return `unknown condition ${JSON.stringify(c).slice(0, 60)}`;
   switch (k) {
     case 'flag': case 'notFlag': case 'cleared': return typeof a[k] === 'string' && a[k] ? null : `"${k}" must be a non-empty string`;
-    case 'quest': return typeof a.quest === 'string' && QSTATES.includes(a.is) ? null : '"quest" condition needs a quest id and is: locked|active|done';
+    case 'quest': return typeof a.quest === 'string' && QSTATES.includes(a.is) ? null : '"quest" condition needs a quest id and is: locked|active|done|missed';
     case 'item': return typeof a.item === 'string' && Number.isFinite(a.min) ? null : '"item" condition needs an item id and a numeric min';
     case 'memories': return Number.isFinite(a.memories) ? null : '"memories" must be a number';
     case 'all': case 'any': {
