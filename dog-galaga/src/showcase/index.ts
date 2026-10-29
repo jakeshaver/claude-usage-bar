@@ -16,7 +16,10 @@ export function runShowcase(g: Game, which: string, p: URLSearchParams) {
   const quiet = () => { W_.phase = 'done'; W_.titleCard = 0; };
   switch (which) {
     case 'art': gallery(g, p.get('filter') ?? ''); break;
-    case 'world': W_.enterArea(area, 0); quiet(); g.mods.quest.dlg = null; g.setScene('play'); g.mods.player.y = 999; break;
+    // world: backdrop only. Pom is parked offscreen and her module switched off (update, render, overlay) through
+    // core's isolation switch, so she never eases back into some frames and not others.
+    case 'world': W_.enterArea(area, 0); quiet(); g.mods.quest.dlg = null; g.setScene('play'); g.mods.player.y = 999;
+      g.disabled.add('player'); g.disabled.add('player:overlay'); break;
     // player: `filter=gallery` draws the player module's own full-screen frame gallery instead
     case 'player': W_.enterArea(area, 0); quiet(); g.mods.quest.dlg = null; g.setScene('play'); g.mods.player.power('shield', 9999); g.mods.player.buddy = true; g.mods.player.invuln = 0; break;
     case 'interaction': {
