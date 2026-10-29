@@ -42,12 +42,12 @@ export const SHADE_TOD: Record<Tod, Ramp> = {
  */
 export const TOD_RAMP: Record<Tod, Ramp> = {
   day: ramp(''),
-  // early light: cool, slightly lower values; whites and pale tones catch a pink sky reflection,
-  // greens go cool blue-green, warm browns drop toward mauve. The peach comes from the rim light on top edges.
-  dawn: ramp('6:7 7:c 5:c s:5 o:4 p:p q:q v:v 1:1 8:9 9:a a:a b:b j:n i:j k:k l:m m:4 n:3 f:8 g:9 h:a 4:4 3:3 r:d d:e t:4 e:e u:u'),
-  // sunset: about one step darker; light greys and creams go warm, greens drop to their shade tone,
-  // purples stay in the shadows. Warm accents come from rim light on west faces and lit windows.
-  dusk: ramp('6:8 7:8 5:t 4:u 3:2 2:v o:9 p:q q:q 8:9 9:a a:b b:b j:a i:j k:k l:m m:n s:t f:g c:d t:u n:2 g:h r:h'),
+  // blue hour: neutrals go periwinkle / lavender (a touch lighter than the night navy so it never reads as night),
+  // lawns go a cool dewy teal, pale tones catch the pink sky. Peach rim light on top edges does the rest.
+  dawn: ramp('6:7 7:c 5:c s:5 o:5 p:4 q:3 v:2 1:1 8:c 9:a a:a b:b j:m i:j k:n l:m m:4 n:3 f:8 g:9 h:a r:d d:e t:4 e:e u:u'),
+  // sunset: one step darker and warm; greys go brown / plum, lawns go golden olive, greens' tufts catch amber.
+  // Purples stay in the shadows; warm accents come from rim light on west faces and lit windows.
+  dusk: ramp('6:8 7:8 5:t 4:u 3:2 2:v o:9 p:a q:v v:v 8:9 9:a a:b b:b j:h i:g k:b l:m m:n s:t f:g c:d t:u n:2 g:h r:h'),
   // moonlight: navy / indigo, roughly 30% lower value than day; grass goes indigo, asphalt near-black.
   night: ramp('1:1 2:1 3:2 4:3 5:4 6:5 7:o 8:p 9:a a:b b:v c:u d:e e:v f:9 g:a h:b i:j j:k k:2 l:m m:n n:2 o:p p:q q:2 r:e s:4 t:u u:3 v:1'),
 };
@@ -73,9 +73,12 @@ export const SUN_RAMP = ramp('0:1 1:v v:b b:a a:a 9:9 8:8 q:p p:p 2:3 3:3 e:e u:
 export const DUSK_SUN = ramp('0:1 1:b v:b b:a a:h 9:9 q:b p:a 2:e 3:u n:2 k:k');
 /** Space: day = sunlit hull, night = eclipse (highlights drop, running lights on). */
 export const SPACE_RAMP: Record<Tod, Ramp> = {
-  day: ramp(''),
-  dawn: ramp('o:8 5:c 4:t 6:7'),
-  dusk: ramp('o:g 5:c 4:t 6:f 3:u'),
+  // sunlit: the void lifts to a deep indigo haze and hull plates catch white light
+  day: ramp('0:1 1:2 v:2 2:3'),
+  // a sunrise over the planet's rim: plum void, pink and violet highlights
+  dawn: ramp('0:v 1:v 2:u o:8 5:c 4:t 6:7'),
+  // sunset glare: warm brown-magenta void, amber highlights
+  dusk: ramp('0:v 1:v v:b 2:b 3:e u:e o:g 5:c 4:t 6:f'),
   night: ramp('o:p 5:4 6:5 4:3 3:2 8:9 7:8'),
 };
 
