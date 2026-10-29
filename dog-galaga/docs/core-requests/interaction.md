@@ -210,3 +210,55 @@ Round 2 (interaction only, no core changes needed). Notes for the integrator and
   `group` payload, or shrink it). Not done here (module-owned).
 - FYI: the bot now reports 38-41 min per path (your note said 32-34); still all paths reach ending_true with no
   softlocks.
+
+## Polish 3
+
+Round 1 (interaction only, no core code changes needed). Please update the ARCHITECTURE interaction line:
+- **Big Cat escorts:** every boss fight now has an escort squad of the sector's own breeds (from its waves, minus
+  capturers): 2 cats in sectors 1-5, 4 in 6-10, 6 in 11-13, +2 once the boss is grumpy (max 6). They ride in a wedge
+  under the boss (slots follow the boss), peel off in Galaga dives (1 at a time, 2 at phase 2), and a fresh squad
+  streams in ~5 s after the last one is booped. Escorts are ordinary cats: they emit the normal `cat:boop` (so boop
+  quests and BOOPS count them) and score their breed's points. On `boss:defeat` they fly off. The boss's idle drift and
+  charge lanes keep inside `interaction.bossRange()` so the squad stays inside the lane walls.
+- **Points per boss hit:** each hit on a Big Cat scores `10 + 10*phase + 5*tier` (10..45) with a float label
+  (effects merges them into combo totals), so the score climbs through the fight. A phase change also pays a bounty
+  (`250 * phase * (1 + tier)`), with hit-stop, a boom burst, a shockwave ring and reinforcements.
+- **Wave variety:** 10 formation shapes (`galaga pillars diamond flanks chevron block vee wings barrel arrow`), walked per
+  sector with a stride of 3 (consecutive waves never repeat; `formation.shapeFor`), and 9 entries (the content's five
+  plus `convoy` (single-file snakes), `drop` (columns fall in, bottom row first), `flank` (two squadrons from both sides
+  in echelon), `escort` (tight trios)); `formation.entryFor` picks one per wave (pillars drop, flanks flank, every
+  third wave a convoy/escort, else the content entry) and never repeats an entry on consecutive waves. All streams loop
+  in the open field under the rack (or down the side gutters), then rise straight into their column; every column fills
+  top cell first, so no entering cat crosses a parked one (tested in `src/interaction/waves.test.ts`).
+- **Lattice wall gap:** the outermost cat now keeps 16 px of air to the lane walls at the far end of its sway
+  (`WALL_GAP`), so alley racks are 7 columns and the mothership rack 5 columns (wavePreview follows automatically).
+- **Lost pup slot:** the caged pup always rides with a top-row capturer and floats one row pitch above it (the rack sits
+  14 px lower in pup waves), never over a cat.
+- Content/world owners FYI: boss fights are still short in the first sectors (Sergeant Whiskers falls in ~20 s with
+  4 turds on screen); if the critic wants 60-90 s fights, that is the bosses' `hp` in content.
+
+Round 2 (interaction only, no core code changes needed). ARCHITECTURE interaction line updates, plus three requests:
+- **Escorts:** 4 escorts (two pairs) through sector 10, 6 after, +2 once grumpy (max 6). The squad streams in with
+  the Big Cat's entrance swoop and is topped up 60 ticks after it drops to one escort (no more lone-boss stretches).
+  Wedge: shoulders low (±34), wings up beside the boss (±66, a V with the boss in the notch), rear guard under the
+  wings. `ESC_EXT` is 80, so `bossRange()` is a little narrower.
+- **Boss hp floor:** `Boss` uses `max(def.hp, max(230, 160 + 8 * areaIndex))` (backyard..docks 230, then 234..256;
+  the Empress keeps 300). Autopilot fights now run ~45-90 s; bot 41-43 min on all 8 paths.
+  REQUEST (content/journal owner): the journal's `HP ${e.hp}` line shows the content value (50 for Sergeant
+  Whiskers). Either raise the bosses' `hp` in content/enemies.json to the values above (then my floor is a no-op)
+  or have the journal show `max(e.hp, ...)`. No need to do both.
+- **Phase change:** 3 frames of a white-hot palette swap (ink outline and lavender shading kept, never a flat
+  silhouette), then the boss palette-cycles red/gold for the rest of the shake-off; hit flashes use the same swap.
+- **Dives:** a diver leaves through an empty column beside it (half loop up when the cells above are free, else a
+  sidestep), straight down that column (riding the rack's sway) to just under the rack, and only there turns toward
+  Pom; the attack path is squashed into the field below the rack. Wingmates come from the row under the leader, fly
+  their own exit and are locked to the leader's arc position (32 px beside it, or 44 px behind in file), so a group
+  never fuses. Separate dive groups yield to each other. Capturer beams start only well below the rack.
+- **Shapes:** ring order `galaga flanks block vee diamond barrel pillars arrow wings chevron`, one step per wave from
+  `areaIdx * 3`; the lattice-like family (galaga, block, barrel, arrow) never appears twice in a row (tested).
+  Silhouette shapes fit snugly (narrower or deeper lattice) so a small wave still shows its outline.
+- **Lanes:** street `[112, 336]` (the road between the curbs: 6 columns), alley `[98, 350]` (the drawn drainpipes).
+- REQUEST (ui): the "NEW QUEST: ..." toast stays up through the whole first boss phase and sits on the boss bar.
+  Please shorten quest toasts while `interaction.mode === 'boss'` (or drop them below the bar).
+- REQUEST (world): backyard background props (patio umbrella, fountain) sit under the top rows of the rack
+  (y ~40-140, x ~140-330), which makes the rack busy. Please move them below y ~200 or outside x 120-330.
