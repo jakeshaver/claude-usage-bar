@@ -290,7 +290,7 @@ class Quest implements Module {
   }
 
   onEvent(evt: string, p: any) {
-    if (!evt || IGNORED.has(evt)) return;
+    if (!evt || IGNORED.has(evt) || this.g?.demo) return; // the attract demo flies a throwaway state copy
     // clearing a sector that ends the game: whatever this clear finishes is paid quietly (ending stats list it)
     // a fresh sector (e.g. a save loaded after an earlier finale this session) talks again; nothing enters an area
     // between the finale and the ending card, so the ending stats still see this run's quiet rewards

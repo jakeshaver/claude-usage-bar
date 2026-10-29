@@ -51,6 +51,9 @@ export class Game {
   failCount: Record<string, number> = {};
   disabled = new Set<string>();
   autopilot = false;
+  /** true while ui's attract demo flies a throwaway copy of the state: session-only bookkeeping (journal seen /
+   * boops, quest progress) ignores bus events while it is set. */
+  demo = false;
   /** set by the playthrough bot so it, not the UI autopilot, picks map exits */
   botDrivesMap = false;
   toastFn: (t: string, opts?: { kind?: 'good' | 'warn' }) => void = () => {};

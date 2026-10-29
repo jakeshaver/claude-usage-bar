@@ -599,7 +599,7 @@ class UI implements Module {
     if (S) { S.save = () => false; S.flush = () => true; }
     this.muteToasts(true); this.idle = 0;
     g.replaceState(copy); g.autopilot = true;
-    (g as any).demo = true;
+    g.demo = true;
     Wd.transition('fade', () => { if (!this.demo) return; Wd.enterArea(id, wave); if (tod) g.state.tod = tod; });
   }
   /** One demo tick; true when the demo just ended (the rest of ui's update is skipped that tick). */
@@ -613,7 +613,7 @@ class UI implements Module {
     return false;
   }
   endDemo(g: Game) {
-    const d = this.demo; if (!d) return; this.demo = null; (g as any).demo = false;
+    const d = this.demo; if (!d) return; this.demo = null; g.demo = false;
     g.autopilot = false; g.paused = false; this.menuOpen = 'none';
     g.mods.interaction?.clearAll?.();
     const Q = g.mods.quest; if (Q) Q.dlg = null;

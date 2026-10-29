@@ -233,6 +233,7 @@ class Journal implements Module {
   }
   /** One bus event: what it tells the bestiary and the stats page. */
   private note(evt: string, p: any) {
+    if (this.g?.demo) return; // the attract demo never marks a breed as seen
     if (evt === 'cat:boop' && p?.breed) { this.seen.add(p.breed); this.boops.set(p.breed, (this.boops.get(p.breed) ?? 0) + 1); }
     else if (evt === 'boss:start' && p?.bossId) this.seen.add(p.bossId);
     else if (evt === 'boss:defeat' && p?.bossId) { this.seen.add(p.bossId); this.bossesDown.add(p.bossId); }
