@@ -23,6 +23,13 @@ const TABS = [
   { id: 'stats', label: 'STATS', icon: 'star', accent: C.violet },
 ] as const;
 type TabId = typeof TABS[number]['id'];
+/** Tab index for an id, a label or an index (number or numeric string); -1 when it names no tab. */
+function tabIndex(v: unknown): number {
+  if (typeof v === 'number') return Number.isInteger(v) && v >= 0 && v < TABS.length ? v : -1;
+  if (typeof v !== 'string') return -1; const s = v.trim().toLowerCase(); if (!s) return -1;
+  if (/^\d+$/.test(s)) return tabIndex(+s);
+  return TABS.findIndex(t => t.id === s || t.label.toLowerCase() === s);
+}
 interface Box { x: number; y: number; w: number; h: number }
 interface Hit extends Box { kind: 'tab' | 'item' | 'close' | 'viewer'; i: number }
 interface Layout { panel: Box; grid: Box; detail: Box; hints: boolean; touch: boolean }
@@ -159,7 +166,11 @@ class Journal implements Module {
   id = 'journal';
   api = this;
   g!: Game;
-  tab = 0; sel = 0; t = 0;
+  sel = 0; t = 0;
+  private tabI = 0;
+  /** Current tab index. Accepts a tab id ('memories') or index; bad values (NaN, out of range) keep the current tab. */
+  get tab(): number { return this.tabI; }
+  set tab(v: number | string) { const i = tabIndex(v); if (i >= 0) this.tabI = i; }
   focus: 'tabs' | 'items' = 'items';
   scroll = 0;
   viewer = -1;                      // memory index shown full size, -1 = closed
@@ -199,6 +210,8 @@ class Journal implements Module {
   isOpen() { return this.g?.mods.ui?.menuOpen === 'journal'; }
   open() {
     if (wantsDemo()) this.seedDemo();
+    // showcase deep link by name (?tab=memories): the showcase passes +tab, which is NaN for a name
+    if (typeof location !== 'undefined') { const tp = new URLSearchParams(location.search).get('tab'); if (tp !== null && isNaN(+tp)) this.tab = tp; }
     this.sel = Math.min(this.sels[this.tab] ?? 0, Math.max(0, this.count(this.g) - 1)); this.focus = 'items'; this.viewer = -1;
     this.taps = []; this.jump = 0; this.scroll = 0; this.scan();
   }
@@ -275,7 +288,38 @@ class Journal implements Module {
     if (cur && !this.passed(g, cur.id)) for (let i = 0; i < Math.min(s.waveIndex, cur.waves.length); i++) if (this.fields(g, cur.waves[i], e.id)) return true;
     return false;
   }
-  questState(g: Game, q: QuestDef) { return g.state.quests[q.id] ?? 'locked'; }
+  /** Stored state, upgraded by quest.status() (a pre-polish 'active' quest with a missed marker reads 'missed'). */
+  questState(g: Game, q: QuestDef): 'locked' | 'active' | 'done' | 'missed' {
+    const raw = g.state.quests[q.id]; const st = (g.mods.quest?.status?.(q.id) ?? raw ?? 'locked') as string;
+    return st === 'active' || st === 'done' || st === 'missed' ? st : raw === 'missed' ? 'missed' : 'locked';
+  }
+  /** True for a quest whose window passed (route forfeit or the flight ended first). */
+  isClosed(g: Game, q: QuestDef) { const t = this.look(g, q).tone; return this.questState(g, q) === 'missed' || t === 'missed' || t === 'expired'; }
+  /** Short reason for a closed quest's row: which branch closed it, or that the flight ended. */
+  closedTag(g: Game, q: QuestDef): string {
+    if (this.closedHow(g, q) === 'run') return 'FLIGHT ENDED';
+    const a = this.expireArea(q); return a ? `VIA ${SHORT[a] ?? a.toUpperCase()}` : 'ROUTE CLOSED';
+  }
+  closedHow(g: Game, q: QuestDef): 'route' | 'run' {
+    const by = g.mods.quest?.closedBy?.(q.id); if (by === 'run' || by === 'route') return by;
+    return this.look(g, q).tone === 'expired' ? 'run' : 'route';
+  }
+  /** The area whose entry closes a quest (first area:enter expire trigger), if any. */
+  expireArea(q: QuestDef): string | undefined {
+    const ex = (q as QuestDef & { expire?: unknown }).expire; const list = (Array.isArray(ex) ? ex : ex ? [ex] : []) as { on?: string; match?: { areaId?: unknown } }[];
+    const t = list.find(t => t?.on === 'area:enter' && typeof t.match?.areaId === 'string'); return t?.match?.areaId as string | undefined;
+  }
+  /** Detail-card explanation of what closed a quest, worded around the actual route. */
+  closedNote(g: Game, q: QuestDef): string {
+    if (this.closedHow(g, q) === 'run') return this.look(g, q).note || 'The flight ended before this page was finished. It opens again on your next flight.';
+    const a = this.expireArea(q);
+    if (!a) return this.look(g, q).note || 'Pom took the other route. Try it on your next flight.';
+    const from = g.content.areas.find(x => (x.exits ?? []).some(e => e.to === a));
+    const other = from?.exits?.find(e => e.to !== a) as { to: string; label?: string } | undefined;
+    const fork = from ? ` at sector ${pad2(this.sector(g, from.id))}` : '';
+    const alt = other ? (other.label ? `the ${other.label.toLowerCase()}` : `the hop to ${this.areaName(g, other.to)}`) : 'the other hop';
+    return `Pom took the hop to ${this.areaName(g, a)}, which closed this page. Next flight, take ${alt}${fork}.`;
+  }
   /** quest's presentation (pill / tag / note / tone); 'missed' and 'expired' are closed quests */
   look(g: Game, q: QuestDef): { state: string; tone: string; pill: string; tag: string; note: string; dimReward: boolean } {
     const st = this.questState(g, q);
@@ -508,17 +552,28 @@ class Journal implements Module {
         textFit(ctx, this.lockTag(g, q), cx, ty, cntW + 4, isNext ? C.gold : a && this.passed(g, a) ? C.pink : C.peri, { align: 'right' });
         continue;
       }
-      const lk = this.look(g, q); const closed = lk.tone === 'missed' || lk.tone === 'expired' || st === 'missed';
-      cFill(ctx, x, y, w, h, closed ? C.ink : C.panel, 3);
-      cLine(ctx, x, y, w, h, st === 'done' ? darkOf(C.lime) : closed ? C.indigo : C.burnt, 3);
+      const lk = this.look(g, q); const closed = this.isClosed(g, q);
+      if (closed) {
+        // a closed page: muted ink card with a dashed rim, a struck flag, the reason in the meter column, the pill
+        cFill(ctx, x, y, w, h, C.ink, 3); dashed(ctx, x, y, w, h, C.indigo);
+        if (on) this.itemRing(ctx, x, y, w, h, 3);
+        icon(ctx, 'flag', x + 7, ty, C.indigo); rect(ctx, x + 6, ty + 3, 9, 1, C.peri);
+        text(ctx, q.name, x + 20, ty, on ? C.peri : C.dim, { shadow: C.ink });
+        textFit(ctx, this.closedTag(g, q), barX + barW, ty, barW + 4, C.peri, { align: 'right' });
+        const pill = lk.pill && lk.pill !== 'DONE' ? lk.pill : this.closedHow(g, q) === 'run' ? 'NEXT TIME' : 'MISSED';
+        const mw = Math.max(40, textWidth(pill) + 8); cFill(ctx, cx - mw, ty - 2, mw, 11, C.night, 2); cLine(ctx, cx - mw, ty - 2, mw, 11, C.indigo, 2);
+        text(ctx, pill, cx - mw / 2, ty, C.peri, { align: 'center' });
+        continue;
+      }
+      cFill(ctx, x, y, w, h, C.panel, 3);
+      cLine(ctx, x, y, w, h, st === 'done' ? darkOf(C.lime) : C.burnt, 3);
       if (on) this.itemRing(ctx, x, y, w, h, 3);
-      const ic = st === 'done' ? C.lime : closed ? C.peri : C.gold;
+      const ic = st === 'done' ? C.lime : C.gold;
       if (st === 'done') mini(ctx, 'check', x + 7, ty, ic); else icon(ctx, 'flag', x + 7, ty, ic);
-      text(ctx, q.name, x + 20, ty, on ? C.gold : closed ? C.dim : C.text, { shadow: C.ink });
-      const p = this.progress(g, q); const c = st === 'done' ? C.lime : closed ? C.peri : C.gold;
+      text(ctx, q.name, x + 20, ty, on ? C.gold : C.text, { shadow: C.ink });
+      const p = this.progress(g, q); const c = st === 'done' ? C.lime : C.gold;
       meter(ctx, barX, ty + 1, barW, 5, p.have, p.need, c);
       if (st === 'done') { cFill(ctx, cx - 40, ty - 2, 40, 11, darkOf(C.lime), 2); text(ctx, 'DONE', cx - 20, ty, C.cream, { align: 'center' }); }
-      else if (closed) { const pill = lk.pill || 'MISSED'; const mw = Math.max(40, textWidth(pill) + 8); cFill(ctx, cx - mw, ty - 2, mw, 11, C.night, 2); text(ctx, pill, cx - mw / 2, ty, C.peri, { align: 'center' }); }
       else text(ctx, `${p.have}/${p.need}`, cx, ty, C.gold, { align: 'right' });
     }
     this.scrollMarks(ctx, L, wv);
@@ -542,29 +597,37 @@ class Journal implements Module {
   }
   questDetail(g: Game, ctx: CanvasRenderingContext2D, D: Box, q: QuestDef) {
     const st = this.questState(g, q); const p = this.progress(g, q); const wide = D.w > D.h * 2;
-    const acc = st === 'done' ? C.lime : st === 'active' ? C.gold : C.peri; const lock = st === 'locked';
-    const lk = this.look(g, q); const closed = lk.tone === 'missed' || lk.tone === 'expired' || st === 'missed';
+    const lk = this.look(g, q); const closed = this.isClosed(g, q); const lock = st === 'locked' && !closed;
+    const acc = closed ? C.peri : st === 'done' ? C.lime : st === 'active' ? C.gold : C.peri;
     this.detailFrame(ctx, D, acc);
-    // medal sticker on a ribbon
+    // medal sticker on a ribbon (closed: a muted medal with a struck flag; locked: a padlock)
     const mx = wide ? D.x + 36 : Math.round(D.x + D.w / 2), my = wide ? D.y + 46 : D.y + 40;
-    // ribbon in the card's own accent (lime when done, gold in progress): a light and a dark strip
-    rect(ctx, mx - 8, my - 26, 6, 14, lock ? C.indigo : acc); rect(ctx, mx + 2, my - 26, 6, 14, lock ? C.indigo : darkOf(acc));
-    rect(ctx, mx - 8, my - 26, 6, 1, lock ? C.peri : lighter(acc)); rect(ctx, mx + 2, my - 26, 6, 1, lock ? C.peri : acc);
-    disc(ctx, mx, my, 13, lock ? C.ink : darkOf(acc)); disc(ctx, mx, my - 1, 12, lock ? C.panel2 : acc); disc(ctx, mx, my - 1, 8, lock ? C.indigo : darkOf(acc));
-    if (st === 'done') mini(ctx, 'check', mx - 3, my - 4, C.cream); else icon(ctx, lock ? 'lock' : 'flag', mx - 3, my - 4, lock ? C.peri : C.cream);
+    const mute = lock || closed;
+    rect(ctx, mx - 8, my - 26, 6, 14, mute ? C.indigo : acc); rect(ctx, mx + 2, my - 26, 6, 14, mute ? C.indigo : darkOf(acc));
+    rect(ctx, mx - 8, my - 26, 6, 1, mute ? C.peri : lighter(acc)); rect(ctx, mx + 2, my - 26, 6, 1, mute ? C.peri : acc);
+    disc(ctx, mx, my, 13, mute ? C.ink : darkOf(acc)); disc(ctx, mx, my - 1, 12, mute ? C.panel2 : acc); disc(ctx, mx, my - 1, 8, mute ? (closed ? C.night : C.indigo) : darkOf(acc));
+    if (st === 'done') mini(ctx, 'check', mx - 3, my - 4, C.cream);
+    else if (closed) { icon(ctx, 'flag', mx - 3, my - 4, C.peri); rect(ctx, mx - 5, my - 1, 11, 1, C.dim); }
+    else icon(ctx, lock ? 'lock' : 'flag', mx - 3, my - 4, lock ? C.peri : C.cream);
     const tx = wide ? D.x + 72 : D.x + 12; let y = wide ? D.y + 10 : D.y + 64; const cw = Math.floor((D.x + D.w - 10 - tx) / 6);
-    text(ctx, lock ? 'UNKNOWN QUEST' : q.name, wide ? tx : D.x + D.w / 2, y, lock ? C.dim : C.gold, { align: wide ? 'left' : 'center', shadow: C.ink }); y += 12;
-    const tag = lk.tag || (st === 'done' ? 'COMPLETE' : st === 'active' ? 'IN PROGRESS' : closed ? 'MISSED: NEXT FLIGHT' : 'LOCKED');
+    text(ctx, lock ? 'UNKNOWN QUEST' : q.name, wide ? tx : D.x + D.w / 2, y, lock ? C.dim : closed ? C.dim : C.gold, { align: wide ? 'left' : 'center', shadow: C.ink }); y += 12;
+    const tag = closed ? (lk.tag && lk.tag !== 'LOCKED' && lk.tag !== 'IN PROGRESS' ? lk.tag : this.closedHow(g, q) === 'run' ? 'NOT THIS FLIGHT' : 'MISSED: NEXT FLIGHT')
+      : st === 'done' ? 'COMPLETE' : st === 'active' ? 'IN PROGRESS' : 'LOCKED';
     const tgw = textWidth(tag) + 8; const tgx = wide ? tx : Math.round(D.x + D.w / 2 - tgw / 2);
-    cFill(ctx, tgx, y - 2, tgw, 11, lock ? C.night : darkOf(acc), 2); text(ctx, tag, tgx + 4, y, lock ? C.peri : C.cream); y += 15;
-    if (!lock) {
+    cFill(ctx, tgx, y - 2, tgw, 11, mute ? C.night : darkOf(acc), 2); if (closed) cLine(ctx, tgx, y - 2, tgw, 11, C.indigo, 2);
+    text(ctx, tag, tgx + 4, y, mute ? C.peri : C.cream); y += 15;
+    if (!lock && !closed) {
       const cnt = `${p.have}/${p.need}`; const cx = D.x + D.w - 12;
       meter(ctx, tx, y + 1, cx - textWidth(cnt) - 8 - tx, 5, p.have, p.need, acc); text(ctx, cnt, cx, y, acc, { align: 'right' }); y += 14;
     }
-    for (const l of wrap(lock ? this.startHint(g, q) : q.desc, cw).slice(0, wide ? 4 : 8)) { text(ctx, l, tx, y, lock ? C.dim : C.text); y += 10; }
-    if (closed && lk.note) for (const l of wrap(lk.note, cw).slice(0, 2)) { text(ctx, l, tx, y, C.peri); y += 10; }
+    if (closed) {
+      // why it closed comes first (the route that was taken), then the quest's own line, dimmed
+      const why = wrap(this.closedNote(g, q), cw).slice(0, wide ? 3 : 6);
+      for (const l of why) { text(ctx, l, tx, y, C.text); y += 10; } y += 4;
+      for (const l of wrap(q.desc, cw).slice(0, wide ? Math.max(0, 4 - why.length) : 4)) { text(ctx, l, tx, y, C.dim); y += 10; }
+    } else for (const l of wrap(lock ? this.startHint(g, q) : q.desc, cw).slice(0, wide ? 4 : 8)) { text(ctx, l, tx, y, lock ? C.dim : C.text); y += 10; }
     const rw = this.rewardText(q); y = D.y + D.h - 16;
-    if (rw) { icon(ctx, 'gift', tx, y, lock || closed ? C.peri : C.pink); textFit(ctx, 'REWARD ' + rw, tx + 11, y, D.x + D.w - 10 - (tx + 11), lk.dimReward || st === 'done' ? C.dim : lock ? C.peri : C.pink); }
+    if (rw) { icon(ctx, 'gift', tx, y, lock || closed ? C.peri : C.pink); textFit(ctx, (closed ? 'REWARD WAITS: ' : 'REWARD ') + rw, tx + 11, y, D.x + D.w - 10 - (tx + 11), closed || lk.dimReward || st === 'done' ? C.dim : lock ? C.peri : C.pink); }
   }
   /** Where a locked quest starts, worded for the player's progress (a passed sector means a replay). */
   startHint(g: Game, q: QuestDef): string {
@@ -590,7 +653,7 @@ class Journal implements Module {
       const k = i - wv.first; const col = k % wv.cols, row = Math.floor(k / wv.cols);
       const cx = wv.ox + col * wv.cw, cy = L.grid.y + row * wv.ch;
       this.hits.push({ x: cx, y: cy, w: wv.cw, h: wv.ch, kind: 'item', i });
-      this.polaroid(g, ctx, ms[i], i, cx + Math.floor((wv.cw - 52) / 2), cy + 6 + (i % 2 ? 2 : 0), i === this.sel);
+      this.polaroid(g, ctx, ms[i], i, cx + Math.floor((wv.cw - 52) / 2), cy + 6, i === this.sel); // one shared caption baseline per row (tape nudge keeps it hand-stuck)
     }
     this.scrollMarks(ctx, L, wv);
     const m = ms[this.sel]; if (m) this.memoryDetail(g, ctx, L.detail, m, this.sel);
