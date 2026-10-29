@@ -141,19 +141,6 @@ class Player implements Module {
     addEventListener('touchend', end, { passive: true });
     addEventListener('touchcancel', end, { passive: true });
   }
-  /** First connected gamepad's left stick, radial dead zone 0.2, magnitude remapped to 0..1; null when centred. */
-  padAxis(): { x: number; y: number } | null {
-    if (typeof navigator === 'undefined' || !navigator.getGamepads) return null;
-    for (const p of navigator.getGamepads()) {
-      if (!p) continue;
-      const ax = p.axes[0] ?? 0, ay = p.axes[1] ?? 0, m = Math.hypot(ax, ay);
-      if (m < 0.2) continue;
-      const k = Math.min(1, (m - 0.2) / 0.75) / m;
-      return { x: ax * k, y: ay * k };
-    }
-    return null;
-  }
-
   update(g: Game) {
     const sc = g.state.scene;
     if (sc !== 'play' && sc !== 'bonus') { this.drag = null; return; }
@@ -173,8 +160,8 @@ class Player implements Module {
     if (held('up')) ay -= 1; if (held('down')) ay += 1;
     let fire = held('fire');
     if (!inp) {
-      const pad = this.padAxis();
-      if (pad) { if (Math.abs(pad.x) > 0.02) ax = pad.x; if (Math.abs(pad.y) > 0.02) ay = pad.y; }
+      const pad = g.input.axis; // core/input: left stick, radial dead zone 0.2, remapped to 0..1
+      if (Math.abs(pad.x) > 0.02) ax = pad.x; if (Math.abs(pad.y) > 0.02) ay = pad.y;
       const d = this.drag;
       if (d) {
         const tx = clamp(d.px + (d.cx - d.fx) * 1.3, 14, WORLD_W - 14), ty = clamp(d.py + (d.cy - d.fy) * 1.3, MIN_Y, MAX_Y);
@@ -344,7 +331,8 @@ class Player implements Module {
       for (const s of this.sparks) { const k = s.t / s.life; if (k < 0.8) dot(ctx, sx(s.x), s.y, s.life < 12 ? (k < 0.4 ? 'f' : 'g') : (s.t >> 2) & 1 ? '6' : 'f', s.life >= 12 && k < 0.4); }
     });
     if (g.mods.world?.phase === 'nap' && this.napT >= 0) return this.renderNap(r, ground, sx, tod);
-    const blink = this.invuln > 0 && !g.paused && this.wakeT <= 0;   // solid while paused and during the wake-up
+    // solid while paused, during the wake-up and during briefings (invuln only counts down in play/bonus)
+    const blink = this.invuln > 0 && !g.paused && this.wakeT <= 0 && g.state.scene !== 'dialogue';
     const whiteFlash = blink && this.invulnMax - this.invuln < 10 && (this.invuln >> 1) % 2 === 0;
     // Galaga-clean blink: 4 ticks visible, 4 ticks gone
     const hidden = blink && !whiteFlash && this.invulnMax - this.invuln >= 10 && ((this.invuln >> 2) & 1) === 1;

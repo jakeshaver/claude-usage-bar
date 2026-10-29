@@ -168,7 +168,6 @@ class Journal implements Module {
   private hits: Hit[] = [];
   private taps: [number, number][] = [];
   private jump = 0;                 // pending tab jump from Q/E/Tab
-  private pad = [false, false];     // previous shoulder button state
   private selT = -99;               // tick of the last selection change (focus ring flash)
   private lastKey = '';
   private bg: { key: string; c: HTMLCanvasElement } | null = null; // cached static backdrop + panel
@@ -193,8 +192,8 @@ class Journal implements Module {
     });
     addEventListener('keydown', e => {
       if (!this.isOpen() || e.repeat) return;
-      if (e.code === 'KeyQ' || e.code === 'PageUp' || (e.code === 'Tab' && e.shiftKey)) { this.jump = -1; e.preventDefault(); }
-      else if (e.code === 'KeyE' || e.code === 'PageDown' || e.code === 'Tab') { this.jump = 1; e.preventDefault(); }
+      // Q/E, PageUp/PageDown and LB/RB arrive as core actions 'pageL'/'pageR'; Tab stays journal-local
+      if (e.code === 'Tab') { this.jump = e.shiftKey ? -1 : 1; e.preventDefault(); }
     });
   }
   isOpen() { return this.g?.mods.ui?.menuOpen === 'journal'; }
@@ -310,15 +309,8 @@ class Journal implements Module {
       return;
     }
     if (I.pressed('back') || I.pressed('pause')) { shut(); return; }
-    // shoulder buttons (gamepad) and Q/E/Tab (keyboard) switch pages from anywhere. Core actions 'pageL'/'pageR'
-    // are used when core/input has them (requested in docs/core-requests/journal.md); until then the shoulders
-    // are polled here, and a press marks the gamepad as the last device so the hint bar shows (LB)(RB).
-    const act = I.pressed as (a: string) => boolean;
-    if (act.call(I, 'pageL')) this.jump = -1; else if (act.call(I, 'pageR')) this.jump = 1;
-    const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : [];
-    let lb = false, rb = false; for (const p of pads) if (p) { lb ||= !!p.buttons[4]?.pressed; rb ||= !!p.buttons[5]?.pressed; }
-    if ((lb && !this.pad[0]) || (rb && !this.pad[1])) { this.jump = lb && !this.pad[0] ? -1 : 1; I.lastDevice = 'gamepad'; }
-    this.pad = [lb, rb];
+    // page actions from core/input (Q/E, PageUp/PageDown, gamepad LB/RB) switch pages from anywhere; Tab in keydown
+    if (I.pressed('pageL')) this.jump = -1; else if (I.pressed('pageR')) this.jump = 1;
     if (this.jump) { this.switchTab(this.tab + this.jump); this.jump = 0; }
     // taps (hit rects come from the last drawn frame)
     for (const [x, y] of this.taps) {
