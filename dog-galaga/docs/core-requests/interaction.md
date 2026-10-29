@@ -165,3 +165,34 @@
 - #10 effects (float text clear of the carrier crown, thinner heart ring around combo numbers, carrier sparkle):
   forwarded to effects, not applied this round.
 - 'TAP OR PRESS A KEY FOR SOUND' clipped at zoom 1: forwarded to ui (zoom-2 captures show the pill whole).
+
+## Polish 2
+
+Round 1 (interaction only, no core changes needed). Notes for the integrator and other owners:
+- **Formation lattice:** at most 8 columns (252px incl. sprites) x 3-5 flat rows, all on one half-step lattice centred on
+  the formation centre (which rides the camera at <= 2px/tick, so the block always sits whole inside the 384px view;
+  headless sweep of all 13 areas x 3 waves: settled cats never closer than a cell, never within 14px of a view edge).
+  Survivors close ranks in a short lull after boops (rows pack and re-centre, empty rows close up, the last <= 8
+  regroup into one tight block via a sideways-then-vertical move that never slides two cats through each other).
+- **Two-shot limit in waves (Galaga):** `fireTurds` now allows 2 turds on screen against a formation (spread powers
+  still add their extra lanes); bosses and bonus stages keep 4. Player: shots that hit the cap simply do not fire,
+  the same as before at 4. This keeps the bot at 32-34 min now that the grid stays tight (it fell to 27-31 without).
+- **Bonus HUD stats:** real bonus flights already count every hit in `stats.catsBooped/hits` (checked headless).
+  Interaction now also credits any hits `minigames.hits` holds that interaction did not count (the showcase's pinned
+  tally), so BOOPS/AIM never trail the bonus board. Minigames: if the bonus showcase should show non-zero BOOPS,
+  pin the tally after interaction's flight has started (`--at` beyond the intro), or set `stats` in the showcase.
+
+Round 2 (interaction only, no core changes needed). Notes for the integrator and other owners:
+- **True Galaga lattice:** every cat now owns ONE cell for the whole wave (enters into it, dives from it, returns to
+  it); cells never move sideways, so holes stay holes and every row shares one integer pitch (32 x 32 px). The old
+  close-ranks repacking (the source of the staircases and of cats sliding into occupied cells) is gone. Only when a
+  whole row is booped do the rows below move up one row (columns unchanged). A runtime check reports
+  `two cats share a formation cell` through `g.reportError` if the invariant ever breaks (never seen in a 13-area sweep).
+- **Lattice fixed on the lane, not the camera:** the rack is centred on per-area lane walls (interaction's
+  `LANES` table in formation.ts: alley, cafe, docks, factory, mothership; others use world x 64..384) and is never
+  wider than the lane (the mothership drops to a still 6-wide rack between its yarn cable and conduit). World owners:
+  if a stage's walls move, tell interaction so the table follows.
+- **Minigames (bonus results nit, critic #10):** the 'NUMBER OF HITS' bar is still tallying while the HUD already
+  shows the final BOOPS, and the lower 60% of the results panel is empty. Please either fill it with a per-squadron
+  breakdown (interaction already sends `group` in every bonus `cat:boop` payload) or shrink the panel.
+- **Runaway kittens** (splitter babies) now trail a short 3-dot streak so they read as deliberate, not as a lost grid cat.
