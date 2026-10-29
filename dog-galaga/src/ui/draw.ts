@@ -8,6 +8,7 @@ export const C = {
   bg: P[0], panel: P[1], panel2: P[2], line: P[21], line2: P[22], hot: P[13], pink: P[12], gold: P[15], text: P[6],
   dim: P[4], violet: P[29], ink: P[0], night: P[1], indigo: P[2], peri: P[3], pale: P[5], plum: P[31], deep: P[23],
   mag: P[14], orange: P[16], burnt: P[17], purple: P[30], lime: P[18], red: P[27], ice: P[28], cream: P[7],
+  green: P[19], dgreen: P[20], tan: P[8], grayd: P[26],
 };
 /** Dark partner of each accent, used for frame outlines and drop shadows. */
 const DARK: Record<string, string> = {
@@ -222,6 +223,7 @@ const ICONS: Record<string, string[]> = {
   hand: ['..#....', '..#.#..', '..#####', '#.#####', '#######', '.#####.', '..###..'],
   back: ['...#...', '..##...', '.######', '#######', '.######', '..##...', '...#...'],
   pup: ['#.....#', '##...##', '.#####.', '.#.#.#.', '.#####.', '..#.#..', '.......'],
+  cross: ['#.....#', '##...##', '.##.##.', '..###..', '.##.##.', '##...##', '#.....#'],
 };
 export function icon(ctx: CanvasRenderingContext2D, name: string, x: number, y: number, color: string, shadow?: string) {
   const g = ICONS[name]; if (!g) return;

@@ -1,5 +1,7 @@
 import type { Game, Module } from '../core/game';
 import { drawRecoveryCard } from '../save/index';
+import { flame } from '../player/draw';
+import { POM_NOZZLES } from '../player/pom-art';
 import { W, H, PF_X, PF_W } from '../core/game';
 import { text, wrap, textWidth } from '../art/font';
 import { drawSprite, spriteCanvas, frameCount, SHEETS } from '../art/sprite';
@@ -9,9 +11,14 @@ import { logoWord, drawLogo, PINK, CYAN, GOLD } from './logo';
 import { glyph } from './glyphs';
 import { Touch } from './touch';
 import { num, numWidth, headline } from './numerals';
+import { tiny, tinyWidth } from './tiny';
+import { ENDING_ART } from './ending-art';
+import { defineSprites } from '../art/sprite';
+defineSprites(ENDING_ART);
 
 type Menu = 'none' | 'pause' | 'settings' | 'journal' | 'confirmQuit';
 const RX = PF_X + PF_W;               // right panel x
+const P20 = col(20);                  // dark green (lime's frame partner)
 const PW = W - RX;                    // panel width (128)
 const TITLE_CATS = ['cat_tabby', 'cat_siamese', 'cat_calico', 'cat_sphynx'];
 const MAP_LIST_X = W - 180;          // sector log column on the star chart
@@ -78,35 +85,38 @@ function checkMark(ctx: CanvasRenderingContext2D, x: number, y: number) {
 
 /** 9x7 sound chip glyphs: '#' speaker, 'w' sound waves, 'x' the red cross. */
 const SND_ON = ['...#...w.', '..##.w..w', '####..w.w', '####..w.w', '####..w.w', '..##.w..w', '...#...w.'];
-/** pom_nap recolor for the ending (red strap -> pale lavender shading). */
-const NAP_SOFT: Record<string, string> = { r: '5', e: '4' };
 /** Sound chip rect origin (17x11): one widget, one place, on every scene. */
 const SND_X = 613, SND_Y = 7;
 const SND_OFF = ['...#.....', '..##.....', '####.x.x.', '####..x..', '####.x.x.', '..##.....', '...#.....'];
 /** Ending timeline: Pom's flight takes END_FLY ticks, each pup trails END_LAG ticks behind the previous one. */
-const END_FLY = 330, END_LAG = 15, END_MAX_PUPS = 16, END_WIN = 182, END_LINE = 24, END_GATE = 183;
+const END_FLY = 360, END_LAG = 26, END_MAX_PUPS = 16, END_WIN = 186, END_WIN_TOP = 4, END_LINE = 24;
+/** Ending diorama: Pom's spot on the lawn (2x sitting pose centre). */
+const END_POM_X = 320, END_POM_Y = 294;
+/** Coats for the rescued pups (recolours of the apricot end_pup_sit / end_pup_fly sheets), collars included. */
+const PUP_COATS: Record<string, string>[] = [
+  {}, { '8': '6', '9': '7', 'a': '8', 'b': '9', '7': '6', 'r': 'm' }, { '8': 'g', '9': 'h', 'a': 'b', 'b': 'b', 'r': 'l' },
+  { '8': 'o', '9': 'p', 'a': 'q', 'b': 'q', 'r': 'c' }, { '8': '9', '9': 'a', 'a': 'b', 'b': 'v', '7': '8', 'r': 'i' },
+  { '8': 'f', '9': 'g', 'a': 'h', 'b': 'h', 'r': 'm' }, { '8': '6', '9': '6', 'a': '5', 'b': 'q', '7': '6', 'r': 'd' },
+  { '8': 'p', '9': 'q', 'a': '1', 'b': '0', '7': 'o', 'r': 'f' },
+];
+/** Toasts: at most TOAST_CAP on screen, wrapped to TOAST_COLS glyphs so a pill never outgrows the playfield. */
+type Toast = { text: string; t: number; age: number; y: number };
+const TOAST_CAP = 2, TOAST_COLS = Math.floor((PF_W - 8 - 30 + 1) / 6);
+/** News that costs the player something: drawn with a peri frame and a pink cross, never the gold star. */
+const BAD_NEWS = /MISSED|EXPIRED|CLOSED|CLOSES|FORFEIT|CONTENT ISSUE|CHEWED/;
 /** Settings rows: label, icon, settings key ('' = BACK). */
 const SETTINGS_ROWS: [string, string, 'music' | 'sfx' | 'amb' | 'shake' | 'flash' | 'reduceMotion' | 'touch' | ''][] = [
   ['MUSIC', 'note', 'music'], ['SFX', 'speaker', 'sfx'], ['AMBIENCE', 'speaker', 'amb'], ['SCREEN SHAKE', 'shake', 'shake'],
   ['FLASHES', 'bolt', 'flash'], ['REDUCE MOTION', 'wave', 'reduceMotion'], ['TOUCH CONTROLS', 'hand', 'touch'], ['BACK', 'back', ''],
 ];
 
-/** A sprite turned a quarter turn clockwise (its top-down head, at the bottom of the sheet, now leads to the left):
- *  exact 90-degree pixel copy, cached per frame, so the flight home reads as flying, not sliding sideways. */
-const turned = new Map<string, HTMLCanvasElement | null>();
-function drawTurned(ctx: CanvasRenderingContext2D, name: string, cx: number, cy: number, fr = 0) {
-  const key = name + '|' + fr; let c = turned.get(key);
-  if (c === undefined) {
-    const src = spriteCanvas(name, fr); c = null;
-    if (src && typeof document !== 'undefined') {
-      c = document.createElement('canvas'); c.width = src.height; c.height = src.width;
-      const x = c.getContext('2d')!; x.imageSmoothingEnabled = false;
-      x.translate(src.height, 0); x.rotate(Math.PI / 2); x.drawImage(src, 0, 0);
-    }
-    turned.set(key, c);
-  }
-  if (!c) { drawSprite(ctx, name, cx, cy, { frame: fr }); return; }
-  ctx.drawImage(c, Math.round(cx - c.width / 2), Math.round(cy - c.height / 2));
+/** A sprite at an exact integer 2x (nearest neighbour), centred on (cx, cy): the hero shots and the ending diorama. */
+function draw2x(ctx: CanvasRenderingContext2D, name: string, cx: number, cy: number, o: { frame?: number; flipX?: boolean; recolor?: Record<string, string> } = {}) {
+  const c = spriteCanvas(name, o.frame ?? 0, false, o.recolor); if (!c) return;
+  const w = c.width * 2, h = c.height * 2; const x = Math.round(cx - w / 2), y = Math.round(cy - h / 2);
+  ctx.imageSmoothingEnabled = false;
+  if (o.flipX) { ctx.save(); ctx.translate(x + w, y); ctx.scale(-1, 1); ctx.drawImage(c, 0, 0, w, h); ctx.restore(); }
+  else ctx.drawImage(c, x, y, w, h);
 }
 const smooth = (v: number) => { const e = v < 0 ? 0 : v > 1 ? 1 : v; return e * e * (3 - 2 * e); };
 
@@ -116,7 +126,8 @@ class UI implements Module {
   api = this;
   g!: Game;
   t = 0; sel = 0; menuOpen: Menu = 'none'; settingsFrom: Menu | 'title' = 'pause';
-  toasts: { text: string; t: number; age: number; y: number }[] = [];
+  /** Toast stack: the first TOAST_CAP (one in a live wave / boss) are on screen and ageing; the rest wait in line. */
+  toasts: Toast[] = [];
   mapSel = 0; endingT = 0; shownScore = 0; lastHearts = -1; heartFlash = 0;
   chain = 0; bestChain = 0; lastBoop = -999; chainPop = 0;
   powMax: Record<string, number> = {}; waveCats = 0; bossBarOn = false;
@@ -133,7 +144,8 @@ class UI implements Module {
     g.toastFn = (s) => this.toast(s);
     g.bus.on('scene:change', (p: any) => {
       this.sel = p.to === 'title' && !this.g.mods.save?.hasSave() ? 1 : 0; this.mapSel = 0;
-      if (p.to === 'ending') { this.endingT = 0; this.plan = null; }
+      // the ending owns the screen: quest / reward news still in flight is flushed, not stamped on the title card
+      if (p.to === 'ending') { this.endingT = 0; this.plan = null; this.toasts = []; this.toastPend = []; }
       if (p.to !== 'play' && p.to !== 'bonus') this.menuOpen = this.menuOpen === 'journal' ? 'journal' : 'none';
     });
     g.bus.on('save:recovered', (p: any) => this.toast(this.g.mods.save?.recoveryOptions?.().recoveredToast(p?.slot) ?? 'SAVE PATCHED UP FROM BACKUP'));
@@ -157,12 +169,17 @@ class UI implements Module {
   private toastsHeld() { const sc = this.g?.state.scene; return this.toastHold || (!!this.g?.mods.memories?.revealing?.() && (sc === 'play' || sc === 'bonus')); }
   toast(s: string) {
     if (this.toastsMuted) return;
+    if (this.g?.state.scene === 'ending') return; // the ending is a set piece: no quest / reward pills over it
     if (this.toastsHeld()) { if (this.toastPend.length < 4) this.toastPend.push(s); return; }
     // power pickups: name the HUD slot the item lights up, so the bay labels and pickups tie together
     const it = this.g?.content?.items?.find(i => i.name.toUpperCase() === s);
     const pw = it && POWERS.find(p => p[0] === it.effect.kind);
     if (pw) s = `${s}: ${pw[4]}`;
-    this.toasts.push({ text: s, t: 170, age: 0, y: -1 }); if (this.toasts.length > (this.toastsSingle() ? 6 : 4)) this.toasts.shift(); }
+    this.toasts.push({ text: s.toUpperCase(), t: 170, age: 0, y: -1 });
+    if (this.toasts.length > 8) this.toasts.splice(this.toastCap(), 1); // a long backlog drops its oldest waiting news
+  }
+  /** How many toasts are on screen at once: two, or one at a time in a live wave / boss fight. */
+  private toastCap() { return this.toastsSingle() ? 1 : TOAST_CAP; }
   openPause() {
     if (this.menuOpen !== 'none') return;
     const Q = this.g.mods.quest;
@@ -207,10 +224,11 @@ class UI implements Module {
     const held = this.toastsHeld();
     if (!held && this.toastPend.length) { const q = this.toastPend; this.toastPend = []; for (const s of q) this.toast(s); }
     if (this.menuOpen === 'none' && !held) {
-      // one at a time in combat: only the front toast ages, the rest wait their turn (capped so news stays fresh)
-      const single = this.toastsSingle();
-      if (single && this.toasts.length > 1) { const f = this.toasts[0]; f.t = Math.min(f.t, 110); }
-      for (const x of single ? this.toasts.slice(0, 1) : this.toasts) { x.t--; x.age++; }
+      // at most TOAST_CAP on screen (one at a time in combat); the rest queue. A waiting queue shortens the front
+      // toast so the news stays fresh.
+      const cap = this.toastCap();
+      if (this.toasts.length > cap) { const f = this.toasts[0]; f.t = Math.min(f.t, 110); }
+      for (const x of this.toasts.slice(0, cap)) { x.t--; x.age++; }
       this.toasts = this.toasts.filter(x => x.t > 0);
     }
     if (this.resumeHold > 0) {
@@ -366,25 +384,35 @@ class UI implements Module {
   }
 
   /**
-   * Toasts: a full-width pill that drops 4px into place and is always drawn whole (never a clipped label).
-   * Anchors never cover a heading: top of the playfield in play (under the boss bar when it is up), just above the
-   * NEXT HOP panel on the sector map (stacking upward), and just above the hint row on title/recovery/ending.
+   * Toasts: a pill that drops 4px into place and is always drawn whole, clamped to the playfield width (long news
+   * wraps onto a second line). Two at most on screen. Anchors never cover a heading: top of the playfield in play
+   * (under the boss bar when it is up), above the NEXT HOP panel on the sector map (stacking upward, centred on the
+   * chart so the sector log stays clear, far below the map header), above the hint row on title / recovery.
+   * Bad news (a route forfeits a quest, a quest expires) gets a peri frame and a pink cross instead of the gold star.
    */
   drawToasts(ctx: CanvasRenderingContext2D) {
-    const cx = PF_X + PF_W / 2;
     const sc = this.g?.state.scene;
-    const up = sc === 'map'; const top = sc === 'title' || sc === 'recovery' || sc === 'ending' ? 322 : sc === 'map' ? 262 : this.bossBarOn ? 24 : 8;
-    const single = this.toastsSingle();
+    const up = sc === 'map' || sc === 'title' || sc === 'recovery';
+    const cx = sc === 'map' ? Math.round((10 + MAP_LIST_X) / 2) : PF_X + PF_W / 2;
+    const base = sc === 'title' || sc === 'recovery' ? 336 : sc === 'map' ? 276 : this.bossBarOn ? 24 : 8;
+    const cap = this.toastCap();
+    let acc = 0;
     this.toasts.forEach((x, i) => {
-      if (single && i > 0) return; // waiting its turn
-      const target = top + (up ? -i : i) * 17;
+      if (i >= cap) return; // waiting its turn
+      // clamp to the playfield: wrap onto as many lines as it takes (never wider than the playfield, never cut).
+      // Wrapped at draw time: interaction bumps a pickup's counter by rewriting its text in place.
+      const lines = wrap(x.text, TOAST_COLS); const bad = BAD_NEWS.test(x.text);
+      const h = 14 + (lines.length - 1) * 9;
+      const target = up ? base - acc - h : base + acc; acc += h + 3;
       x.y = x.y < 0 ? target : x.y + Math.sign(target - x.y) * Math.min(2, Math.abs(target - x.y));
-      if (x.t <= 2) return; // gone: the stack below slides up
-      const full = textWidth(x.text) + 30; const bx = Math.round(cx - full / 2);
+      if (x.t <= 2) return; // gone: the stack slides over
+      const full = Math.min(PF_W - 8, Math.max(...lines.map(l => textWidth(l))) + 30); const bx = Math.round(cx - full / 2);
       const y = Math.round(x.y) - Math.max(0, 4 - x.age);
-      frame(ctx, bx, y, full, 14, x.age < 3 ? C.text : C.hot, C.night, 4);
-      icon(ctx, x.text.startsWith('MEMORY') ? 'photo' : x.text.startsWith('PUPPY') ? 'paw' : x.text.includes('QUEST') ? 'flag' : x.text.includes('SOUND') ? 'speaker' : 'star', bx + 7, y + 4, C.gold);
-      text(ctx, x.text, bx + 18, y + 4, (x.age >> 2) % 2 && x.age < 30 ? C.text : C.gold);
+      const blink = (x.age >> 2) % 2 && x.age < 30;
+      frame(ctx, bx, y, full, h, x.age < 3 ? C.text : bad ? C.peri : C.hot, C.night, 4);
+      const ic = bad ? 'cross' : x.text.startsWith('MEMORY') ? 'photo' : x.text.startsWith('PUPPY') ? 'paw' : x.text.includes('QUEST') ? 'flag' : x.text.includes('SOUND') ? 'speaker' : 'star';
+      icon(ctx, ic, bx + 7, y + 4, bad ? C.pink : C.gold);
+      lines.forEach((l, k) => text(ctx, l, bx + 18, y + 4 + k * 9, bad ? (blink ? C.text : C.pink) : blink ? C.text : C.gold));
     });
   }
 
@@ -498,7 +526,7 @@ class UI implements Module {
       const MB = g.state.scene === 'bonus' && !B0 ? g.mods.minigames?.def : null;
       header(ctx, MB ? `BONUS STAGE ${String(g.content.bonus.indexOf(MB) + 1).padStart(2, '0')}` : 'WAVE', x1, 60, w0, MB ? C.gold : C.hot, t);
       const wy = 71;
-      if (MB) text(ctx, this.clip(String(MB.name).toUpperCase(), 18), x1, wy + 2, C.gold, { shadow: C.ink });
+      if (MB) this.fitText(ctx, String(MB.name), x1, wy + 2, w0, C.gold, C.ink);
       else if (B0) {
         chamferFill(ctx, x1, wy - 1, w0, 13, C.mag, 3); chamferFill(ctx, x1 + 1, wy - 1, w0 - 2, 12, (t >> 4) % 2 ? C.hot : C.mag, 3);
         icon(ctx, 'cat', x1 + 6, wy + 2, C.text); text(ctx, 'BIG CAT WAVE', x1 + 16, wy + 2, C.text);
@@ -528,7 +556,7 @@ class UI implements Module {
     const Q = g.mods.quest;
     const q = Q?.tracked ? Q.tracked() : g.content.quests.find(q => s.quests[q.id] === 'active');
     if (q) {
-      text(ctx, this.lines(q.name, 18, 1)[0], x1, 133, C.violet, { shadow: C.ink });
+      this.fitText(ctx, q.name, x1, 133, w0, C.violet, C.ink);
       icon(ctx, 'flag', x1, 144, C.violet);
       const pr = g.mods.quest?.progress?.(q);
       if (pr && pr.need > 1) {
@@ -577,7 +605,7 @@ class UI implements Module {
   bossBlock(g: Game, ctx: CanvasRenderingContext2D, B0: any, x1: number, y: number, w0: number) {
     const t = this.t;
     header(ctx, 'BIG CAT', x1, y, w0, C.hot, t, true);
-    text(ctx, this.lines(B0.def.name, 18, 1)[0], x1, y + 11, C.text, { shadow: C.ink });
+    this.fitText(ctx, B0.def.name, x1, y + 11, w0, C.text, C.ink);
     const p = Math.max(0, B0.hp / Math.max(1, B0.maxHp));
     chamferFill(ctx, x1 - 1, y + 22, w0 + 2, 9, C.ink, 2);
     bar(ctx, x1 + 1, y + 24, w0 - 2, 5, p, p < 0.3 && (t >> 3) % 2 ? C.pink : C.hot);
@@ -633,11 +661,14 @@ class UI implements Module {
       return;
     }
     const rows = list.length > 3 ? 2 : list.length;
+    // one type tier for the whole block: if any breed name needs the narrow tier, every row uses it
+    const room = (n: number) => w - 10 - textWidth(String(n)) - 6;
+    const narrow = list.slice(0, rows).some(e => textWidth(e.name.toUpperCase()) > room(e.n));
     list.slice(0, rows).forEach((e, i) => {
       const cy = y + i * 9;
       icon(ctx, 'cat', x, cy, breedColor(e.sprite), C.ink);
-      let nm = e.name.toUpperCase(); while (nm.length > 13 && nm.includes(' ')) nm = nm.slice(0, nm.lastIndexOf(' '));
-      text(ctx, nm.slice(0, 13), x + 10, cy, C.pale);
+      if (narrow && tinyWidth(e.name.toUpperCase()) <= room(e.n)) tiny(ctx, e.name, x + 10, cy + 1, C.pale);
+      else this.fitText(ctx, e.name, x + 10, cy, room(e.n), C.pale);
       text(ctx, String(e.n), x + w, cy, C.text, { align: 'right' });
     });
     for (let i = Math.min(3, list.length); i < 3; i++) dither(ctx, x + 10, y + i * 9 + 3, w - 10, 1, C.indigo, 'check');
@@ -647,54 +678,85 @@ class UI implements Module {
     text(ctx, 'CATS LEFT', x, ly, C.dim); text(ctx, `${cats.length}/${tot}`, x + w, ly, C.hot, { align: 'right' });
     segBar(ctx, x, ly + 10, 18, 5, 4, cats.length / tot, C.hot);
   }
-  /** Next-wave preview: up to three breed portraits (most numerous first) with their head counts, in a holo box. */
+  /**
+   * Next-wave preview: up to three breed portraits (most numerous first) in a holo box. Head counts come only from
+   * interaction.wavePreview (the formation it will really spawn); without that API the portraits show no numbers,
+   * because the content roster is not what spawns (the sector's formation shape and difficulty cap trim it).
+   */
   formationPreview(g: Game, ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, live: boolean) {
     const A = g.mods.world?.area();
     chamferFill(ctx, x, y, w, h, C.ink, 3); chamferLine(ctx, x, y, w, h, live ? C.plum : C.indigo, 3);
     const wid = A?.waves?.[g.state.waveIndex]; const wave = g.content.waves.find(v => v.id === wid);
     if (!wave) { text(ctx, 'ALL CLEAR', x + w / 2, y + h / 2 - 3, C.peri, { align: 'center' }); return; }
-    const cols = wave.formation.cols; const by: Record<string, number> = {};
-    for (const c of wave.cats) by[c.breed] = (by[c.breed] ?? 0) + (c.cols ? c.cols.length : cols);
-    const list = Object.entries(by).sort((p, q) => q[1] - p[1]);
+    let real: { breed: string; n: number }[] | null = null;
+    try { real = g.mods.interaction?.wavePreview?.(A!.id, g.state.waveIndex) ?? null; } catch { real = null; }
+    const by: Record<string, number> = {};
+    if (real) for (const r of real) by[r.breed] = (by[r.breed] ?? 0) + r.n;
+    else for (const c of wave.cats) by[c.breed] = (by[c.breed] ?? 0) + (c.cols ? c.cols.length : wave.formation.cols);
+    const list = Object.entries(by).filter(e => e[1] > 0).sort((p, q) => q[1] - p[1]);
     const shown = list.slice(0, 3); const cw = Math.floor(w / 3); const ox = Math.round(x + (w - cw * shown.length) / 2);
     shown.forEach(([breed, n], i) => {
       const e = g.content.enemies.find(en => en.id === breed); const cx = ox + i * cw + (cw >> 1);
       // portrait well, then the breed's own sprite cropped to its face (a hop on the live INCOMING beat)
-      chamferFill(ctx, cx - 13, y + 3, 26, 21, C.night, 2);
+      // without real counts the portrait well grows to fill the box (no number row)
+      const wy = real ? y + 3 : y + 4, wh = real ? 21 : h - 8;
+      chamferFill(ctx, cx - 13, wy, 26, wh, C.night, 2);
       if (e && SHEETS[e.sprite]) {
         const hop = live && ((this.t >> 3) + i) % 6 === 0 ? -1 : 0;
-        ctx.save(); ctx.beginPath(); ctx.rect(cx - 13, y + 3, 26, 21); ctx.clip();
-        drawSprite(ctx, e.sprite, cx, y + 14 + hop, { frame: frameCount(e.sprite) > 1 ? ((this.t >> 4) + i) % 2 : 0 });
+        ctx.save(); ctx.beginPath(); ctx.rect(cx - 13, wy, 26, wh); ctx.clip();
+        drawSprite(ctx, e.sprite, cx, wy + Math.round(wh / 2) + 1 + hop, { frame: frameCount(e.sprite) > 1 ? ((this.t >> 4) + i) % 2 : 0 });
         ctx.restore();
-      } else icon(ctx, 'cat', cx - 3, y + 10, C.hot);
-      const more = i === 2 && list.length > 3 ? list.slice(2).reduce((a, q) => a + q[1], 0) : n;
-      text(ctx, `X${more}${i === 2 && list.length > 3 ? '+' : ''}`, cx, y + h - 9, live ? C.pink : C.pale, { align: 'center' });
+      } else icon(ctx, 'cat', cx - 3, wy + 7, C.hot);
+      if (real) {
+        const more = i === 2 && list.length > 3 ? list.slice(2).reduce((a, q) => a + q[1], 0) : n;
+        text(ctx, `X${more}${i === 2 && list.length > 3 ? '+' : ''}`, cx, y + h - 9, live ? C.pink : C.pale, { align: 'center' });
+      }
     });
   }
 
   /**
-   * Sector name + subtitle in a fixed 3-line slot (y .. y+25): the name takes 1-2 lines, the subtitle the rest,
-   * word-wrapped; a subtitle that still does not fit runs its last line as a slow marquee so it reads in full.
+   * One line of text in a fixed slot that always fits whole: the regular 5x7 font when it fits `w`, else the narrow
+   * 3x5 tier (vertically centred on the same row), else the narrow tier on two balanced lines. Never truncated.
+   */
+  fitText(ctx: CanvasRenderingContext2D, s: string, x: number, y: number, w: number, c: string, shadow?: string) {
+    const u = s.toUpperCase(); const o = shadow ? { shadow } : {};
+    if (textWidth(u) <= w) { text(ctx, u, x, y, c, o); return; }
+    if (tinyWidth(u) <= w) { tiny(ctx, u, x, y + 1, c, o); return; }
+    const two = this.balance(u, Math.floor((w + 1) / 4)) ?? [u];
+    two.forEach((l, i) => tiny(ctx, l, x, y - 2 + i * 6, c, o));
+  }
+  /** Split a phrase at the word boundary that gives the most even two lines, each at most `cols` glyphs (or null). */
+  balance(s: string, cols: number): string[] | null {
+    if (s.length <= cols) return [s];
+    const ws = s.split(' '); let best: string[] | null = null, bestW = 1e9;
+    for (let i = 1; i < ws.length; i++) {
+      const a = ws.slice(0, i).join(' '), b = ws.slice(i).join(' '); const m = Math.max(a.length, b.length);
+      if (a.length <= cols && b.length <= cols && m < bestW) { best = [a, b]; bestW = m; }
+    }
+    return best;
+  }
+  /**
+   * Sector name + subtitle in a fixed slot (y .. y+31), static and always whole: the name on one line or two balanced
+   * lines, the subtitle word-wrapped under it. Up to 3 rows sit 9px apart, 4 rows 8px apart; a subtitle that would
+   * need a 5th row drops to the narrow 3x5 tier (27 columns) instead. Never a marquee, never truncated.
    */
   areaTitle(ctx: CanvasRenderingContext2D, A: { name: string; subtitle?: string }, x: number, y: number, w: number) {
-    const ROWS = 3;
-    const nl = this.lines(A.name, 18);
+    const cols = Math.floor((w + 1) / 6);
+    const name = A.name.toUpperCase();
+    const nl = this.balance(name, cols);
+    if (!nl) { this.fitText(ctx, name, x, y, w, C.text, C.ink); return; }
+    const sub = A.subtitle ? wrap(A.subtitle.toUpperCase(), cols) : [];
+    const n = nl.length + sub.length;
+    if (n <= 4) {
+      const step = n <= 3 ? 9 : 8;
+      // 4 rows sit 8px apart: the name drops its drop shadow so no row touches the next
+      nl.forEach((l, i) => text(ctx, l, x, y + i * step, C.text, step === 9 ? { shadow: C.ink } : {}));
+      sub.forEach((l, i) => text(ctx, l, x, y + (nl.length + i) * step, C.dim));
+      return;
+    }
     nl.forEach((l, i) => text(ctx, l, x, y + i * 9, C.text, { shadow: C.ink }));
-    const sub = A.subtitle ? wrap(A.subtitle.toUpperCase(), 18) : []; const room = ROWS - nl.length;
-    if (!sub.length) return;
-    if (sub.length <= room) { sub.forEach((l, i) => text(ctx, l, x, y + (nl.length + i) * 9, C.dim)); return; }
-    sub.slice(0, room - 1).forEach((l, i) => text(ctx, l, x, y + (nl.length + i) * 9, C.dim));
-    this.marquee(ctx, sub.slice(room - 1).join(' '), x, y + (ROWS - 1) * 9, w, C.dim);
-  }
-  /** One line of text that ping-pongs slowly inside w px when it is too long (pauses at both ends), else static.
-   *  It steps a whole glyph at a time and draws only the glyphs that fit, so no letter is ever cut in half. */
-  marquee(ctx: CanvasRenderingContext2D, s: string, x: number, y: number, w: number, c: string, shadow?: string) {
-    const o = shadow ? { shadow } : {};
-    const n = Math.floor((w + 1) / 6); const over = s.length - n;
-    if (over <= 0) { text(ctx, s, x, y, c, o); return; }
-    const hold = 100, step = 14, run = over * step, cyc = 2 * (hold + run); const p = this.t % cyc;
-    const k = p < hold ? 0 : p < hold + run ? Math.floor((p - hold) / step) : p < 2 * hold + run ? over : over - Math.floor((p - 2 * hold - run) / step);
-    text(ctx, s.slice(k, k + n), x, y, c, o);
+    const tl = wrap(A.subtitle!.toUpperCase(), Math.floor((w + 1) / 4));
+    tl.forEach((l, i) => tiny(ctx, l, x, y + nl.length * 9 + 1 + i * 7, C.dim));
   }
   /** Sectors whose waves carry a capturer hold one lost pup (flag pup_<area> once rescued); cached per area. */
   private pupHere = new Map<string, boolean>();
@@ -846,6 +908,20 @@ class UI implements Module {
     }
     for (let i = -16; i <= 16; i++) line(ctx, W / 2 + i * 10, HZ + 1, W / 2 + i * 64 * depth / 146, H, Math.abs(i) < 6 ? C.purple : C.plum);
   }
+  /** Captain Pom as the hero shot: her in-game sprite plus its jet flames (player's own flame()), composed at 1x
+   *  in an offscreen and blitted at an exact 2x, so the flames scale with her pixels. */
+  private heroCv: HTMLCanvasElement | null = null;
+  heroPom(ctx: CanvasRenderingContext2D, cx: number, cy: number, t: number) {
+    const spr = SHEETS.pom ? 'pom' : 'poodle';
+    if (!this.heroCv) { if (typeof document === 'undefined') return; this.heroCv = document.createElement('canvas'); this.heroCv.width = 40; this.heroCv.height = 44; }
+    const c = this.heroCv.getContext('2d'); if (!c) return;
+    c.imageSmoothingEnabled = false; c.clearRect(0, 0, 40, 44);
+    drawSprite(c, spr, 20, 18, { frame: (t >> 3) % Math.max(1, frameCount(spr)) });
+    const flen = 6 + ((t >> 2) % 2);
+    for (const [ox, oy, w] of POM_NOZZLES.pom ?? []) flame(c, 20 + ox - w / 2, 18 + oy + 1, w, w <= 2 ? flen - 2 : flen, t);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(this.heroCv, Math.round(cx - 40), Math.round(cy - 36), 80, 88);
+  }
   title(g: Game, ctx: CanvasRenderingContext2D) {
     const t = this.t; const HZ = 214;
     this.synthSet(ctx, t, HZ, 62);
@@ -873,7 +949,7 @@ class UI implements Module {
     const cyc = 200, active = Math.floor(t / cyc) % N, u = (t % cyc) / 130; const diving = u < 1;
     const order = [1, 5, 3, 0, 6, 2, 4]; const diver = order[active];
     for (let i = 0; i < N; i++) {
-      const sx0 = W / 2 + (i - 3) * (46 + breathe), sy0 = 135 + Math.abs(i - 3) * 7 + ((t >> 4) + i) % 2;
+      const sx0 = W / 2 + (i - 3) * (46 + breathe), sy0 = 130 + Math.abs(i - 3) * 7 + ((t >> 4) + i) % 2;
       let x = sx0, y = sy0;
       if (i === diver && diving) {
         const side = i < 3 ? -1 : i > 3 ? 1 : ((active & 1) ? 1 : -1);
@@ -887,11 +963,10 @@ class UI implements Module {
       }
       drawSprite(ctx, TITLE_CATS[i % TITLE_CATS.length], Math.round(x), Math.round(y), { frame: ((t >> 4) + i) % 2 });
     }
-    // hero: chase-cam view of Pom flying toward the sun, high above the grid, her shadow on the ground
+    // hero: chase-cam view of Pom flying toward the sun at an exact 2x of her in-game sprite, her shadow on the grid
     const hov = Math.round(Math.sin(t / 12) * 2);
-    const shw = 12 - hov; dither(ctx, W / 2 - shw, 220, shw * 2, 3, C.ink, 'check'); rect(ctx, W / 2 - shw + 3, 221, shw * 2 - 6, 1, C.ink);
-    for (let i = 0; i < 3; i++) { const ly2 = 206 + hov + i * 3 + ((t >> 2) + i) % 3; rect(ctx, W / 2 - 1, ly2, 2, 1, i ? C.plum : C.purple); }
-    drawSprite(ctx, SHEETS.pom ? 'pom' : 'poodle', W / 2, 186 + hov, { frame: (t >> 3) % 2 });
+    const shw = 22 - hov; dither(ctx, W / 2 - shw, 221, shw * 2, 4, C.ink, 'check'); rect(ctx, W / 2 - shw + 5, 222, shw * 2 - 10, 2, C.ink);
+    this.heroPom(ctx, W / 2, 181 + hov, t);
     // menu: chamfered neon frame with targeting ticks, like the HUD
     const items = this.titleItems(); const off = this.titleDisabled();
     const mh = items.length * 15 + 14; const my = 230; const mw = 176, mx = W / 2 - mw / 2;
@@ -978,6 +1053,9 @@ class UI implements Module {
       const gs = sel ? C.burnt : isHere ? C.mag : cleared ? C.deep : reachable ? C.mag : C.indigo;
       glyph(ctx, a.id, p[0], p[1], gm, gs);
       if (cleared && !isHere) { chamferFill(ctx, bx + 14, by + 14, 11, 11, C.ink, 2); chamferLine(ctx, bx + 14, by + 14, 11, 11, C.deep, 2); checkMark(ctx, bx + 16, by + 16); }
+      // every live exit wears its quest consequence on the chart (lime flag = finishes one, pink cross = closes one)
+      const rn = reachable ? this.routeNote(g, a.id) : null;
+      if (rn) { chamferFill(ctx, bx + 14, by - 3, 11, 11, C.ink, 2); chamferLine(ctx, bx + 14, by - 3, 11, 11, rn.good ? P20 : C.mag, 2); icon(ctx, rn.good ? 'flag' : 'cross', bx + 16, by - 1, rn.good ? C.lime : C.pink); }
       if (a.boss && (cleared || sel)) { chamferFill(ctx, bx - 3, by - 3, 11, 11, C.ink, 2); chamferLine(ctx, bx - 3, by - 3, 11, 11, sel ? C.burnt : C.mag, 2); icon(ctx, 'cat', bx - 1, by - 1, sel ? C.gold : C.hot); }
       // node number on an ink backplate so it reads over nebulae and grid
       const lbl = String(idx + 1).padStart(2, '0');
@@ -1006,24 +1084,43 @@ class UI implements Module {
       const tv = this.touch.visible(g); const bx = tv ? PF_X + 4 : 96, by = 284, bw = W - 2 * bx, bh = 70;
       frame(ctx, bx, by, bw, bh, C.hot, C.night, 6);
       chamferFill(ctx, bx + 8, by - 5, 64, 11, C.hot, 3); text(ctx, 'NEXT HOP', bx + 14, by - 3, C.ink);
+      // rows: name 7, subtitle 18, quest consequence 29, facts 41, hints 55 (all fixed, nothing swaps places)
       // glyph badge on the left of the info panel
       chamferFill(ctx, bx + 10, by + 12, 26, 26, C.ink, 6); chamferLine(ctx, bx + 10, by + 12, 26, 26, C.burnt, 6);
       glyph(ctx, selTo, bx + 23, by + 25, C.gold, C.burnt);
-      text(ctx, a.name.toUpperCase(), W / 2, by + 9, C.gold, { align: 'center', shadow: C.burnt });
-      // a hop that finishes or closes an open quest says so in place of the subtitle (quest.routeNote)
-      const rn: { text: string; good: boolean } | null = g.mods.quest?.routeNote?.(selTo) ?? null;
-      if (rn) { const rw = textWidth(rn.text) + 12, rx = Math.round(W / 2 - rw / 2); icon(ctx, 'flag', rx, by + 21, rn.good ? C.lime : C.peri); text(ctx, rn.text, rx + 12, by + 21, rn.good ? C.lime : C.pink); }
-      else if (a.subtitle) text(ctx, a.subtitle.toUpperCase(), W / 2, by + 21, C.text, { align: 'center' });
+      text(ctx, a.name.toUpperCase(), W / 2, by + 7, C.gold, { align: 'center', shadow: C.burnt });
+      if (a.subtitle) this.fitCentered(ctx, a.subtitle, W / 2, by + 18, bw - 90, C.text);
+      // the hop's quest consequence, always on its own row (quest.routeNote): 'FINISHES: ...' / 'CLOSES: ...'
+      const rn = this.routeNote(g, selTo);
+      const anyNote = exits.some((e: { to: string }) => this.routeNote(g, e.to));
+      if (rn) {
+        const rw = textWidth(rn.text) + 12, rx = Math.round(W / 2 - rw / 2);
+        icon(ctx, rn.good ? 'flag' : 'cross', rx, by + 29, rn.good ? C.lime : C.pink); text(ctx, rn.text, rx + 12, by + 29, rn.good ? C.lime : C.pink);
+      } else if (anyNote) { const q = 'QUESTS: NO CHANGE'; const rw = textWidth(q) + 12, rx = Math.round(W / 2 - rw / 2); icon(ctx, 'flag', rx, by + 29, C.peri); text(ctx, q, rx + 12, by + 29, C.dim); }
       const parts: [string, string, string][] = [['wave', `${a.waves.length} WAVES`, C.line]];
       if (a.boss) parts.push(['cat', 'BIG CAT', C.hot]);
       if (a.bonus) parts.push(['gift', 'BONANZA', C.gold]);
       parts.push([a.tod === 'night' ? 'moon' : a.tod === 'dusk' ? 'dusk' : a.tod === 'dawn' ? 'dawn' : 'sun', a.tod.toUpperCase(), a.tod === 'night' ? C.violet : a.tod === 'dusk' ? C.pink : a.tod === 'dawn' ? C.orange : C.gold]);
       const pw = parts.reduce((s, [, l]) => s + textWidth(l) + 10, 0) + (parts.length - 1) * 12;
       let x = Math.round(W / 2 - pw / 2);
-      for (const [ic, l, c] of parts) { icon(ctx, ic, x, by + 35, c); text(ctx, l, x + 10, by + 35, C.pale); x += textWidth(l) + 22; }
+      for (const [ic, l, c] of parts) { icon(ctx, ic, x, by + 41, c); text(ctx, l, x + 10, by + 41, C.pale); x += textWidth(l) + 22; }
       const k = keys(this.dev());
-      hintRow(ctx, [[k.adj, 'ROUTE'], [k.ok, 'LAUNCH'], [k.pause, 'MENU']], W / 2, by + 53, C.line);
+      hintRow(ctx, [[k.adj, 'ROUTE'], [k.ok, 'LAUNCH'], [k.pause, 'MENU']], W / 2, by + 55, C.line);
     }
+  }
+  /** quest.routeNote for a hop, worded 'VERB: QUEST' ('CLOSES: FOLLOW THE CATNIP'), or null. */
+  routeNote(g: Game, areaId: string | undefined): { text: string; good: boolean } | null {
+    if (!areaId) return null;
+    let rn: { text: string; good: boolean } | null = null;
+    try { rn = g.mods.quest?.routeNote?.(areaId, 60) ?? null; } catch { rn = null; }
+    return rn ? { text: rn.text.replace(/^(FINISHES|CLOSES) /, '$1: '), good: !!rn.good } : null;
+  }
+  /** Centred one-liner that always fits whole: regular font, else the narrow tier, else two narrow lines. */
+  fitCentered(ctx: CanvasRenderingContext2D, s: string, cx: number, y: number, w: number, c: string) {
+    const u = s.toUpperCase();
+    if (textWidth(u) <= w) { text(ctx, u, cx, y, c, { align: 'center' }); return; }
+    if (tinyWidth(u) <= w) { tiny(ctx, u, cx, y + 1, c, { align: 'center' }); return; }
+    (this.balance(u, Math.floor((w + 1) / 4)) ?? [u]).forEach((l, i) => tiny(ctx, l, cx, y - 2 + i * 6, c, { align: 'center' }));
   }
   /** Sector log: every sector by number and name with its status, so the chart itself can stay numbers-only. */
   sectorLog(g: Game, ctx: CanvasRenderingContext2D, selTo: string | undefined, exits: { to: string }[]) {
@@ -1167,47 +1264,29 @@ class UI implements Module {
     for (let dy = -18; dy <= 18; dy++) { const dx = Math.floor(Math.sqrt(324 - dy * dy) * 1.2); rect(ctx, tx - dx, HZ - 40 + dy, dx * 2 + 1, 1, C.night); }
     for (let dy = -17; dy <= -10; dy++) { const dx = Math.floor(Math.sqrt(289 - dy * dy) * 1.1); rect(ctx, tx - dx + 2, HZ - 40 + dy, Math.max(0, dx - 2), 1, C.indigo); }
   }
-  /** Pom napping on her cushion at the garden gate, in front of the fence (the in-game pom_nap sprite). */
-  napPom(ctx: CanvasRenderingContext2D, HZ: number, t: number) {
-    const spr = SHEETS.pom_nap ? 'pom_nap' : SHEETS.poodle_nap ? 'poodle_nap' : 'pom';
-    // the nap sheet's red goggle strap reads as a red eye at this size: soften it to fur shading
-    drawSprite(ctx, spr, END_GATE, HZ - 9, { frame: Math.floor(t / 40) % Math.max(1, frameCount(spr)), recolor: spr === 'pom_nap' ? NAP_SOFT : undefined });
-  }
-  /** Where pup i sits on the lawn line once home (same baseline as Pom's cushion): alternating right / left of the gate. */
-  pupSpot(i: number, HZ: number): [number, number] {
-    const side = i % 2 ? -1 : 1, k = i >> 1;
-    return [END_GATE + side * (26 + k * 18), HZ - 7];
-  }
-  /** Pup i in flight (u 0..1): Pom's path home, easing over the last 40% straight onto its own lawn slot. */
-  pupPath(i: number, u: number, HZ: number): [number, number] {
-    const [px, py] = this.homePath(u, HZ); const [sx, sy] = this.pupSpot(i, HZ); const [gx, gy] = this.homePath(1, HZ);
-    const w = smooth((u - 0.6) / 0.4);
-    return [Math.round(px + (sx - gx) * w), Math.round(py + (sy - gy) * w)];
-  }
-  /** Flight path home (u 0..1): in from the right high over the sky, a lazy wave across the sun, down to the gate. */
-  homePath(u: number, HZ: number): [number, number] {
-    const e = u < 0 ? 0 : u > 1 ? 1 : u;
-    const x = 690 + (END_GATE - 690) * (e * 0.85 + 0.15 * e * e);
-    const y = 70 + (HZ - 26 - 70) * e * e + Math.sin(e * Math.PI * 2.2) * 30 * (1 - e);
-    return [Math.round(x), Math.round(y)];
-  }
-  /** Ending timeline: flight home (each pup trailing Pom), credits roll, then the story card. Cached per scene entry. */
+  /** Ending timeline: flight home (riders + a trailing ribbon of pups), credits roll, then the story card. Cached. */
   endPlan(g: Game) {
-    const pups = Math.max(0, g.state.inventory.pups ?? 0); const shown = Math.min(END_MAX_PUPS, pups);
     const e = g.content.endings.find(x => x.id === g.state.ending) ?? g.content.endings[0];
+    const kind: 'true' | 'good' = e?.id === 'ending_true' ? 'true' : 'good';
+    // the pup count the diorama shows always agrees with the ending: EVERY PUP HOME never shows fewer pups than the
+    // Lost Pups quest asks for, and the hopeful ending always has someone still out there
+    const need = Math.max(1, (g.content.quests.find(q => q.id === 'lost_pups') as any)?.complete?.count ?? 6);
+    const have = Math.max(0, g.state.inventory.pups ?? 0);
+    const pups = kind === 'true' ? Math.max(have, need) : Math.min(have, need - 1);
+    const shown = Math.min(END_MAX_PUPS, pups);
     const key = `${shown}|${e?.id}`;
     if (this.plan && this.plan.key === key) return this.plan;
-    const fly = END_FLY + shown * END_LAG + 70;
+    const fly = END_FLY + Math.max(0, shown - 1) * END_LAG + 90;
     const credits = this.creditItems(g, shown);
     const travel = credits.reduce((a, c) => a + c.h, 0) + END_WIN;
     // the roll is paced so the whole ending (flight, roll, typed story) lands on the card by tick ~1990
     const lines = e ? e.text.flatMap(t => [...wrap(t, 58), '']).slice(0, -1) : [];
     const reveal = (lines.length + 1) * END_LINE;
-    const rollTicks = Math.max(600, Math.min(Math.round(travel / 0.7), 1990 - fly - reveal));
-    this.plan = { key, pups, shown, fly, card: fly + rollTicks, rollTicks, travel, credits, lines, reveal, e };
+    const rollTicks = Math.max(560, Math.min(Math.round(travel / 0.7), 1990 - fly - reveal));
+    this.plan = { key, kind, pups, shown, fly, card: fly + rollTicks, rollTicks, travel, credits, lines, reveal, e };
     return this.plan;
   }
-  plan: { key: string; pups: number; shown: number; fly: number; card: number; rollTicks: number; travel: number; credits: { h: number; draw: (ctx: CanvasRenderingContext2D, y: number, t: number) => void }[]; lines: string[]; reveal: number; e: any } | null = null;
+  plan: { key: string; kind: 'true' | 'good'; pups: number; shown: number; fly: number; card: number; rollTicks: number; travel: number; credits: { h: number; draw: (ctx: CanvasRenderingContext2D, y: number, t: number) => void }[]; lines: string[]; reveal: number; e: any } | null = null;
   /** Credits roll items (heights in px; draw(y) paints the item with its top at y, centered on the screen). */
   creditItems(g: Game, shown: number) {
     const cx = W / 2; const items: { h: number; draw: (ctx: CanvasRenderingContext2D, y: number, t: number) => void }[] = [];
@@ -1216,15 +1295,15 @@ class UI implements Module {
     const small = (s: string, c = C.dim) => items.push({ h: 14, draw: (ctx, y) => text(ctx, s, cx, y + 3, c, { align: 'center', shadow: C.ink }) });
     items.push({ h: 64, draw: (ctx, y) => { drawLogo(ctx, logoWord('POODLE', 2, PINK, 3, 2, 3), cx, y + 6); drawLogo(ctx, logoWord('PATROL', 2, CYAN, 3, 2, 3), cx, y + 36); } });
     gap(18); small('STARRING');
-    items.push({ h: 58, draw: (ctx, y) => { drawSprite(ctx, SHEETS.pom ? 'pom' : 'poodle', cx, y + 18); text(ctx, 'CAPTAIN POM', cx, y + 42, C.gold, { align: 'center', shadow: C.burnt }); } });
+    items.push({ h: 74, draw: (ctx, y, t) => { draw2x(ctx, 'end_pom_sit', cx, y + 28, { frame: (t >> 5) % 2 }); text(ctx, 'CAPTAIN POM', cx, y + 62, C.gold, { align: 'center', shadow: C.burnt }); } });
     gap(10);
     if (shown > 0) {
       small(shown === 1 ? 'AND THE PUP SHE BROUGHT HOME' : `AND THE ${shown} PUPS SHE BROUGHT HOME`);
-      const perRow = 9, rows = Math.ceil(shown / perRow);
-      items.push({ h: rows * 20 + 6, draw: (ctx, y, t) => {
+      const perRow = 8, rows = Math.ceil(shown / perRow);
+      items.push({ h: rows * 36 + 6, draw: (ctx, y, t) => {
         for (let i = 0; i < shown; i++) {
           const r = Math.floor(i / perRow), inRow = Math.min(perRow, shown - r * perRow), c = i % perRow;
-          drawSprite(ctx, SHEETS.pom_pup ? 'pom_pup' : 'pup', cx + (c - (inRow - 1) / 2) * 22, y + 11 + r * 20 - (((t >> 3) + i) % 8 === 0 ? 1 : 0), { frame: ((t >> 3) + i) % 2 });
+          draw2x(ctx, 'end_pup_sit', cx + (c - (inRow - 1) / 2) * 36, y + 18 + r * 36 - (((t >> 3) + i) % 9 === 0 ? 2 : 0), { frame: ((t >> 4) + i) % 3 === 0 ? 1 : 0, recolor: PUP_COATS[i % PUP_COATS.length], flipX: c >= inRow / 2 });
         }
       } });
     } else small('AND EVERY PUP STILL ON THE WAY HOME');
@@ -1246,107 +1325,315 @@ class UI implements Module {
     gap(22); title('THE BIG CATS', C.gold, C.cream, C.burnt); gap(10);
     grid(ens.filter(e => e.behavior === 'boss').map(e => {
       const home = g.content.areas.find(a => a.boss === e.id);
-      return { sprite: e.sprite, lines: [this.fitName(e.name.split(',')[0], 122)], role: home ? this.fitName(home.name, 122) : 'BIG CAT' };
+      return { sprite: e.sprite, lines: wrap(e.name.split(',')[0].toUpperCase(), 20).slice(0, 2), role: home ? (this.balance(home.name.toUpperCase(), 20) ?? [home.name.toUpperCase()]).join(' ') : 'BIG CAT' };
     }), 128, 66);
     gap(30); small('THANK YOU FOR FLYING', C.text); gap(4);
     items.push({ h: 30, draw: (ctx, y) => headline(ctx, 'GOOD GIRL, POM.', cx, y + 6, C.gold, C.cream, C.burnt) });
     return items;
   }
+
+  // ---- ending diorama: two set pieces on one stage (sky, skyline, yard, lawn), everything that lives is 2x ----
+  /** Banded sky with 6-row ordered-dither seams (25 / 50 / 75%) between bands (no gradients, palette exact). */
+  endSky(ctx: CanvasRenderingContext2D, bands: [string, number][]) {
+    let y0 = 0;
+    bands.forEach(([c, y1], i) => {
+      rect(ctx, 0, y0, W, y1 - y0, c);
+      const nx = bands[i + 1];
+      if (nx) { dither(ctx, 0, y1 - 6, W, 2, nx[0], 'sparse'); dither(ctx, 0, y1 - 4, W, 4, nx[0], 'check'); rect(ctx, 0, y1, W, 2, nx[0]); dither(ctx, 0, y1, W, 2, c, 'sparse'); }
+      y0 = y1;
+    });
+  }
+  /** Flat-bottomed pixel cloud: a row of discs on a slab, lit rim on top, shadow line underneath. */
+  endCloud(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, body: string, rim: string, under: string) {
+    x = Math.round(x);
+    const bumps = Math.max(2, Math.round(w / 14));
+    for (let i = 0; i < bumps; i++) { const bx = x + 7 + i * (w - 14) / Math.max(1, bumps - 1); const r = 5 + ((i * 7 + w) % 3) * 2; disc(ctx, bx, y - r + 4, r, rim); }
+    for (let i = 0; i < bumps; i++) { const bx = x + 7 + i * (w - 14) / Math.max(1, bumps - 1); const r = 5 + ((i * 7 + w) % 3) * 2; disc(ctx, bx, y - r + 5, r - 1, body); }
+    rect(ctx, x, y, w, 5, body); rect(ctx, x + 3, y + 5, w - 6, 1, under);
+  }
+  /** Manhattan skyline silhouette on the horizon (far row lighter, near row darker), windows lit in a fixed pattern. */
+  endSkyline(ctx: CanvasRenderingContext2D, HZ: number, far: string, near: string, win: string, t: number, lit: number) {
+    const H1 = HZ - 8;
+    // far row: tall towers, one spire, water towers
+    for (let i = 0, x = -6; x < W; i++) {
+      const w = 18 + (i * 37) % 22, h = 34 + (i * 53) % 44; rect(ctx, x, H1 - h, w, h, far);
+      if (i % 4 === 1) { rect(ctx, x + (w >> 1) - 1, H1 - h - 14, 2, 14, far); rect(ctx, x + (w >> 1) - 3, H1 - h - 4, 6, 4, far); }
+      if (i % 5 === 3) { rect(ctx, x + 4, H1 - h - 7, 8, 5, far); rect(ctx, x + 5, H1 - h - 2, 1, 2, far); rect(ctx, x + 10, H1 - h - 2, 1, 2, far); for (let k = 0; k < 4; k++) rect(ctx, x + 4 + k * 2, H1 - h - 8, 1, 1, far); }
+      x += w + 2 + (i % 3);
+    }
+    // near row: lower blocks with lit windows
+    for (let i = 0, x = -10; x < W; i++) {
+      const w = 24 + (i * 29) % 26, h = 16 + (i * 41) % 26; rect(ctx, x, H1 - h, w, h + 8, near);
+      for (let wy = H1 - h + 4; wy < H1 - 2; wy += 5) for (let wx = x + 3; wx < x + w - 3; wx += 4) {
+        const k = (wx * 7 + wy * 13 + i * 5) % 17; if (k < lit) rect(ctx, wx, wy, 2, 2, (k === 0 && (t >> 6) % 2) ? C.orange : win);
+      }
+      x += w + 1;
+    }
+  }
+  /** Pom's yard: picket fence, her house (porch, door, lit windows), the round tree. */
+  endYard(ctx: CanvasRenderingContext2D, HZ: number, kind: 'true' | 'good', t: number) {
+    const wall = kind === 'true' ? C.plum : C.night, roof = kind === 'true' ? C.night : C.ink, trim = kind === 'true' ? C.purple : C.indigo;
+    const hx = 34, hw = 104, hh = 46, top = HZ - hh;
+    for (let i = 0; i < 30; i++) rect(ctx, hx - 8 + i * 2, top - i, hw + 16 - i * 4, 1, roof);
+    rect(ctx, hx - 8, top, hw + 16, 1, trim);
+    rect(ctx, hx + 74, top - 40, 10, 18, roof);
+    rect(ctx, hx, top + 1, hw, hh - 1, wall);
+    const lit = kind === 'true' ? C.gold : (t >> 5) % 7 ? C.gold : C.orange;
+    for (const wx of [hx + 10, hx + 72]) { rect(ctx, wx, top + 10, 20, 14, C.burnt); rect(ctx, wx + 1, top + 11, 18, 12, lit); rect(ctx, wx + 10, top + 11, 1, 12, C.burnt); rect(ctx, wx + 1, top + 17, 18, 1, C.burnt); }
+    rect(ctx, hx + 42, top + 16, 20, hh - 16, C.ink); rect(ctx, hx + 44, top + 18, 16, hh - 18, kind === 'true' ? C.burnt : C.plum); rect(ctx, hx + 56, top + 32, 2, 2, C.gold);
+    // porch light by the door, left on for whoever is still on the way home (a solid core + 2-step dither pool)
+    rect(ctx, hx + 66, top + 18, 4, 5, C.cream); rect(ctx, hx + 67, top + 17, 2, 1, C.gold);
+    dither(ctx, hx + 58, top + 24, 20, 10, C.gold, 'sparse'); dither(ctx, hx + 62, top + 24, 12, 5, C.gold, 'check');
+    // the round tree on the right
+    const tx = 604; rect(ctx, tx - 3, HZ - 30, 6, 30, roof);
+    const clumps: [number, number, number][] = [[-14, -40, 13], [12, -42, 14], [0, -56, 15], [-20, -56, 10], [20, -60, 10], [0, -34, 12]];
+    const [leaf, sunlit] = kind === 'true' ? [C.dgreen, C.green] : [C.ink, C.night];
+    for (const [dx, dy, r] of clumps) disc(ctx, tx + dx, HZ + dy, r, leaf);
+    // light catches the upper-left of each clump: a solid core and a dithered falloff, never a hard ring
+    for (const [dx, dy, r] of clumps) { disc(ctx, tx + dx - 3, HZ + dy - 4, Math.max(2, r - 8), sunlit); const rr = r - 4; for (let k = -rr; k <= 0; k++) { const w = Math.floor(Math.sqrt(rr * rr - k * k)); dither(ctx, tx + dx - 2 - w, HZ + dy - 2 + k, w * 2, 1, sunlit, 'check'); } }
+    // picket fence along the back of the lawn
+    const fc = kind === 'true' ? C.cream : C.peri, fs = kind === 'true' ? C.tan : C.indigo;
+    for (let x = 2; x < W; x += 8) { rect(ctx, x, HZ - 12, 4, 12, fc); rect(ctx, x + 1, HZ - 13, 2, 1, fc); rect(ctx, x + 3, HZ - 11, 1, 11, fs); }
+    rect(ctx, 0, HZ - 9, W, 2, fc); rect(ctx, 0, HZ - 4, W, 2, fc); rect(ctx, 0, HZ - 8, W, 1, fs); rect(ctx, 0, HZ - 3, W, 1, fs);
+  }
+  /** Lawn from the fence to the bottom edge: mown stripes (solid + dithered bands), a lit edge along the fence. */
+  endLawn(ctx: CanvasRenderingContext2D, HZ: number, kind: 'true' | 'good') {
+    const [a, b, edge] = kind === 'true' ? [C.green, C.dgreen, C.lime] : [C.dgreen, C.night, C.green];
+    rect(ctx, 0, HZ, W, H - HZ, a);
+    for (let i = 0; i < 9; i++) { const x0 = i * 80 - 40; for (let y = HZ; y < H; y += 2) { const sk = Math.round((y - HZ) * (i * 80 - 320) / 220); dither(ctx, x0 + sk, y, 40, 2, b, 'sparse'); } }
+    rect(ctx, 0, HZ, W, 1, edge); dither(ctx, 0, HZ + 1, W, 2, edge, 'sparse');
+  }
+  /** Where pup i sits on the lawn (2x sitting pose): back row beside Pom, then a front row clear of the prompt. */
+  pupSlot(i: number): { x: number; base: number; flip: boolean } {
+    const side = i % 2 ? -1 : 1, k = i >> 1;
+    if (k < 4) return { x: END_POM_X + side * (48 + k * 34), base: 306, flip: side > 0 };
+    return { x: END_POM_X + side * (92 + (k - 4) * 40), base: 344, flip: side > 0 };
+  }
+  /** Flight path home (u 0..1): in from the right, high, a lazy wave over the skyline, down onto the lawn by Pom's spot. */
+  homePath(u: number): [number, number] {
+    const e = u < 0 ? 0 : u > 1 ? 1 : u;
+    const x = 720 + (END_POM_X - 720) * (e * 0.8 + 0.2 * e * e);
+    const y = 84 + (END_POM_Y - 84) * e * e + Math.sin(e * Math.PI * 2) * 26 * (1 - e);
+    return [Math.round(x), Math.round(y)];
+  }
   ending(g: Game, ctx: CanvasRenderingContext2D) {
-    const P = this.endPlan(g); const T = this.endingT; const HZ = 262; const t = this.t;
-    // the title's sunset set piece, framing the home yard Pom and the pups fly back to
-    this.synthSet(ctx, T, HZ, 62, W / 2, [C.cream, C.gold, C.orange, C.hot, C.mag], 70);
-    this.homeYard(ctx, HZ, T);
-    // ---- the flight home: Pom flies nose-first across the sky, every rescued pup trailing her along the same path,
-    // each one peeling off onto its own lawn slot. Everything in the yard is y-sorted.
-    const u = T / END_FLY;
-    const PUP = SHEETS.pom_pup ? 'pom_pup' : 'pup';
+    const P = this.endPlan(g); const T = this.endingT; const HZ = 262; const t = this.t; const tru = P.kind === 'true';
+    // ---- the stage: sky, sun or moon, clouds, searchlights, skyline, yard, lawn
+    if (tru) this.endSky(ctx, [[C.night, 44], [C.indigo, 84], [C.purple, 122], [C.mag, 158], [C.hot, 190], [C.orange, 222], [C.gold, HZ]]);
+    else this.endSky(ctx, [[C.ink, 70], [C.night, 150], [C.indigo, 222], [C.peri, HZ]]);
+    const starsTo = tru ? 84 : 200;
+    for (let i = 0; i < (tru ? 40 : 120); i++) {
+      const x = (i * 97 + (i >> 3) * 13) % W, y = (i * 53) % starsTo; const tw = (i * 7 + (t >> 3)) % 29 === 0;
+      rect(ctx, x, y, 1, 1, tw ? C.text : i % 5 ? (tru ? C.peri : C.indigo) : C.pale);
+      if (!tru && i % 17 === 0) { rect(ctx, x - 1, y, 3, 1, C.pale); rect(ctx, x, y - 1, 1, 3, C.pale); }
+    }
+    if (tru) {
+      // the sun setting behind the skyline: banded, slatted (the title's sun, warmer and lower)
+      const sx = 420, sy = HZ - 18, sr = 58;
+      for (let dy = -sr; dy <= 0; dy++) {
+        const yy = sy + dy, f = (dy + sr) / sr, dx = Math.floor(Math.sqrt(sr * sr - dy * dy));
+        if (f > 0.55 && (yy - (t >> 3)) % Math.max(3, Math.round(10 - f * 7)) === 0) continue;
+        rect(ctx, sx - dx, yy, dx * 2 + 1, 1, f < 0.3 ? C.cream : f < 0.6 ? C.gold : C.orange);
+      }
+      const drift = (t >> 3) % (W + 120);
+      this.endCloud(ctx, ((90 + drift) % (W + 120)) - 100, 104, 70, C.mag, C.pink, C.purple);
+      this.endCloud(ctx, ((380 + drift) % (W + 120)) - 100, 140, 96, C.hot, C.cream, C.mag);
+      this.endCloud(ctx, ((610 + drift) % (W + 120)) - 100, 70, 54, C.purple, C.pink, C.indigo);
+    } else {
+      // a big moon with craters and a dithered halo
+      const mx = 520, my = 62;
+      for (let r = 30; r > 24; r -= 3) for (let dy = -r; dy <= r; dy++) { const dx = Math.floor(Math.sqrt(r * r - dy * dy)); dither(ctx, mx - dx, my + dy, dx * 2 + 1, 1, C.indigo, 'sparse'); }
+      disc(ctx, mx, my, 20, C.pale); disc(ctx, mx + 3, my + 2, 18, C.text); disc(ctx, mx + 4, my + 3, 15, C.pale);
+      disc(ctx, mx - 6, my - 5, 4, C.dim); disc(ctx, mx + 7, my + 6, 3, C.dim); disc(ctx, mx - 3, my + 9, 2, C.dim);
+      const drift = (t >> 4) % (W + 120);
+      this.endCloud(ctx, ((60 + drift) % (W + 120)) - 100, 120, 80, C.indigo, C.peri, C.night);
+      this.endCloud(ctx, ((420 + drift) % (W + 120)) - 100, 96, 60, C.indigo, C.dim, C.night);
+      // Biscuit's search parties: three searchlights sweeping the sky from behind the city
+      for (const [bx, ph] of [[150, 0], [330, 2.1], [500, 4.2]] as [number, number][]) {
+        const a = Math.sin(t / 90 + ph) * 0.5; const base = HZ - 30;
+        for (let y = base; y > 20; y -= 2) {
+          const d = base - y, cxl = bx + d * Math.tan(a), hw = 2 + d * 0.07;
+          dither(ctx, Math.round(cxl - hw), y, Math.round(hw * 2), 2, d < 60 ? C.ice : C.dim, d < 120 ? 'sparse' : 'scan');
+        }
+      }
+    }
+    this.endSkyline(ctx, HZ, tru ? C.purple : C.plum, tru ? C.plum : C.night, tru ? C.cream : C.gold, t, tru ? 3 : 6);
+    this.endYard(ctx, HZ, P.kind, t);
+    this.endLawn(ctx, HZ, P.kind);
     const draws: { y: number; f: () => void }[] = [];
+    if (tru) this.partyProps(ctx, HZ, T, t, draws); else this.searchProps(ctx, HZ, T, t, draws);
+    // ---- the flight home: Pom flies in nose-first (2x side view), the first pup riding on her back (true ending),
+    // every other pup trailing her along the same path in a little caped ribbon, each landing on its own lawn spot
+    const u = T / END_FLY;
+    const rider = tru && P.shown > 0;
     let home = 0;
     for (let i = 0; i < P.shown; i++) {
-      const ui = (T - (i + 1) * END_LAG) / END_FLY; if (ui <= 0) continue;
+      const coat = PUP_COATS[i % PUP_COATS.length]; const slot = this.pupSlot(i);
+      if (rider && i === 0) {
+        // the rider stays aboard until Pom lands, then hops down onto its spot
+        if (u < 1) { const [px, py] = this.homePath(u); draws.push({ y: py + 1, f: () => draw2x(ctx, 'end_pup_sit', px + 18, py - 26 + (((T >> 3) % 2)), { recolor: coat, flipX: true }) }); continue; }
+        const k = Math.min(1, (T - END_FLY) / 24); const x = Math.round(END_POM_X + 18 + (slot.x - END_POM_X - 18) * k), y = Math.round((END_POM_Y - 26) + (slot.base - 16 - (END_POM_Y - 26)) * k - Math.sin(k * Math.PI) * 22);
+        if (k >= 1) home++;
+        draws.push({ y: slot.base, f: () => draw2x(ctx, 'end_pup_sit', x, y, { recolor: coat, flipX: slot.flip, frame: k >= 1 && ((T >> 4) + i) % 4 === 0 ? 1 : 0 }) });
+        continue;
+      }
+      const lagI = rider ? i : i + 1;
+      const ui = (T - lagI * END_LAG) / END_FLY; if (ui <= 0) continue;
       if (ui < 1) {
-        const [x, y] = this.pupPath(i, ui, HZ); const fr = ((T >> 2) + i) % Math.max(1, frameCount(PUP));
-        // turned while cruising, upright for the last stretch of the glide down onto the lawn
-        draws.push({ y, f: () => ui < 0.82 ? drawTurned(ctx, PUP, x, y, fr) : drawSprite(ctx, PUP, x, y, { frame: fr }) });
+        const [px, py] = this.homePath(ui); const w = smooth((ui - 0.7) / 0.3);
+        const x = Math.round(px + (slot.x - END_POM_X) * w), y = Math.round(py + Math.sin((T + i * 20) / 9) * 3 * (1 - w) + (slot.base - 16 - END_POM_Y) * w);
+        draws.push({ y, f: () => ui < 0.9 ? draw2x(ctx, 'end_pup_fly', x, y, { recolor: coat, frame: ((T >> 3) + i) % 2 }) : draw2x(ctx, 'end_pup_sit', x, y, { recolor: coat, flipX: slot.flip }) });
         continue;
       }
       home++;
-      // landed: a little bounce on touch-down, then sit and watch the sunset (an occasional blink-bob)
-      const since = T - (i + 1) * END_LAG - END_FLY; const [sx, sy] = this.pupSpot(i, HZ);
-      const bob = since < 8 ? -Math.round(Math.sin(since / 8 * Math.PI) * 3) : ((T >> 3) + i * 5) % 37 === 0 ? -1 : 0;
-      draws.push({ y: sy, f: () => drawSprite(ctx, PUP, sx, sy + bob) });
+      const since = T - lagI * END_LAG - END_FLY;
+      const bob = since < 10 ? -Math.round(Math.sin(since / 10 * Math.PI) * 6) : tru && ((T >> 2) + i * 7) % 61 < 6 ? -Math.round(Math.sin((((T >> 2) + i * 7) % 61) / 6 * Math.PI) * 4) : 0;
+      draws.push({ y: slot.base, f: () => draw2x(ctx, 'end_pup_sit', slot.x, slot.base - 16 + bob, { recolor: coat, flipX: slot.flip, frame: ((T >> 4) + i) % (tru ? 2 : 5) === 0 ? 1 : 0 }) });
     }
     if (u < 1) {
-      const [x, y] = this.homePath(u, HZ);
+      const [x, y] = this.homePath(u);
       draws.push({ y, f: () => {
-        if (u < 0.88) {
-          // jet trail: sparks streaming off her tail (to the right while she flies nose-first), cooling cream to plum
-          for (let k = 1; k <= 6; k++) {
-            const [tx, ty] = this.homePath(u - k * 0.012, HZ); if (u - k * 0.012 <= 0) break;
-            const c = k < 2 ? C.cream : k < 4 ? C.gold : k < 5 ? C.orange : C.plum;
-            if ((k + (T >> 1)) % 3) { rect(ctx, tx + 10, ty - 7, 2, 1, c); rect(ctx, tx + 10, ty + 6, 2, 1, c); }
-          }
-          drawTurned(ctx, SHEETS.pom ? 'pom' : 'poodle', x, y, (T >> 3) % Math.max(1, frameCount('pom')));
-        } else drawSprite(ctx, SHEETS.pom ? 'pom' : 'poodle', x, y);
+        // jet trail: sparks off her pod, cooling cream to plum
+        for (let k = 1; k <= 7; k++) {
+          if (u - k * 0.012 <= 0) break; const [tx, ty] = this.homePath(u - k * 0.012);
+          const c = k < 2 ? C.cream : k < 4 ? C.gold : k < 6 ? C.orange : C.plum;
+          if ((k + (T >> 1)) % 3) rect(ctx, tx + 16, ty - 10, 3, 2, c);
+        }
+        draw2x(ctx, 'end_pom_fly', x, y, { frame: (T >> 3) % 2 });
       } });
-    } else if (T < END_FLY + 24) {
-      // touch-down beat: a little settle before she curls up
-      draws.push({ y: HZ - 9, f: () => drawSprite(ctx, SHEETS.pom ? 'pom' : 'poodle', END_GATE, HZ - 26 + Math.round(Math.min(1, (T - END_FLY) / 24) * 10)) });
-    } else draws.push({ y: HZ - 9, f: () => this.napPom(ctx, HZ, T) });
+    } else {
+      // touch-down: a dust puff, then she sits proudly in the middle of the lawn
+      const since = T - END_FLY;
+      draws.push({ y: END_POM_Y + 28, f: () => {
+        if (since < 18) for (const s of [-1, 1]) { const r = 2 + (since >> 2); disc(ctx, END_POM_X + s * (20 + since), END_POM_Y + 26 - (since >> 3), r, tru ? C.lime : C.green); }
+        draw2x(ctx, 'end_pom_sit', END_POM_X, END_POM_Y + (since < 6 ? 2 : 0), { frame: ((T >> 5) % 5 === 0) ? 1 : 0 });
+      } });
+    }
     draws.sort((a, b) => a.y - b.y).forEach(d => d.f());
+    if (tru && T >= END_FLY) this.confetti(ctx, T);
+    // ---- overlays: the homeward plate, the credits window, then the story card
     if (T < P.fly) {
-      const tw = numWidth('HOMEWARD BOUND') + 36;
+      const head = tru ? 'HOMEWARD BOUND' : 'HEADING HOME'; const tw = numWidth(head) + 36;
       chamferFill(ctx, W / 2 - tw / 2, 10, tw, 26, C.ink, 6); chamferLine(ctx, W / 2 - tw / 2, 10, tw, 26, C.burnt, 6);
-      headline(ctx, 'HOMEWARD BOUND', W / 2, 17, C.gold, C.cream, C.burnt);
-      const lbl = P.shown ? `PUPS HOME ${home}/${P.pups}` : 'HOME AT LAST'; const lw = textWidth(lbl) + 24;
+      headline(ctx, head, W / 2, 17, C.gold, C.cream, C.burnt);
+      const lbl = P.shown ? `PUPS HOME ${home}/${P.shown}` : 'HOME AT LAST'; const lw = textWidth(lbl) + 24;
       chamferFill(ctx, W / 2 - lw / 2, 40, lw, 13, C.night, 3); chamferLine(ctx, W / 2 - lw / 2, 40, lw, 13, C.burnt, 3);
       icon(ctx, 'paw', W / 2 - lw / 2 + 6, 43, C.gold); text(ctx, lbl, W / 2 - lw / 2 + 16, 43, C.gold);
     } else if (T < P.card) {
-      // ---- credits roll in the sky window, hard-clipped at both edges, ending well above the roof, chimney and tree
-      const top = 4, bot = HZ - 76; const off = Math.round((T - P.fly) * P.travel / P.rollTicks);
-      ctx.save(); ctx.beginPath(); ctx.rect(0, top, W, bot - top); ctx.clip();
-      let y = bot - off;
-      for (const it of P.credits) { if (y + it.h > top - 80 && y < bot + 10) it.draw(ctx, y, t); y += it.h; }
-      ctx.restore();
-      const k = keys(this.dev()); hintRow(ctx, [[k.ok, 'SKIP']], W / 2, 346, C.dim);
-    } else this.endingCard(g, ctx, P, T - P.card, HZ);
+      const off = Math.round((T - P.fly) * P.travel / P.rollTicks);
+      this.creditsWindow(ctx, P, off, t);
+      const k = keys(this.dev()); const pairs: [string, string][] = [[k.ok, 'SKIP']]; const pw = hintWidth(pairs) + 20;
+      chamferFill(ctx, W / 2 - pw / 2, 340, pw, 17, C.ink, 4); chamferLine(ctx, W / 2 - pw / 2, 340, pw, 17, C.peri, 4);
+      hintRow(ctx, pairs, W / 2, 345, C.text);
+    } else this.endingCard(g, ctx, P, T - P.card);
   }
-  /** The closing card: title, the typed story, stat chips, then the CONTINUE prompt (frame and caption together). */
-  endingCard(g: Game, ctx: CanvasRenderingContext2D, P: NonNullable<UI['plan']>, T: number, HZ: number) {
-    void HZ;
+  /** Party set dressing (true ending): bunting from the roof to the tree, balloons on the fence, and the Empress at the
+   *  picnic table with a cake and her hedgehog in a party hat. Table + Empress join the y-sorted draw list. */
+  partyProps(ctx: CanvasRenderingContext2D, HZ: number, T: number, t: number, draws: { y: number; f: () => void }[]) {
+    // bunting: a sagging string with triangle flags in four colours
+    const x0 = 140, y0 = HZ - 70, x1 = 586, y1 = HZ - 58; const flags = [C.hot, C.gold, C.line, C.lime];
+    for (let x = x0; x <= x1; x++) { const f = (x - x0) / (x1 - x0); const y = Math.round(y0 + (y1 - y0) * f + Math.sin(f * Math.PI) * 26); rect(ctx, x, y, 1, 1, C.ink); if ((x - x0) % 14 === 0 && x < x1 - 6) { const c = flags[((x - x0) / 14) % 4]; for (let k = 0; k < 7; k++) rect(ctx, x + 1 + (k >> 1), y + 1 + k, 7 - k, 1, c); } }
+    // balloons tied to the fence by the gate
+    for (const [bx, by, c] of [[214, HZ - 46, C.hot], [226, HZ - 54, C.line], [238, HZ - 44, C.gold]] as [number, number, string][]) {
+      const bob = Math.round(Math.sin((t + bx) / 30) * 2);
+      line(ctx, bx, by + 6 + bob, 226, HZ - 12, C.cream); disc(ctx, bx, by + bob, 6, darkOf(c)); disc(ctx, bx - 1, by - 1 + bob, 5, c); rect(ctx, bx - 3, by - 3 + bob, 2, 2, C.text);
+    }
+    // the picnic table with the Empress behind it (her 2x portrait; the table hides her lap)
+    const tx = 568, ty = 300;
+    draws.push({ y: ty + 12, f: () => {
+      draw2x(ctx, 'portrait_empress', tx, ty - 34 + ((T >> 5) % 2), { frame: frameCount('portrait_empress') > 1 ? (T >> 5) % 2 : 0 });
+      rect(ctx, tx - 56, ty, 112, 7, C.burnt); rect(ctx, tx - 56, ty, 112, 2, C.orange); rect(ctx, tx - 56, ty + 7, 112, 1, C.ink);
+      for (let k = 0; k < 4; k++) rect(ctx, tx - 52 + k * 28, ty + 2, 10, 3, k % 2 ? C.text : C.hot); // checked cloth hem
+      rect(ctx, tx - 50, ty + 8, 6, 26, C.burnt); rect(ctx, tx + 44, ty + 8, 6, 26, C.burnt);
+      // cake with three candles
+      rect(ctx, tx - 50, ty - 12, 26, 12, C.cream); rect(ctx, tx - 50, ty - 12, 26, 3, C.pink); rect(ctx, tx - 50, ty - 5, 26, 1, C.hot);
+      for (let k = 0; k < 3; k++) { rect(ctx, tx - 45 + k * 8, ty - 18, 2, 6, C.line); rect(ctx, tx - 45 + k * 8, ty - 21 + ((T >> 3) + k) % 2, 2, 2, C.gold); }
+      draw2x(ctx, 'end_hedgehog', tx + 38, ty - 10, { flipX: true });
+    } });
+  }
+  /** Search set dressing (good ending): Commander Biscuit behind the hedge with a radio and a flashlight beam, and
+   *  paw-print lanterns along the path for the pups still finding their way. */
+  searchProps(ctx: CanvasRenderingContext2D, HZ: number, T: number, t: number, draws: { y: number; f: () => void }[]) {
+    // lanterns on poles along the lawn edge
+    for (const lx of [200, 456]) {
+      rect(ctx, lx, HZ + 2, 2, 30, C.ink); rect(ctx, lx - 3, HZ - 6, 8, 9, C.ink); rect(ctx, lx - 2, HZ - 5, 6, 7, (t >> 4) % 9 ? C.gold : C.orange);
+      dither(ctx, lx - 10, HZ - 10, 22, 18, C.gold, 'sparse');
+    }
+    const bx = 556, by = 300;
+    draws.push({ y: by + 20, f: () => {
+      // flashlight beam from Biscuit's paw up into the night (dithered cone)
+      for (let k = 0; k < 70; k += 2) { const hw = 2 + k * 0.28; dither(ctx, Math.round(bx - 44 - k * 0.9 - hw), by - 36 - k, Math.round(hw * 2), 2, C.cream, k < 30 ? 'check' : 'sparse'); }
+      draw2x(ctx, 'portrait_biscuit', bx, by - 30 + ((T >> 5) % 2), { frame: frameCount('portrait_biscuit') > 1 ? (T >> 5) % 2 : 0 });
+      rect(ctx, bx - 44, by - 38, 8, 5, C.dim); rect(ctx, bx - 46, by - 37, 2, 3, C.cream);
+      // the hedge in front of him, with a radio antenna blinking
+      for (let k = 0; k < 7; k++) disc(ctx, bx - 54 + k * 18, by + 10, 11, C.dgreen);
+      for (let k = 0; k < 7; k++) disc(ctx, bx - 56 + k * 18, by + 7, 8, C.green);
+      rect(ctx, bx - 66, by + 10, 132, 14, C.dgreen);
+      rect(ctx, bx + 30, by - 8, 12, 9, C.grayd); rect(ctx, bx + 39, by - 20, 1, 12, C.grayd); rect(ctx, bx + 39, by - 21, 1, 1, (T >> 4) % 2 ? C.red : C.grayd);
+    } });
+  }
+  /** Confetti drifting down over the party (deterministic per tick; 2x1 pixels in four colours). */
+  confetti(ctx: CanvasRenderingContext2D, T: number) {
+    const cs = [C.hot, C.gold, C.line, C.lime, C.text];
+    for (let i = 0; i < 40; i++) {
+      const x = (i * 149 + Math.round(Math.sin((T + i * 31) / 23) * 6)) % W, y = ((i * 71 + T * (0.5 + (i % 3) * 0.25)) % (H + 20)) - 10;
+      rect(ctx, x, Math.round(y), (i + (T >> 3)) % 2 ? 2 : 1, (i + (T >> 3)) % 2 ? 1 : 2, cs[i % cs.length]);
+    }
+  }
+  /** Credits roll in the sky window: drawn to an offscreen, then cut by a 14px ordered-dither fade at both edges. */
+  private credCv: HTMLCanvasElement | null = null; private credMask: HTMLCanvasElement | null = null;
+  creditsWindow(ctx: CanvasRenderingContext2D, P: NonNullable<UI['plan']>, off: number, t: number) {
+    const top = END_WIN_TOP, h = END_WIN; const FADE = 14;
+    if (typeof document === 'undefined') return;
+    if (!this.credCv) { this.credCv = document.createElement('canvas'); this.credCv.width = W; this.credCv.height = h; }
+    if (!this.credMask) {
+      const m = document.createElement('canvas'); m.width = W; m.height = h; const mx = m.getContext('2d')!; mx.fillStyle = '#000';
+      for (let y = 0; y < h; y++) {
+        const d = Math.min(y, h - 1 - y); const lv = d >= FADE ? 16 : Math.floor((d + 1) * 16 / (FADE + 1));
+        for (let x = 0; x < W; x++) if (BAYER[(y & 3) * 4 + (x & 3)] < lv) mx.fillRect(x, y, 1, 1);
+      }
+      this.credMask = m;
+    }
+    const c = this.credCv.getContext('2d'); if (!c) return;
+    c.globalCompositeOperation = 'source-over'; c.imageSmoothingEnabled = false; c.clearRect(0, 0, W, h);
+    let y = h - off;
+    for (const it of P.credits) { if (y + it.h > -80 && y < h + 10) it.draw(c, y, t); y += it.h; }
+    c.globalCompositeOperation = 'destination-in'; c.drawImage(this.credMask, 0, 0); c.globalCompositeOperation = 'source-over';
+    ctx.drawImage(this.credCv, 0, top);
+  }
+  /** The closing card: title, the typed story, one row of stat chips, then the CONTINUE prompt. Stays above the lawn
+   *  so the diorama keeps playing underneath. */
+  endingCard(g: Game, ctx: CanvasRenderingContext2D, P: NonNullable<UI['plan']>, T: number) {
     const e = P.e; if (!e) return;
     const title = e.title.toUpperCase();
-    const allLogo = [...title].every(ch => ch === ' ' || 'PODLEATR'.includes(ch));
-    if (allLogo && title.length <= 14) drawLogo(ctx, logoWord(title.replace(/ /g, ''), 2, GOLD, 3, 2, 3), W / 2, 12);
-    else {
-      const tw = numWidth(title) + 36;
-      chamferFill(ctx, W / 2 - tw / 2, 10, tw, 26, C.ink, 6); chamferLine(ctx, W / 2 - tw / 2, 10, tw, 26, C.burnt, 6);
-      headline(ctx, title, W / 2, 17, C.gold, C.cream, C.burnt);
-    }
+    const tw = numWidth(title) + 36;
+    chamferFill(ctx, W / 2 - tw / 2, 6, tw, 26, C.ink, 6); chamferLine(ctx, W / 2 - tw / 2, 6, tw, 26, C.burnt, 6);
+    headline(ctx, title, W / 2, 13, C.gold, C.cream, C.burnt);
     const lines = P.lines;
-    const py = 44, ph = Math.min(148, lines.length * 11 + 14);
+    const py = 38, ph = Math.min(150, lines.length * 11 + 14);
     const shown = Math.floor(T / END_LINE);
-    frame(ctx, PF_X + 2, py, PF_W - 4, ph, C.gold, C.night, 6);
-    ticks(ctx, PF_X + 2, py, PF_W - 4, ph, C.burnt, 7, 3);
+    frame(ctx, PF_X - 20, py, PF_W + 40, ph, C.gold, C.night, 6);
+    ticks(ctx, PF_X - 20, py, PF_W + 40, ph, C.burnt, 7, 3);
     lines.slice(0, shown + 1).forEach((l, i) => { if (py + 8 + i * 11 < py + ph - 8) text(ctx, l, W / 2, py + 8 + i * 11, C.text, { align: 'center', shadow: C.ink }); });
     const s = g.state;
     if (shown > lines.length) {
       const stats: [string, string, string, string][] = [['star', String(s.score), 'PTS', C.gold], ['cat', String(s.stats.catsBooped), 'BOOPED', C.hot], ['paw', String(P.pups), 'PUPS', C.line],
         ['photo', `${s.memories.length}/${g.content.memories.length}`, 'MEMORIES', C.violet], ['clock', String(Math.floor(s.stats.playTicks / 3600)), 'MIN', C.lime], ['moon', String(s.stats.naps), 'NAPS', C.pale]];
-      const cw = 128, cols = 3;
+      const ws = stats.map(([, v, l]) => 26 + textWidth(v) + 6 + textWidth(l) + 8); const gapX = 5;
+      let cx = Math.round(W / 2 - (ws.reduce((a, b) => a + b, 0) + gapX * (ws.length - 1)) / 2); const cy = py + ph + 5;
       stats.forEach(([ic, v, l, c], i) => {
-        const cx = W / 2 - (cols * cw) / 2 + (i % cols) * cw + 4, cy = 276 + Math.floor(i / cols) * 22;
-        chamferFill(ctx, cx, cy, cw - 8, 18, C.ink, 4); chamferLine(ctx, cx, cy, cw - 8, 18, darkOf(c), 4);
+        const cw = ws[i];
+        chamferFill(ctx, cx, cy, cw, 18, C.ink, 4); chamferLine(ctx, cx, cy, cw, 18, darkOf(c), 4);
         chamferFill(ctx, cx + 2, cy + 2, 18, 14, darkOf(c), 3); icon(ctx, ic, cx + 7, cy + 5, c === C.pale ? C.text : lighter(c));
-        text(ctx, v, cx + 26, cy + 6, C.text, { shadow: C.night }); text(ctx, l, cx + cw - 14, cy + 6, c, { align: 'right' });
+        text(ctx, v, cx + 26, cy + 6, C.text, { shadow: C.night }); text(ctx, l, cx + cw - 8, cy + 6, c, { align: 'right' });
+        cx += cw + gapX;
       });
     }
     // prompt: plate and caption appear together once everything has been revealed (never an empty frame)
     if (T >= P.reveal) {
       const k = keys(this.dev()); const pairs: [string, string][] = [[k.ok, 'CONTINUE']]; const pw = hintWidth(pairs) + 20;
-      chamferFill(ctx, W / 2 - pw / 2, 338, pw, 17, C.ink, 4); chamferLine(ctx, W / 2 - pw / 2, 338, pw, 17, (this.t >> 4) % 2 ? C.gold : C.burnt, 4);
-      hintRow(ctx, pairs, W / 2, 343, (this.t >> 4) % 2 ? C.gold : C.orange);
+      chamferFill(ctx, W / 2 - pw / 2, 340, pw, 17, C.ink, 4); chamferLine(ctx, W / 2 - pw / 2, 340, pw, 17, (this.t >> 4) % 2 ? C.gold : C.burnt, 4);
+      hintRow(ctx, pairs, W / 2, 345, (this.t >> 4) % 2 ? C.gold : C.orange);
     }
   }
   recovery(ctx: CanvasRenderingContext2D) {
@@ -1356,8 +1643,8 @@ class UI implements Module {
     this.homeYard(ctx, HZ, t);
     // Captain Pom (the in-game sprite) hovers over the garden gate against the sun, waiting to fly again
     const hov = Math.round(Math.sin(t / 14) * 2);
-    const shw = 11 - hov; dither(ctx, W / 2 - shw, HZ + 6, shw * 2, 3, C.ink, 'check'); rect(ctx, W / 2 - shw + 3, HZ + 7, shw * 2 - 6, 1, C.ink);
-    drawSprite(ctx, SHEETS.pom ? 'pom' : 'poodle', W / 2, HZ - 30 + hov);
+    const shw = 20 - hov; dither(ctx, W / 2 - shw, HZ + 8, shw * 2, 4, C.ink, 'check'); rect(ctx, W / 2 - shw + 5, HZ + 9, shw * 2 - 10, 2, C.ink);
+    this.heroPom(ctx, W / 2, HZ - 35 + hov, t);
     const w = 340, h = 160, x = Math.round(W / 2 - w / 2), y = 70;
     frame(ctx, x, y, w, h, C.hot, C.night, 8);
     scanlines(ctx, x + 2, y + 2, w - 4, h - 4);
