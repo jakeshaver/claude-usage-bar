@@ -54,7 +54,8 @@ for (const i of data.items) sprite(`items#${i.id}`, i.sprite);
 for (const b of data.bonus) if (!E.has(b.breed)) errors.push(`bonus#${b.id}: unknown breed "${b.breed}"`);
 for (const d of data.dialogue) { if (d.next && !D.has(d.next)) errors.push(`dialogue#${d.id}: next "${d.next}" missing`); sprite(`dialogue#${d.id} portrait`, d.portrait); checkCond(`dialogue#${d.id}`, d.when); }
 for (const m of data.memories) { const a = data.areas.find((x: any) => x.id === m.area); if (!a) errors.push(`memories#${m.id}: unknown area`); else if (m.wave >= a.waves.length) errors.push(`memories#${m.id}: wave ${m.wave} out of range`); }
-for (const q of data.quests) { checkCond(`quests#${q.id} start`, q.start.when); checkCond(`quests#${q.id} complete`, q.complete.when); if (q.start.match?.areaId && !A.has(q.start.match.areaId)) errors.push(`quests#${q.id}: unknown area in match`); }
+for (const q of data.quests) { checkCond(`quests#${q.id} start`, q.start.when); checkCond(`quests#${q.id} complete`, q.complete.when); if (q.start.match?.areaId && !A.has(q.start.match.areaId)) errors.push(`quests#${q.id}: unknown area in match`);
+  for (const t of q.expire === undefined ? [] : Array.isArray(q.expire) ? q.expire : [q.expire]) { checkCond(`quests#${q.id} expire`, t.when); if (t.match?.areaId && !A.has(t.match.areaId)) errors.push(`quests#${q.id}: unknown area in expire`); } }
 for (const e of data.endings) checkCond(`endings#${e.id}`, e.when);
 for (const e of validateTracks()) errors.push('audio: ' + e);
 // reachability over the area graph (ignoring conditions = optimistic)

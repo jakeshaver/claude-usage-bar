@@ -312,7 +312,15 @@
    "flags": [
     "nebula_visited"
    ]
-  }
+  },
+  "expire": [
+   {
+    "on": "area:enter",
+    "match": {
+     "areaId": "moon"
+    }
+   }
+  ]
  },
  {
   "id": "home_again",
