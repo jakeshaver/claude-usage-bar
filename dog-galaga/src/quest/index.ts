@@ -1,6 +1,6 @@
 import type { Game, Module } from '../core/game';
 import { evalCond } from '../core/conditions';
-import type { QuestDef, Scene } from '../core/types';
+import type { QuestDef, QuestState, Scene } from '../core/types';
 import { normalizeQuests, matchPayload, deriveQuest, type NQuest } from './validate';
 import { DialogueEngine, revealLines, DLG_COLS, DLG_ROWS, type DlgState } from './dialogue';
 import { buildSheet, drawSheet, type SheetSlot } from './sheet';
@@ -9,8 +9,17 @@ import { buildSheet, drawSheet, type SheetSlot } from './sheet';
 const IGNORED = new Set(['error', 'state:set']);
 /** Progress is stored in the save under these inventory keys (kept for save compatibility). */
 const PKEY = (id: string) => '_q_' + id;
-/** A quest closed as missed (its route was passed by). Saved alongside progress. */
+/** Legacy marker (saves before polish 1): an 'active' quest closed as missed. Migrated to state 'missed' on load. */
 const XKEY = (id: string) => '_qx_' + id;
+/**
+ * Quest states the engine writes. 'missed' is a closed, terminal state like 'done' (its window passed: the other
+ * branch was taken, or the run ended first). It is stored in `state.quests`, so the journal and save see it.
+ * core/types.ts QuestState does not list it yet (docs/core-requests/quest.md, Polish 1); the cast lives here only.
+ */
+export type QState = QuestState | 'missed';
+const MISSED = 'missed' as unknown as QuestState;
+/** The run is over: nothing may stay "in progress" past this event (quests still open close as missed, quietly). */
+const RUN_END = 'ending';
 /** Min ticks between quest toasts, so they arrive one at a time instead of stacking. */
 const TOAST_GAP = 36;
 const fmt = (n: number) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -192,7 +201,7 @@ class Quest implements Module {
     } finally { this.busy = false; }
   }
 
-  private st(id: string) { return this.g.state.quests[id] ?? 'locked'; }
+  private st(id: string): QState { return (this.g.state.quests[id] as QState | undefined) ?? 'locked'; }
 
   private process(evt: string, p: any) {
     for (const q of this.quests()) {
@@ -200,9 +209,10 @@ class Quest implements Module {
         if (this.st(q.id) === 'locked' && this.matches(q.start, evt, p)) this.begin(q);
         // the starting event also counts toward completion when it matches (e.g. first memory of the scrapbook)
         if (this.st(q.id) === 'active' && this.matches(q.complete, evt, p)) this.bump(q);
-        else if (this.st(q.id) === 'active' && !this.missed(q.id)) {
+        else if (this.st(q.id) === 'active') {
           if (q.track && evt === 'memory:get') this.trackStep(q);
-          if (q.expire.some(t => this.matches(t, evt, p))) this.miss(q);
+          if (evt === RUN_END) this.miss(q, true);
+          else if (q.expire.some(t => this.matches(t, evt, p))) this.miss(q);
         }
       } catch (e) { this.g.reportError('quest', e); }
     }
@@ -225,16 +235,23 @@ class Quest implements Module {
     else if (have < need) this.say(`${q.name.toUpperCase()} ${have}/${need} MEMORIES`);
   }
 
-  /** The quest's route was passed by: close it gently (no reward, no penalty). */
-  private miss(q: NQuest) {
-    this.g.state.inventory[XKEY(q.id)] = 1;
-    this.g.bus.emit('quest:progress', { questId: q.id, ...this.progress(q), missed: true });
-    this.say(`${q.name.toUpperCase()}: MISSED. NEXT FLIGHT!`);
+  /**
+   * The quest's window closed (its route was passed by, an `expire` trigger fired, or the run ended): close it
+   * gently as 'missed' (no reward, no penalty). Progress is kept so the journal can show how far Pom got.
+   * `quiet` skips the toast (the run-end sweep happens behind the ending scene).
+   */
+  private miss(q: NQuest, quiet = false) {
+    const p = this.progress(q);
+    delete this.g.state.inventory[XKEY(q.id)];
+    this.unrevealed.delete(q.id);
+    this.g.ops.setQuest(q.id, MISSED);
+    this.g.bus.emit('quest:progress', { questId: q.id, ...p, missed: true });
+    if (!quiet) this.say(`${q.name.toUpperCase()}: MISSED. NEXT FLIGHT!`);
   }
-  /** True when an active quest was closed as missed. */
-  missed(id: string) { return this.st(id) === 'active' && !!this.g.state.inventory[XKEY(id)]; }
+  /** True when a quest was closed as missed (also reads the pre-polish marker on an 'active' quest). */
+  missed(id: string) { const s = this.st(id); return s === 'missed' || (s === 'active' && !!this.g.state.inventory[XKEY(id)]); }
   /** Quest status including 'missed' (ui journal / HUD). */
-  status(id: string): 'locked' | 'active' | 'done' | 'missed' { return this.missed(id) ? 'missed' : this.st(id); }
+  status(id: string): QState { return this.missed(id) ? 'missed' : this.st(id); }
 
   private bump(q: NQuest) {
     const s = this.g.state; const k = PKEY(q.id); const need = q.complete.count;
@@ -379,6 +396,9 @@ class Quest implements Module {
       if (this.st(q.id) !== 'locked') continue;
       const i0 = evts.findIndex(e => hit(q.start, e)); if (i0 < 0) continue;
       if (q.expire.some(t => evts.slice(i0).some(e => hit(t, e)))) continue;
+      // its window closes on arriving here (secret_route on a deep link to the moon): closed already, no toast
+      const arrive = { evt: 'area:enter', p: { areaId, waveIndex: 0 } };
+      if (q.expire.some(t => hit(t, arrive))) { seeded.push(q.id); this.g.ops.setQuest(q.id, MISSED); continue; }
       const n = evts.slice(i0).filter(e => hit(q.complete, e)).length;
       seeded.push(q.id); this.touched[q.id] = this.g.tick - 1;
       if (n >= q.complete.count && !q.track) {
@@ -409,6 +429,10 @@ class Quest implements Module {
 
   /** Re-evaluate: quests that start on 'check' (condition-only), and active quests already at their count. */
   check() {
+    // saves from before 'missed' was a state: an active quest with the old marker becomes 'missed'
+    for (const q of this.quests()) if (this.st(q.id) === 'active' && this.g.state.inventory[XKEY(q.id)]) this.miss(q, true);
+    // a save written at the ending (or an old one) never keeps a quest open past the run
+    if (this.g.state.ending) for (const q of this.quests()) if (this.st(q.id) === 'active') this.miss(q, true);
     this.onEvent('check', {});
     for (const q of this.quests()) if (this.st(q.id) === 'active' && (this.g.state.inventory[PKEY(q.id)] ?? 0) >= q.complete.count) this.complete(q);
   }

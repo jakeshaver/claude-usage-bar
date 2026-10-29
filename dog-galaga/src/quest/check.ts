@@ -21,6 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { runPath } from '../../tools/bot-core';
 import { createGame } from '../core/boot';
+import { evalCond } from '../core/conditions';
 import { RAW, loadContent } from '../core/content';
 import { paginate, revealLines, voiceFor, blipAt, DLG_COLS, DLG_ROWS } from './dialogue';
 import { normalizeQuests, deriveQuest } from './validate';
@@ -88,27 +89,31 @@ const fair = (api: any) => {
   if (g.state.scene === 'bonus') { g.autopilot = false; const a = bonusPilot(g); g.input.synthetic.clear(); for (const x of a) g.input.synthetic.add(x); }
   else if (!g.autopilot) { g.autopilot = true; g.input.synthetic.clear(); }
 };
-const started: Record<string, string[]> = {}; const done: Record<string, string[]> = {};
+const started: Record<string, string[]> = {}; const done: Record<string, string[]> = {}; const missedOn: Record<string, string[]> = {};
 const queue: string[][] = [[]]; const seen = new Set<string>(); let paths = 0;
 // quests bound to one sector (or route) must end done or missed on every path that started them
 const bound = new Set(nq.filter(q => typeof q.complete.match?.areaId === 'string' || typeof q.complete.match?.bossId === 'string').map(q => q.id));
 while (opts.paths !== false && queue.length) {
   const r = queue.shift()!; const key = r.join('>'); if (seen.has(key)) continue; seen.add(key);
-  let missed: string[] = [];
-  const res = runPath(r, 1337, { onTick: (api: any) => { fair(api); missed = Object.keys(api.game.state.quests).filter(id => api.game.mods.quest.missed(id)); } }); paths++;
+  const res = runPath(r, 1337, { onTick: fair }); paths++;
   const label = res.route.join('>');
   ok(!res.softlock, `path ${label}: ${res.softlock}`);
   ok(!res.errors.length, `path ${label}: errors ${res.errors.join('; ')}`);
   for (const [id, st] of Object.entries(res.quests)) {
     if (st !== 'locked') (started[id] ??= []).push(label);
     if (st === 'done') (done[id] ??= []).push(label);
-    if (bound.has(id) && st === 'active' && !missed.includes(id)) problems.push(`path ${label}: quest ${id} is still in progress at the ending (neither done nor missed)`);
+    if (st === 'missed') (missedOn[id] ??= []).push(label);
+    // the run is over: every quest that started is closed (done or missed) in the saved state itself, so the
+    // journal after the credits never lists a dangling open quest (critic issue: secret_route on moon routes)
+    if (st === 'active') problems.push(`path ${label}: quest ${id} is still 'active' at the ending (neither done nor missed)${bound.has(id) ? ' [sector-bound]' : ''}`);
+    if (st !== 'locked' && st !== 'active' && st !== 'done' && st !== 'missed') problems.push(`path ${label}: quest ${id} has unknown state "${st}"`);
   }
   queue.push(...res.branches);
 }
 if (opts.paths !== false) for (const q of content.quests) {
   ok(started[q.id]?.length, `quest ${q.id} is never started on any path`);
   ok(done[q.id]?.length, `quest ${q.id} is never completed on any path`);
+  if (missedOn[q.id]?.length) log.push(`  quest ${q.id.padEnd(16)} missed on ${missedOn[q.id].length}/${paths} paths`);
 }
 
 // ---------- 4. robustness ----------
@@ -320,6 +325,38 @@ for (const d of content.dialogue) for (const p of paginate(d.text)) ok(revealLin
     ok(Q3.progress({ id: 'secret_route' }).have === Math.min(p0.need, g3.state.memories.length), 'secret_route progress does not follow memories');
     g3.bus.emit('area:enter', { areaId: 'moon', waveIndex: 0 });
     ok(Q3.status('secret_route') === 'missed' && Q3.tracked()?.id !== 'secret_route', 'taking the moon branch did not close secret_route as missed');
+    ok(g3.state.quests.secret_route === 'missed', `secret_route state is "${g3.state.quests.secret_route}" after the moon branch, not 'missed' (journal reads state)`);
+    ok(Q3.goal({ id: 'secret_route' }) === 'NEXT FLIGHT!', 'goal() of a missed quest');
+    // missed is terminal: reaching the nebula later (deep link) does not reopen or pay it
+    g3.bus.emit('area:enter', { areaId: 'nebula', waveIndex: 0 });
+    ok(g3.state.quests.secret_route === 'missed' && !g3.state.flags.nebula_visited, 'a missed quest completed after its window closed');
+    // conditions can test it
+    ok(evalCond({ quest: 'secret_route', is: 'missed' as any }, g3.state), '{quest, is: "missed"} condition false for a missed quest');
+  }
+  // the run ending closes every quest still open as missed (quietly), and leaves done ones alone
+  {
+    const g5: any = createGame({ headless: true }); const Q5 = g5.mods.quest;
+    g5.mods.world.enterArea(content.start, 0); Q5.skipAll();
+    const open0 = Object.keys(g5.state.quests).filter(id => g5.state.quests[id] === 'active');
+    ok(open0.length > 0, 'no quest active in the start sector (ending sweep untested)');
+    Q5.complete({ id: open0[0] });
+    const toasts0 = Q5.heldToasts().length;
+    g5.bus.emit('ending', { endingId: 'ending_good' });
+    const left = Object.keys(g5.state.quests).filter(id => g5.state.quests[id] === 'active');
+    ok(!left.length, `quests still active after the ending event: ${left.join(', ')}`);
+    ok(g5.state.quests[open0[0]] === 'done', 'ending sweep touched a done quest');
+    ok(open0.slice(1).every(id => g5.state.quests[id] === 'missed'), 'ending sweep did not mark open quests missed');
+    ok(Q5.heldToasts().length === toasts0, 'ending sweep queued MISSED toasts behind the ending');
+    // a save from before 'missed' was a state (active + the old marker) loads as missed; a save written at the
+    // ending (quests still active: the save runs before the ending event) loads with nothing open
+    const g6: any = createGame({ headless: true }); const Q6 = g6.mods.quest;
+    g6.ops.setQuest('secret_route', 'active'); g6.state.inventory._qx_secret_route = 1; Q6.check();
+    ok(g6.state.quests.secret_route === 'missed' && !g6.state.inventory._qx_secret_route, 'legacy missed marker not migrated to state missed');
+    g6.ops.setQuest('lost_pups', 'active'); g6.state.ending = 'ending_good'; Q6.check();
+    ok(g6.state.quests.lost_pups === 'missed', 'loading a save written at the ending left a quest active');
+    // a deep link to the moon closes secret_route quietly (no MISSED toast on a tool / showcase jump)
+    const g7m: any = createGame({ headless: true }); g7m.mods.world.enterArea('moon', 0);
+    ok(g7m.state.quests.secret_route === 'missed' && !g7m.mods.quest.heldToasts().some((t: string) => /MISSED/.test(t)), 'deep link to moon: secret_route not closed quietly');
   }
   // voices and rhythm
   ok(voiceFor({ speaker: 'Commander Biscuit' }).voice === 'gruff' && voiceFor({ speaker: 'Captain Pom' }).voice === 'bright' && voiceFor({ speaker: 'Empress Fluffington' }).voice === 'regal', 'speaker voices not distinct');

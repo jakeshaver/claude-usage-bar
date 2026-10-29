@@ -353,3 +353,71 @@ Earlier rounds still open before this wave:
 - R2-13 explicit `track`/`expire` in schema: declined for now; the engine derives both and content does not use them.
 - R3-8 sector quests: applied (cafe_rush, docks_catch, factory_unravel, moon_litter, nebula_sober, station_dock); `empress_audience` declined as a duplicate of `home_again`.
 - R3-10: forwarded (docks formation overlap: interaction/content; moon night grade: world; subtitle clipping: ui).
+
+## Polish 1
+
+Whole-game critic #11 (secret_route dangling 'active' after the credits). Done in src/quest: a closed quest is now
+stored as `state.quests[id] = 'missed'` (terminal, like 'done'; no reward, progress kept). It is written when an
+`expire` trigger fires (secret_route: derived from the sky exits, closes on `area:enter` moon), and by a run-end
+sweep: on the `ending` event every quest still 'active' closes as 'missed' quietly (no toast behind the ending).
+Loading a save written at the ending (it is saved just before the `ending` event) or an old save with the
+`_qx_<id>` marker migrates to 'missed' on `state:set`. A missed quest never reopens or pays out later.
+`quest.status(id)` / `missed(id)` / `goal()` ('NEXT FLIGHT!') / `tracked()` (skips it) already handle it. The
+quest check now fails if any quest is still 'active' at the ending on any path (all 8 paths: OK). Nothing crashes
+with the new value today (journal screenshot shots/q-p1-journal-missed.png), but three seams are needed:
+
+1. **core/types.ts** (needed for typing; src/quest casts until then): line 3
+   ```ts
+   export type QuestState = 'locked' | 'active' | 'done' | 'missed';
+   ```
+   `core/state.ts sanitizeState` already round-trips any string; `core/conditions.ts` `{quest, is: 'missed'}`
+   works as is (src/quest/validate.ts accepts 'missed' in conditions now). After this lands, src/quest can drop
+   `MISSED`/`QState` casts (index.ts top) with no behaviour change.
+
+2. **journal (src/journal/index.ts)**: today a 'missed' quest shows as an IN-PROGRESS-looking row (gold flag,
+   orange frame) and the detail card says LOCKED with a lock medal. Please render it as closed:
+   - questTab, after `cLine(ctx, x, y, w, h, st === 'done' ? darkOf(C.lime) : C.burnt, 3);` use a muted frame:
+     ```ts
+     const missed = st === 'missed';
+     cLine(ctx, x, y, w, h, st === 'done' ? darkOf(C.lime) : missed ? C.indigo : C.burnt, 3);
+     const ic = st === 'done' ? C.lime : missed ? C.peri : C.gold;
+     // icon: keep 'flag' for missed, in C.peri; name in C.dim when missed and not selected
+     meter(ctx, barX, ty + 1, barW, 5, p.have, p.need, st === 'done' ? C.lime : missed ? C.peri : C.gold);
+     if (missed) { const mw = textWidth('MISSED') + 8; cFill(ctx, cx - mw, ty - 2, mw, 11, C.night, 2); text(ctx, 'MISSED', cx - mw / 2, ty, C.peri, { align: 'center' }); }
+     ```
+     (instead of the `${p.have}/${p.need}` counter for missed rows; cntW already fits 'MISSED' via textWidth).
+   - questDetail:
+     ```ts
+     const acc = st === 'done' ? C.lime : st === 'active' ? C.gold : st === 'missed' ? C.peri : C.peri;
+     const lock = st === 'locked';
+     // medal icon: st === 'missed' -> icon 'flag' in C.cream (not 'lock')
+     const tag = st === 'done' ? 'COMPLETE' : st === 'active' ? 'IN PROGRESS' : st === 'missed' ? 'MISSED: NEXT FLIGHT' : 'LOCKED';
+     ```
+     or simply use `g.mods.quest.status(q.id)` everywhere `questState` is read. Optional extra line under the desc
+     for missed quests: `g.mods.quest.goal(q, 30)` returns 'NEXT FLIGHT!'.
+   - The QUESTS n/17 header counts only 'done' (correct, no change).
+
+3. **content/quests.json (optional, explicit over derived)**: the engine derives secret_route's expiry from the
+   sky exits; to make it declarative in content add to the `secret_route` entry:
+   ```json
+   "expire": [{ "on": "area:enter", "match": { "areaId": "moon" } }]
+   ```
+   and ARCHITECTURE.md section 5 quests line: `expire?: Trigger | Trigger[]` (closes the quest as 'missed' when
+   any trigger matches); section 3 GameState `quests: Record<string, 'locked'|'active'|'done'|'missed'>`; quest
+   API line: "the `ending` event closes every quest still active as 'missed'".
+
+### Quest audit (all 17, every path; the bot flies 8 sector paths, autopilot + fair bonus pilot)
+Paths: backyard > street > (park|alley) > rooftops > (cafe|docks) > factory > sky > (moon|nebula) > station > mothership.
+- Always start and complete (deterministic, no skill): first_flight, night_owl, factory_unravel, station_dock,
+  home_again, big_cats (exactly 10 bosses per route = 10 needed, zero slack; a boss that gets bored still emits
+  `boss:defeat`, so it cannot fall short, but it always completes on the final boss together with home_again).
+- Branch quests, start only on the branch taken (stay 'locked', never start, on the other 4 paths; the journal
+  shows them sealed with a pink "replay" sector tag): park_pals / bodega_respect, cafe_rush / docks_catch,
+  moon_litter / nebula_sober. Not a bug (they start on `area:enter` of their own sector), but they never close.
+- secret_route: starts on every path (sky), completes on the 4 nebula paths, now 'missed' on the 4 moon paths.
+  Note: the bot takes moon even with the gate open; a human on a moon path with 4+ memories chose it knowingly.
+- Skill dependent (complete for the bot on all 8 paths; a human can fall short, and they now close as 'missed' at
+  the ending instead of staying open): lost_pups (6 of 8 pup sectors per route; each sector re-offers its pup on
+  every wave until caught), bonanza_star (3 Treat Bonanzas per run: street, rooftops, sky; needs one 40/40),
+  boop_brigade (1,500 of about 2,840 cats per run), scrapbook (8 of 18; all 18 reachable on every route).
+- No quest can never start or never complete on every path.
