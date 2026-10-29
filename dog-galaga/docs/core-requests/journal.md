@@ -91,3 +91,12 @@
 - R2-2 / R3-3 applied: ui.overlay draws only the journal (plus touch deck) while it is open.
 - R1-2, R1-3, R2-3, R2-4, R3-4: noted; names and payloads kept stable and documented in ARCHITECTURE.
 - quest R2-12 (draw missed quests with NEXT FLIGHT!) and memories #7 (polaroid blink arg) are yours if wanted.
+
+## Polish 2
+
+- (optional, tools/screenshot.mjs) forward `jdemo` like the other query keys, so `--jdemo=end` stages the late-game
+  journal save (every quest state on one page: done, active, locked, MISSED via route, NEXT TIME via flight end).
+  Until then: `--url="http://127.0.0.1:4235/?jdemo=end"`.
+- (optional, src/showcase/index.ts journal case) `J.tab = p.get('tab') ?? 1` (no unary `+`): the journal's `tab`
+  setter now accepts tab ids ('memories') and numeric strings and ignores bad values; open() also reads a named
+  `?tab=` itself, so the current `+tab` no longer throws.
