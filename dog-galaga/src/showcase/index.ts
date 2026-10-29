@@ -68,7 +68,8 @@ export function runShowcase(g: Game, which: string, p: URLSearchParams) {
       g.state.score = 184250; g.state.hiScore = 184250;
       g.state.stats = { ...g.state.stats, shots: 2140, hits: 1610, catsBooped: 1312, naps: 3, playTicks: 60 * 60 * 47 };
       g.state.memories = g.content.memories.slice(0, 14).map(m => m.id);
-      g.setScene('ending'); g.mods.ui.endingT = 2000; break;
+      // at=N stages the ending N ticks in (420 landed diorama, 640 credits); default the closing card
+      g.setScene('ending'); g.mods.ui.endingT = p.get('at') !== null ? +p.get('at')! : 2000; break;
     case 'audio': audioShowcase(g); break;
     default: g.reportError('showcase', `unknown showcase ${which}`);
   }
