@@ -141,6 +141,17 @@ class Interaction implements Module {
     if (!cellsUnique(mem.map(c => ({ row: c.row, u: c.u })))) this.g.reportError('interaction', 'two cats share a formation cell');
   }
 
+  /** Pure: per-breed head counts of the formation startWave(areaId, i) would spawn (no RNG draws, no state change). */
+  wavePreview(areaId: string, i: number): { breed: string; n: number }[] {
+    const g = this.g; const area = g.mods.world.area(areaId);
+    const w = g.content.waves.find(x => x.id === area?.waves[i]); if (!w) return [];
+    const T = tuning(g, w.fireRate, w.diveRate);
+    const areaIdx = g.content.areas.findIndex(a => a.id === areaId);
+    const by = new Map<string, number>();
+    for (const h of layout(w, shapeFor(areaIdx, i), i, id => this.enemy(id), Math.round(22 + 12 * T.d), latticeFor(areaId).cols)) by.set(h.def.id, (by.get(h.def.id) ?? 0) + 1);
+    return [...by].map(([breed, n]) => ({ breed, n }));
+  }
+
   startWave(areaId: string, i: number) {
     const g = this.g; const area = g.mods.world.area(areaId);
     const wid = area?.waves[i]; const w = g.content.waves.find(x => x.id === wid);
