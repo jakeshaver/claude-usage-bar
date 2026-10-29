@@ -59,38 +59,76 @@ export interface ToneOpts {
   /** optional lowpass cutoff for softening. */
   lp?: number;
   detune?: number;
+  /** duty switch on accents: change to this duty `dutyAt` seconds into the note (NES-style mid-note duty change). */
+  dutyTo?: Duty; dutyAt?: number;
 }
 
 /** One enveloped oscillator note. Returns the end time. */
 export function tone(k: Kit, out: AudioNode, t: number, freq: number, dur: number, vol: number, o: ToneOpts = {}): number {
   if (!(freq > 0) || !(dur > 0) || !(vol > 0)) return t;
   const c = k.ctx;
-  const osc = c.createOscillator();
   const w = o.wave ?? 'pulse';
-  if (w === 'pulse') osc.setPeriodicWave(k.pulse[String(o.duty ?? 0.5)]);
-  else if (w === 'tri') osc.setPeriodicWave(k.tri);
-  else osc.type = w === 'saw' ? 'sawtooth' : 'sine';
-  osc.frequency.setValueAtTime(freq, t);
-  if (o.detune) osc.detune.setValueAtTime(o.detune, t);
-  if (o.slideTo && o.slideTo > 0) osc.frequency.exponentialRampToValueAtTime(o.slideTo, t + (o.slideTime ?? dur));
-  const g = c.createGain();
   const a = o.attack ?? 0.004, r = o.release ?? 0.04;
   const sus = (o.sustain ?? 0.75) * vol, dec = o.decay ?? 0.09;
+  const end = t + Math.max(dur, a + 0.005);
+  const g = c.createGain();
   g.gain.setValueAtTime(0, t);
   g.gain.linearRampToValueAtTime(vol, t + a);
   g.gain.setTargetAtTime(sus, t + a, dec / 3);
-  const end = t + Math.max(dur, a + 0.005);
   g.gain.setTargetAtTime(0, end, r / 4);
-  let node: AudioNode = osc;
-  if (o.lp) { const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = o.lp; f.Q.value = 0.5; osc.connect(f); node = f; }
-  node.connect(g); g.connect(out);
-  let lfo: OscillatorNode | null = null;
+  let sink: AudioNode = g;
+  if (o.lp) { const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = o.lp; f.Q.value = 0.5; f.connect(g); sink = f; }
+  g.connect(out);
+  const stopAt = end + r + 0.05;
+  // one or two oscillators (two = a mid-note duty switch, gated so exactly one sounds at a time)
+  const sw = w === 'pulse' && o.dutyTo && o.dutyTo !== (o.duty ?? 0.5) && (o.dutyAt ?? 0) > 0 && (o.dutyAt ?? 0) < dur ? t + (o.dutyAt as number) : 0;
+  const mk = (duty: Duty | undefined, from: number, to: number): OscillatorNode => {
+    const osc = c.createOscillator();
+    if (w === 'pulse') osc.setPeriodicWave(k.pulse[String(duty ?? 0.5)]);
+    else if (w === 'tri') osc.setPeriodicWave(k.tri);
+    else osc.type = w === 'saw' ? 'sawtooth' : 'sine';
+    osc.frequency.setValueAtTime(freq, t);
+    if (o.detune) osc.detune.setValueAtTime(o.detune, t);
+    if (o.slideTo && o.slideTo > 0) osc.frequency.exponentialRampToValueAtTime(o.slideTo, t + (o.slideTime ?? dur));
+    if (sw) { const gate = c.createGain(); gate.gain.setValueAtTime(from === t ? 1 : 0, t); gate.gain.setValueAtTime(from === t ? 0 : 1, sw); osc.connect(gate); gate.connect(sink); }
+    else osc.connect(sink);
+    osc.start(t); osc.stop(to);
+    return osc;
+  };
+  const oscs = sw ? [mk(o.duty, t, Math.min(stopAt, sw + 0.01)), mk(o.dutyTo, sw, stopAt)] : [mk(o.duty, t, stopAt)];
   if (o.vib && dur > 0.18) {
-    lfo = c.createOscillator(); lfo.frequency.value = o.vibRate ?? 5.6;
+    const lfo = c.createOscillator(); lfo.frequency.value = o.vibRate ?? 5.6;
     const lg = c.createGain(); lg.gain.setValueAtTime(0, t); lg.gain.linearRampToValueAtTime(0, t + 0.12); lg.gain.linearRampToValueAtTime(o.vib, t + Math.min(dur, 0.45));
-    lfo.connect(lg); lg.connect(osc.detune); lfo.start(t); lfo.stop(end + r + 0.05);
+    lfo.connect(lg); for (const osc of oscs) lg.connect(osc.detune); lfo.start(t); lfo.stop(stopAt);
   }
-  osc.start(t); osc.stop(end + r + 0.05);
+  return end + r;
+}
+
+export interface PwmOpts { d0?: number; d1?: number; vib?: number; vibRate?: number; slideFrom?: number; slideTime?: number; attack?: number; release?: number; sustain?: number; decay?: number }
+/**
+ * Pulse-width-modulated pulse: saw(t) - saw(t - D) is a band-limited pulse whose duty is D*f, so ramping the
+ * delay time sweeps the duty within the note (the classic C64/modern-chiptune "PWM" lead).
+ */
+export function pwmTone(k: Kit, out: AudioNode, t: number, freq: number, dur: number, vol: number, o: PwmOpts = {}): number {
+  if (!(freq > 0) || !(dur > 0) || !(vol > 0)) return t;
+  const c = k.ctx;
+  const a = o.attack ?? 0.006, r = o.release ?? 0.06; const end = t + Math.max(dur, a + 0.005); const stopAt = end + r + 0.05;
+  const saw = c.createOscillator(); saw.type = 'sawtooth';
+  if (o.slideFrom && o.slideFrom > 0) { saw.frequency.setValueAtTime(o.slideFrom, t); saw.frequency.exponentialRampToValueAtTime(freq, t + (o.slideTime ?? 0.05)); }
+  else saw.frequency.setValueAtTime(freq, t);
+  const d = c.createDelay(0.1); const d0 = o.d0 ?? 0.125, d1 = o.d1 ?? 0.4;
+  d.delayTime.setValueAtTime(d0 / freq, t); d.delayTime.linearRampToValueAtTime(d1 / freq, t + dur * 0.6); d.delayTime.linearRampToValueAtTime((d0 + d1) / 2 / freq, end);
+  const inv = c.createGain(); inv.gain.value = -1;
+  const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 40; hp.Q.value = 0.5;
+  const g = c.createGain(); const sus = (o.sustain ?? 0.7) * vol;
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol * 0.55, t + a); g.gain.setTargetAtTime(sus * 0.55, t + a, (o.decay ?? 0.12) / 3); g.gain.setTargetAtTime(0, end, r / 4);
+  saw.connect(hp); saw.connect(d); d.connect(inv); inv.connect(hp); hp.connect(g); g.connect(out);
+  if (o.vib && dur > 0.18) {
+    const lfo = c.createOscillator(); lfo.frequency.value = o.vibRate ?? 5.6;
+    const lg = c.createGain(); lg.gain.setValueAtTime(0, t); lg.gain.linearRampToValueAtTime(0, t + 0.12); lg.gain.linearRampToValueAtTime(o.vib, t + Math.min(dur, 0.45));
+    lfo.connect(lg); lg.connect(saw.detune); lfo.start(t); lfo.stop(stopAt);
+  }
+  saw.start(t); saw.stop(stopAt);
   return end + r;
 }
 
@@ -132,9 +170,9 @@ export function lfo(k: Kit, param: AudioParam, rate: number, depth: number, t: n
 // ---- drum kit -------------------------------------------------------------------------------
 export function drum(k: Kit, out: AudioNode, t: number, kind: string, vol = 1): void {
   switch (kind) {
-    case 'k': // kick: triangle pitch drop + click
-      tone(k, out, t, 150, 0.11, 0.9 * vol, { wave: 'sine', slideTo: 42, slideTime: 0.1, attack: 0.001, sustain: 0.6, decay: 0.08, release: 0.05 });
-      noise(k, out, t, 0.012, 0.25 * vol, { type: 'lowpass', freq: 2500 });
+    case 'k': // chip kick: stepped-triangle pitch dive (NES-style) + a short noise "tick"
+      tone(k, out, t, 190, 0.09, 0.95 * vol, { wave: 'tri', slideTo: 48, slideTime: 0.06, attack: 0.001, sustain: 0.55, decay: 0.06, release: 0.04 });
+      noise(k, out, t, 0.018, 0.3 * vol, { type: 'lowpass', freq: 1800, rate: 0.5 });
       break;
     case 's': // snare: body tone + bright noise
       tone(k, out, t, 210, 0.05, 0.35 * vol, { wave: 'tri', slideTo: 150, attack: 0.001, release: 0.03 });

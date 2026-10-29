@@ -3,13 +3,18 @@
 // Notation (16 steps per bar, one step = a 16th note):
 //   chords: one entry per bar; "Am D" splits the bar evenly. Qualities: '', m, 7, m7, maj7, dim, sus2, sus4.
 //   lead:   one string per bar (purely for readability; notes may tie across bars). Tokens "E5/2" = E5 for
-//           2 sixteenths, "r/4" = rest. Duration defaults to 2. Total must equal bars*16.
+//           2 sixteenths, "r/4" = rest, "~E5/2" = glide (portamento) into E5 from the previous note.
+//           Duration defaults to 2. Total must equal bars*16.
 //   bass:   16-token pattern per bar, cycled: R root(oct 2) O root(oct 3) 5 fifth 3 third 7 seventh
-//           o fifth-up-an-octave, '-' hold previous, '.' rest.
+//           o fifth-up-an-octave, '-' hold previous, '.' rest. `bassB` replaces it from bar `bAt` (B section).
 //   arp:    pattern of chord-tone indices (0 root, 1 third, 2 fifth, 3 seventh/octave, 4.. next octave), '.' rest.
 //   drums:  16-token patterns cycled per bar: k kick s snare h hat o open hat c crash t/T toms x clap, '.' rest.
+//           `drumsB` replaces them from bar `bAt`; `drumBars` overrides single bars (drops, half-time bars);
 //           `fill` replaces the drum pattern of the last bar of the loop.
+//   intro:  optional bars played once before the loop starts (a sting; never repeated).
+//   repeat: what changes on every second pass of the loop (key lift, auto counter-melody, echo-arp, lead duty).
 import type { Duty } from './synth';
+import { SFX_IDS } from './sfx';
 
 export interface Track {
   bpm: number;
@@ -17,70 +22,105 @@ export interface Track {
   swing?: number;
   chords: string[];
   lead: string[];
-  leadVoice: { wave: 'pulse' | 'tri'; duty?: Duty; vol: number; vib?: number; echo?: number };
+  /**
+   * accent: duty the lead switches to mid-note on held notes (>= 4 steps), e.g. 12.5% -> 25%.
+   * pwm: held notes use a swept-duty (PWM) voice instead. glide: portamento time for "~" notes (s).
+   */
+  leadVoice: { wave: 'pulse' | 'tri'; duty?: Duty; vol: number; vib?: number; echo?: number; accent?: Duty; pwm?: boolean; glide?: number };
   bass: string[];
+  bassB?: string[];
+  /** first bar of the B section (default: half the loop). */
+  bAt?: number;
   bassVol?: number;
   arp?: { pat: string; oct: number; duty?: Duty; vol: number; len?: number };
   drums: string[];
+  drumsB?: string[];
+  drumBars?: Record<number, string>;
   fill?: string;
   drumVol?: number;
   /** Optional sustained pad (pulse 12.5%, very quiet) on chord tones 0/1/2 per chord. */
   pad?: number;
+  intro?: { chords: string[]; lead: string[]; drums: string[]; bass?: string };
+  /** lift: semitones up on repeat passes; counter: volume of the auto counter-melody (tri) on repeat passes. */
+  repeat?: { lift?: number; counter?: number; echoArp?: boolean; leadDuty?: Duty };
+  /** semitones applied to every pitched part (area variants share a song but sit in different keys). */
+  key?: number;
+  /** one-shot song (stinger): only the intro is played, then the sequencer hands over to the next song. */
+  once?: boolean;
+  /** per-song loudness trim (linear, default 1), calibrated offline so area loops land at 0.080-0.095 RMS. */
+  gain?: number;
 }
 
 export const TRACKS: Record<string, Track> = {
-  // Captain Pom's theme: heroic but cozy, C major.
+  // Captain Pom's theme: heroic but cozy, C major. A = the fanfare, B = the wistful A-minor answer.
   title: {
     bpm: 116,
-    chords: ['C', 'G', 'Am', 'Em', 'F', 'C', 'Dm', 'G'],
+    chords: ['C', 'G', 'Am', 'Em', 'F', 'C', 'Dm', 'G', 'Am', 'F', 'C', 'G', 'Am', 'F', 'Dm', 'G7'],
     lead: [
-      'G4/2 C5/2 E5/2 G5/4 E5/2 G5/2 A5/2',
+      'G4/1 G4/1 C5/3 E5/1 G5/4 r/2 E5/1 G5/1 A5/2',
       'G5/6 D5/2 B4/4 D5/4',
       'C5/2 E5/2 A5/4 G5/2 E5/2 C5/4',
       'B4/6 G4/2 B4/4 E5/4',
-      'F5/2 E5/2 F5/2 A5/6 G5/2 F5/2',
+      'F5/1 F5/1 A5/3 C6/1 F6/4 r/2 E6/1 D6/1 C6/2',
       'E5/4 G5/4 C6/8',
       'D5/2 F5/2 A5/2 C6/2 B5/2 A5/2 F5/2 D5/2',
       'G5/8 F5/2 D5/2 B4/4',
+      'E5/1 E5/1 A5/3 C6/1 E6/4 r/2 D6/1 C6/1 B5/2',
+      'A5/4 F5/4 C5/8',
+      'E5/2 G5/2 C6/4 ~D6/2 E6/2 D6/4',
+      'B5/8 G5/4 D5/4',
+      'C6/1 C6/1 A5/3 E5/1 A5/4 r/2 C6/1 B5/1 A5/2',
+      'A5/2 G5/2 F5/2 C5/2 F5/4 A5/4',
+      'F5/2 E5/2 D5/2 F5/2 A5/4 ~D6/4',
+      'B5/4 G5/2 F5/2 D5/4 B4/4',
     ],
-    leadVoice: { wave: 'pulse', duty: 0.25, vol: 0.2, vib: 18, echo: 0.18 },
+    leadVoice: { wave: 'pulse', duty: 0.25, vol: 0.2, vib: 18, echo: 0.18, accent: 0.5, glide: 0.06 },
     bass: ['R - . R O - R . 5 - . 5 O - 5 .'],
+    bassB: ['R . . R . . R . 5 . . 5 . . O .'],
     arp: { pat: '0 1 2 3 2 1 0 1 2 3 2 1 0 1 2 1', oct: 4, duty: 0.125, vol: 0.07 },
     drums: ['k . h . s . h . k . h k s . h h', 'k . h . s . h . k . h . s . o .'],
+    drumsB: ['k . h h s . h . k . k h s . h o'],
+    drumBars: { 8: 'k . . . h . . . s . . . h . . .', 12: 'k . h . s . h . k . h . s s s s' },
     fill: 'k . h . s . s . s s t . t T T c',
+    repeat: { counter: 0.11, echoArp: true, leadDuty: 0.125 },
   },
-  // Backyard / street / park: bouncy G-major romp.
+  // Backyard: bouncy G-major romp.
   yard: {
     bpm: 132, swing: 0.12,
     chords: ['G', 'C', 'G', 'D', 'G', 'C', 'Am D', 'G', 'Em', 'C', 'G', 'D', 'Em', 'C', 'Am', 'D7'],
     lead: [
-      'D5/2 G5/2 B5/2 G5/2 A5/2 B5/2 G5/4',
-      'E5/2 G5/2 C6/2 B5/2 A5/4 G5/4',
+      'G5/3 G5/1 B5/2 D6/2 r/2 B5/1 D6/1 G6/4',
+      'E6/3 D6/1 C6/2 G5/2 A5/4 r/2 G5/2',
       'B5/2 A5/2 G5/2 D5/2 G5/2 B5/2 D6/4',
       'C6/2 B5/2 A5/2 F#5/2 A5/8',
-      'D5/2 G5/2 B5/2 G5/2 A5/2 B5/2 G5/4',
-      'E5/2 G5/2 C6/4 E6/4 D6/2 C6/2',
-      'B5/2 C6/2 A5/4 F#5/2 G5/2 A5/4',
+      'G5/3 G5/1 B5/2 D6/2 r/2 B5/1 D6/1 G6/4',
+      'E6/3 D6/1 C6/2 E6/2 G6/4 r/2 E6/2',
+      'D6/2 C6/2 A5/4 F#5/2 G5/2 A5/4',
       'G5/8 r/4 D5/2 E5/2',
-      'E5/4 B4/2 E5/2 G5/4 F#5/2 E5/2',
-      'E5/2 D5/2 C5/4 G4/4 C5/4',
-      'D5/4 B4/2 D5/2 G5/4 F#5/2 G5/2',
+      'E5/3 E5/1 G5/2 B5/2 r/2 G5/1 B5/1 E6/4',
+      'D6/3 C6/1 G5/2 E5/2 C5/4 r/4',
+      'D5/3 D5/1 G5/2 B5/2 r/2 B5/1 C6/1 D6/4',
       'A5/8 F#5/4 D5/4',
-      'E5/2 G5/2 B5/4 A5/2 G5/2 E5/4',
-      'G5/2 E5/2 C5/4 E5/2 G5/2 C6/4',
+      'E5/3 E5/1 G5/2 B5/2 r/2 G5/1 B5/1 E6/4',
+      'G5/2 E5/2 C5/4 E5/2 G5/2 ~C6/4',
       'C6/2 B5/2 A5/2 G5/2 E5/2 G5/2 A5/4',
       'F#5/4 A5/2 D6/2 C6/2 A5/2 F#5/2 D5/2',
     ],
-    leadVoice: { wave: 'pulse', duty: 0.5, vol: 0.17, vib: 12 },
+    leadVoice: { wave: 'pulse', duty: 0.5, vol: 0.17, vib: 12, accent: 0.25, glide: 0.05 },
     bass: ['R . O . 5 . O . R . O . 5 . 3 .'],
+    bassB: ['R . 5 . O . 5 . R . 3 . 5 . O .'],
     arp: { pat: '. . 1 2 . . 1 2 . . 1 2 . . 1 2', oct: 4, duty: 0.25, vol: 0.06, len: 1 },
     drums: ['k . h . s . h k . k h . s . h .'],
+    drumsB: ['k . h h s . h . k . h h s . o .'],
+    drumBars: { 7: 'k . h . s . h . . . . . . . . .', 12: 'k . . . s . . . k . . . s . . .' },
     fill: 'k . h . s . h k s . s s t t T T',
+    repeat: { counter: 0.1, echoArp: true, leadDuty: 0.25 },
   },
-  // Alley / cafe / factory: sneaky, syncopated A minor.
+  // Alley: sneaky, syncopated A minor.
   city: {
+    gain: 0.95,
     bpm: 138,
-    chords: ['Am', 'F', 'G', 'Em', 'Am', 'F', 'G', 'E', 'Dm', 'Am', 'Bb', 'E'],
+    chords: ['Am', 'F', 'G', 'Em', 'Am', 'F', 'G', 'E', 'Dm', 'Am', 'Bb', 'E', 'Dm', 'Am', 'F', 'E7'],
     lead: [
       'A4/3 C5/3 E5/2 r/2 D5/2 C5/2 A4/2',
       'r/2 F5/2 r/1 E5/1 D5/2 C5/4 A4/4',
@@ -94,78 +134,104 @@ export const TRACKS: Record<string, Track> = {
       'E5/2 A5/2 C6/4 B5/2 A5/2 E5/4',
       'F5/2 Bb5/2 D6/4 C6/2 Bb5/2 F5/4',
       'G#5/4 B5/4 E6/2 D6/2 B5/2 G#5/2',
+      'F5/3 A5/3 D6/2 r/2 C6/2 A5/2 F5/2',
+      'E5/3 A5/3 C6/2 r/2 B5/2 A5/2 E5/2',
+      'F5/2 A5/2 C6/2 F6/2 E6/2 C6/2 A5/2 F5/2',
+      'G#5/6 ~B5/2 D6/4 G#5/2 E5/2',
     ],
-    leadVoice: { wave: 'pulse', duty: 0.25, vol: 0.17, vib: 10 },
+    leadVoice: { wave: 'pulse', duty: 0.25, vol: 0.17, vib: 10, accent: 0.125, glide: 0.05 },
     bass: ['R R . O . R O . R . O R . 5 7 .'],
+    bassB: ['R . R O . R . 5 R . R O . 7 5 .'],
     bassVol: 0.42,
     arp: { pat: '0 . 2 . 1 . 2 . 0 . 2 . 1 . 3 .', oct: 4, duty: 0.125, vol: 0.05, len: 1 },
     drums: ['k . h k x . h . k k h . x . h h', 'k . h k x . h . k . h k x . o .'],
+    drumsB: ['k . h . x . h k . k h . x . h h'],
+    drumBars: { 7: 'k . . . x . . . k . . . x . . .', 12: '. . h . . . h . . . h . . . h .' },
     fill: 'k . h k x . x . x x t . T . c .',
+    repeat: { counter: 0.1, echoArp: true, leadDuty: 0.5 },
   },
-  // Rooftops / docks / station: dreamy E minor lullaby with echo.
+  // Rooftops: moonlit E minor. Keeps the lullaby colour (PWM lead + echo + pad) but drives: 120 bpm,
+  // 16th-note hats and a pulsing 8th bass ostinato. Hook: "da-da DAA-a da DAAAA" (bars 1/5, answered 9/13).
   night: {
-    bpm: 100,
+    gain: 1.13,
+    bpm: 120,
     chords: ['Em', 'Cmaj7', 'Am7', 'B7', 'Em', 'Cmaj7', 'Am7 B7', 'Em', 'C', 'D', 'Bm', 'Em', 'Am', 'B7', 'C', 'B7'],
     lead: [
-      'B4/4 E5/4 G5/6 F#5/2',
-      'E5/12 D5/2 E5/2',
+      'B4/2 E5/2 G5/3 F#5/1 E5/2 B5/6',
+      'E5/6 r/2 D5/2 E5/2 G5/4',
       'C5/4 E5/4 A5/6 G5/2',
-      'F#5/12 D#5/4',
-      'B5/4 G5/4 E5/4 G5/2 B5/2',
+      'F#5/6 E5/2 D#5/4 B4/4',
+      'B5/2 G5/2 E5/3 F#5/1 G5/2 B5/6',
       'C6/8 B5/4 G5/4',
       'A5/4 G5/2 F#5/2 D#5/4 F#5/4',
-      'E5/12 r/4',
-      'G5/4 E5/4 C5/4 E5/4',
-      'F#5/4 A5/4 D6/8',
-      'D6/4 B5/4 F#5/4 B5/4',
-      'G5/12 E5/4',
-      'A5/4 C6/4 E6/4 C6/4',
+      'E5/8 r/2 B4/2 E5/2 F#5/2',
+      'G5/2 C6/2 E6/3 D6/1 C6/2 G5/6',
+      'F#5/4 A5/4 ~D6/8',
+      'D6/2 B5/2 F#5/3 G5/1 A5/2 B5/6',
+      'G5/6 F#5/2 E5/4 B4/4',
+      'A5/2 C6/2 E6/3 D6/1 C6/2 A5/6',
       'B5/8 A5/4 F#5/4',
       'G5/4 E5/4 C5/2 E5/2 G5/4',
       'F#5/8 D#5/4 B4/4',
     ],
-    leadVoice: { wave: 'pulse', duty: 0.125, vol: 0.17, vib: 22, echo: 0.32 },
-    bass: ['R - - - . . 5 - O - - - 5 - - -'],
+    leadVoice: { wave: 'pulse', duty: 0.125, vol: 0.17, vib: 20, echo: 0.28, pwm: true, glide: 0.08 },
+    bass: ['R . R O . R O . R . R O . 5 O .'],
+    bassB: ['R . O . R . O . 5 . o . 5 . O .'],
     bassVol: 0.38,
-    arp: { pat: '0 1 2 3 4 3 2 1 0 1 2 3 4 3 2 1', oct: 4, duty: 0.25, vol: 0.05 },
-    drums: ['k . . . . . h . s . . . . . h .', 'k . . . . . h . s . . k . . h h'],
-    fill: 'k . . . s . . . s . s . t . T .',
-    drumVol: 0.55,
-    pad: 0.02,
+    arp: { pat: '0 1 2 3 4 3 2 1 0 1 2 3 4 3 2 1', oct: 4, duty: 0.25, vol: 0.045 },
+    drums: ['k h h h s h h h k h h k s h h h', 'k h h h s h h h k h k h s h o .'],
+    drumsB: ['k h h h s h h k . h k h s h h h'],
+    drumBars: { 11: 'k . h . . . h . k . h . s . h h' },
+    fill: 'k h h h s h s h s s t . t T T c',
+    drumVol: 0.72,
+    pad: 0.018,
+    repeat: { counter: 0.09, echoArp: true },
   },
-  // Sky / moon / nebula: driving D-minor space race.
+  // Sky: driving D-minor space race. Lifts a whole step on the repeat.
   space: {
+    gain: 0.97,
     bpm: 144,
     chords: ['Dm', 'Bb', 'C', 'Am', 'Dm', 'Bb', 'C', 'A', 'Gm', 'Dm', 'Bb', 'F', 'Gm', 'Dm', 'Bb', 'A7'],
     lead: [
-      'D5/2 A5/2 F5/2 A5/2 D6/4 C6/2 A5/2',
+      'D5/1 D5/1 r/1 D5/1 A5/3 F5/3 D6/4 C6/2',
       'Bb5/6 A5/2 F5/4 D5/4',
       'E5/2 G5/2 C6/2 G5/2 E6/4 D6/2 C6/2',
       'A5/8 E5/4 C5/4',
-      'D5/2 A5/2 F5/2 A5/2 D6/4 E6/2 F6/2',
+      'D5/1 D5/1 r/1 D5/1 A5/3 F5/3 D6/2 E6/2 F6/2',
       'D6/6 C6/2 Bb5/4 F5/4',
       'G5/2 C6/2 E6/2 G6/2 F6/2 E6/2 C6/2 G5/2',
       'C#6/8 A5/4 E5/4',
-      'G5/4 Bb5/4 D6/6 C6/2',
+      'G5/1 G5/1 r/1 G5/1 D6/3 Bb5/3 G6/4 F6/2',
       'A5/4 F5/4 D5/8',
       'F5/2 Bb5/2 D6/2 F6/2 E6/4 D6/4',
       'C6/8 A5/4 F5/4',
-      'Bb5/4 A5/2 G5/2 D6/4 Bb5/4',
-      'A5/4 D6/4 F6/8',
+      'Bb5/1 Bb5/1 r/1 Bb5/1 D6/3 G5/3 D6/4 Bb5/2',
+      'A5/4 D6/4 ~F6/8',
       'F6/4 D6/4 Bb5/4 F5/4',
       'E5/2 G5/2 A5/2 C#6/2 E6/4 G6/4',
     ],
-    leadVoice: { wave: 'pulse', duty: 0.25, vol: 0.16, vib: 14, echo: 0.22 },
+    leadVoice: { wave: 'pulse', duty: 0.25, vol: 0.16, vib: 14, echo: 0.22, accent: 0.5, glide: 0.05 },
     bass: ['R O R O R O R O R O R O 5 o 5 o'],
+    bassB: ['R . O . R . O . 5 . o . 5 . o .'],
     bassVol: 0.36,
     arp: { pat: '0 1 2 4 0 1 2 4 0 1 2 4 0 1 2 4', oct: 4, duty: 0.125, vol: 0.05, len: 1 },
     drums: ['k . h . s . h k . k h . s . h .', 'k . h . s . h k . k h . s . o .'],
+    drumsB: ['k . h . s . h . k . h . s . h h'],
+    drumBars: { 8: 'k . . . . . . . s . . . . . . .', 12: 'c . . . . . . . . . . . . . . .' },
     fill: 'k . s . s . s s t t t T T T c .',
+    repeat: { lift: 2, counter: 0.09, echoArp: true },
   },
-  // Boss fights: urgent E minor, 160 bpm.
+  // Boss fights: urgent E minor, 160 bpm. 2-bar sting (not looped), 16-bar A/B loop, lifts a semitone on repeat.
   boss: {
+    gain: 0.86,
     bpm: 160,
-    chords: ['Em', 'Em', 'C', 'D', 'Em', 'Em', 'F', 'B7'],
+    intro: {
+      chords: ['B7', 'B7'],
+      lead: ['B4/1 r/1 B4/1 r/1 B4/1 r/3 D#5/4 F#5/4', 'B5/12 r/4'],
+      drums: ['c . . . . . . . k . k . k k k k', 's . s . s . s s s s s s t t T T'],
+      bass: 'R . R . R . . . O . O . O O O O',
+    },
+    chords: ['Em', 'Em', 'C', 'D', 'Em', 'Em', 'F', 'B7', 'Am', 'Am', 'Em', 'Em', 'C', 'D', 'B7', 'B7'],
     lead: [
       'E5/2 E5/2 r/2 E5/2 G5/2 E5/2 D5/2 E5/2',
       'B5/4 A5/2 G5/2 F#5/2 G5/2 A5/4',
@@ -175,16 +241,64 @@ export const TRACKS: Record<string, Track> = {
       'E6/4 F#6/4 G6/6 F#6/2',
       'F6/2 E6/2 C6/2 A5/2 F5/2 A5/2 C6/2 E6/2',
       'D#6/4 F#6/4 B5/2 A5/2 F#5/2 D#5/2',
+      'A5/4 C6/4 E6/6 D6/2',
+      'C6/2 B5/2 A5/2 G5/2 A5/8',
+      'G5/4 B5/4 E6/6 F#6/2',
+      'G6/2 F#6/2 E6/2 B5/2 E6/8',
+      'E6/2 r/2 E6/2 D6/2 C6/2 G5/2 E5/2 G5/2',
+      'F#5/2 r/2 F#5/2 A5/2 D6/4 ~E6/2 F#6/2',
+      'D#6/6 B5/2 F#5/4 A5/4',
+      'B5/2 A5/2 G5/2 F#5/2 D#5/4 B4/4',
     ],
-    leadVoice: { wave: 'pulse', duty: 0.5, vol: 0.15, vib: 8 },
+    leadVoice: { wave: 'pulse', duty: 0.5, vol: 0.15, vib: 8, accent: 0.25, glide: 0.04 },
     bass: ['R O R O R O R O R O R O R O 5 o'],
+    bassB: ['R R O R R O R R O R R O 5 5 o 5'],
     bassVol: 0.4,
     arp: { pat: '0 2 4 2 0 2 4 2 0 2 4 2 0 2 4 2', oct: 4, duty: 0.125, vol: 0.045, len: 1 },
     drums: ['k h s h k h s h k h s h k k s h'],
+    drumsB: ['k . h . s . h . k . h . s . h k', 'k . h . s . h . k k h . s . h h'],
+    drumBars: { 12: 'k . . . . . . . . . . . . . . .', 13: 'k . . . s . . . k . k . s s s s' },
     fill: 'k h s h k h s h s s s s t t T c',
+    repeat: { lift: 1, counter: 0.09, echoArp: true, leadDuty: 0.25 },
+  },
+  // Mothership waves: ominous F#-minor march that builds; leaves 'finale' for the final boss.
+  mothership: {
+    gain: 1.03,
+    bpm: 126,
+    chords: ['F#m', 'D', 'E', 'C#m', 'F#m', 'D', 'Bm', 'C#', 'D', 'E', 'F#m', 'F#m', 'Bm', 'D', 'C#', 'C#7'],
+    lead: [
+      'F#5/6 C#5/2 F#5/4 A5/4',
+      'A5/2 G#5/2 F#5/4 D5/8',
+      'E5/6 B4/2 E5/4 G#5/4',
+      'G#5/8 r/4 E5/2 G#5/2',
+      'C#6/6 B5/2 A5/4 F#5/4',
+      'A5/2 B5/2 A5/4 F#5/4 D5/4',
+      'D5/4 F#5/4 B5/6 A5/2',
+      'G#5/12 F5/4',
+      'F#5/4 A5/4 D6/6 C#6/2',
+      'B5/4 G#5/4 E5/8',
+      'A5/2 C#6/2 F#6/4 E6/2 C#6/2 A5/4',
+      'C#6/12 r/4',
+      'D6/4 C#6/4 B5/4 F#5/4',
+      'A5/4 F#5/4 D5/4 ~F#5/4',
+      'F5/4 G#5/4 C#6/8',
+      'B5/2 G#5/2 F5/2 C#5/2 F5/4 G#5/4',
+    ],
+    leadVoice: { wave: 'pulse', duty: 0.125, vol: 0.16, vib: 16, echo: 0.24, pwm: true, glide: 0.07 },
+    bass: ['R . R . R . R . R . R . R . 5 .'],
+    bassB: ['R R O R R O R R O R R O 5 5 o 5'],
+    bassVol: 0.4,
+    arp: { pat: '0 . 2 . 4 . 2 . 0 . 2 . 4 . 2 .', oct: 4, duty: 0.125, vol: 0.05, len: 1 },
+    drums: ['k . h . s . h . k . h . s . h .', 'k . h . s . h . k . h k s . h .'],
+    drumsB: ['k h s h k h s h k k s h k h s h'],
+    drumBars: { 7: 'k . . . s . . . k . . . s s t T', 11: '. . h . . . h . . . h . . . h .' },
+    fill: 'k h s h s s s s t t T T c . . .',
+    pad: 0.016,
+    repeat: { counter: 0.09, echoArp: true, leadDuty: 0.25 },
   },
   // Final boss: epic C minor.
   finale: {
+    gain: 0.88,
     bpm: 150,
     chords: ['Cm', 'Ab', 'Bb', 'G', 'Cm', 'Ab', 'Fm', 'G', 'Ab', 'Bb', 'Gm', 'Cm', 'Ab', 'Bb', 'G', 'G7'],
     lead: [
@@ -201,20 +315,25 @@ export const TRACKS: Record<string, Track> = {
       'G5/2 Bb5/2 D6/2 G6/2 F6/2 D6/2 Bb5/4',
       'C6/8 G5/4 Eb5/4',
       'Ab5/2 C6/2 Eb6/2 Ab6/2 G6/4 Eb6/4',
-      'F6/2 D6/2 Bb5/2 F5/2 Bb5/4 D6/4',
+      'F6/2 D6/2 Bb5/2 F5/2 Bb5/4 ~D6/4',
       'G6/4 F6/2 D6/2 B5/4 G5/4',
       'F5/2 G5/2 B5/2 D6/2 F6/2 D6/2 B5/2 G5/2',
     ],
-    leadVoice: { wave: 'pulse', duty: 0.25, vol: 0.16, vib: 12, echo: 0.15 },
+    leadVoice: { wave: 'pulse', duty: 0.25, vol: 0.16, vib: 12, echo: 0.15, accent: 0.5, glide: 0.05 },
     bass: ['R R O R R O R O R R O R 5 5 o 5'],
+    bassB: ['R . R . O . R . R . R . 5 . o .'],
     bassVol: 0.4,
     arp: { pat: '0 1 2 1 0 1 2 1 0 1 2 1 0 1 2 1', oct: 4, duty: 0.125, vol: 0.045, len: 1 },
     drums: ['k h s h k h s k k h s h k k s h', 'k h s h k h s k k h s h k h s o'],
+    drumsB: ['k . h . s . h . k . h . s . h k'],
+    drumBars: { 7: 'k h s h k h s h s s s s s s s s', 11: 'k . . . . . . . s . . . . . . .' },
     fill: 'k h s h s s s s t t T T c . c .',
     pad: 0.018,
+    repeat: { counter: 0.09, echoArp: true, leadDuty: 0.5 },
   },
   // Ending: warm F-major lullaby.
   ending: {
+    gain: 0.8,
     bpm: 92,
     chords: ['F', 'C', 'Dm', 'Bb', 'F', 'Am', 'Bb', 'C', 'Dm', 'Am', 'Bb', 'F', 'Gm', 'C', 'F', 'C7'],
     lead: [
@@ -227,7 +346,7 @@ export const TRACKS: Record<string, Track> = {
       'D6/4 C6/4 Bb5/4 A5/4',
       'G5/12 r/4',
       'A5/4 F5/4 D5/4 F5/4',
-      'E5/4 A5/4 C6/8',
+      'E5/4 A5/4 ~C6/8',
       'D6/4 C6/4 Bb5/2 A5/2 G5/4',
       'A5/12 r/4',
       'Bb5/4 A5/4 G5/4 D5/4',
@@ -235,16 +354,445 @@ export const TRACKS: Record<string, Track> = {
       'F6/6 E6/2 C6/4 A5/4',
       'G5/4 Bb5/4 E5/4 C5/4',
     ],
-    leadVoice: { wave: 'tri', vol: 0.3, vib: 16, echo: 0.3 },
+    leadVoice: { wave: 'tri', vol: 0.42, vib: 16, echo: 0.3, glide: 0.1 },
     bass: ['R - - - 5 - - - O - - - 5 - - -'],
-    bassVol: 0.32,
-    arp: { pat: '0 2 3 4 3 2 0 2 3 4 3 2 0 2 3 2', oct: 4, duty: 0.125, vol: 0.05 },
+    bassB: ['R - - - 3 - - - 5 - - - O - - -'],
+    bassVol: 0.4,
+    arp: { pat: '0 2 3 4 3 2 0 2 3 4 3 2 0 2 3 2', oct: 4, duty: 0.125, vol: 0.075 },
     drums: ['k . . . . . h . . . . . . . h .', 'k . . . . . h . . . k . . . h .'],
+    drumsB: ['k . . . h . h . k . . . h . h .'],
+    drumBars: { 7: '. . . . . . . . . . . . . . . .' },
     fill: 'k . . . . . h . s . . . h . h .',
-    drumVol: 0.45,
-    pad: 0.022,
+    drumVol: 0.62,
+    pad: 0.032,
+    repeat: { counter: 0.08, echoArp: true },
   },
 };
+
+// ---- area variants ------------------------------------------------------------------------------
+// Each of the 13 areas gets its own loop with its OWN hook: a new A section (bars 1-8: chords + lead, with a
+// rhythmic hook on bars 1/5) and a new B section (bars 9-16). The "family" link to the parent song is only the
+// voice character and some drum/bass DNA, so neighbouring areas sound related but are instantly told apart.
+type VariantOpts = Partial<Omit<Track, 'leadVoice'>> & {
+  voice?: Partial<Track['leadVoice']>;
+  chordsA: string[]; leadA: string[]; chordsB: string[]; leadB: string[];
+};
+export function variant(base: Track, v: VariantOpts): Track {
+  const { leadA, chordsA, leadB, chordsB, voice, ...rest } = v;
+  return { ...base, ...rest, chords: [...chordsA, ...chordsB], lead: [...leadA, ...leadB], leadVoice: { ...base.leadVoice, ...(voice ?? {}) } };
+}
+
+Object.assign(TRACKS, {
+  // Street (Maple Street): A mixolydian funk, 140 bpm. Hook: a syncopated "ba-da  bop, b(l)ue-DAH" with a
+  // blue-third glide (bars 1/3/5) over a I-bVII vamp. Family link to the yard: the bright duty lead + swing only.
+  street: variant(TRACKS.yard, {
+    key: 2, bpm: 140, swing: 0.06,
+    voice: { duty: 0.25, accent: 0.5, vib: 10 },
+    chordsA: ['G', 'F C', 'G', 'F D', 'G', 'F C', 'Em Am', 'D'],
+    leadA: [
+      'r/1 G5/1 G5/1 r/1 Bb5/2 r/1 ~B5/1 D6/2 G5/2 r/2 F5/2',
+      'A5/2 F5/2 r/1 C6/1 A5/2 G5/4 E5/4',
+      'r/1 G5/1 G5/1 r/1 Bb5/2 r/1 ~B5/1 D6/2 F6/2 r/2 D6/2',
+      'C6/2 A5/2 F5/2 C6/2 A5/4 F#5/4',
+      'r/1 G5/1 G5/1 r/1 Bb5/2 r/1 ~B5/1 D6/2 G6/2 r/2 F6/2',
+      'E6/2 C6/2 r/1 A5/1 C6/2 E6/4 G6/4',
+      'G6/2 E6/2 B5/2 G5/2 A5/2 C6/2 E6/4',
+      'D6/6 C6/2 A5/4 F#5/4',
+    ],
+    chordsB: ['C', 'D', 'Bm', 'Em', 'C', 'D', 'Am', 'D7'],
+    leadB: [
+      'E5/1 G5/1 C6/2 r/2 C6/1 D6/1 E6/2 D6/2 C6/2 G5/2',
+      'F#5/2 A5/2 r/2 D6/2 C6/2 A5/2 F#5/4',
+      'D6/3 B5/1 F#5/2 B5/2 r/2 A5/2 B5/2 D6/2',
+      'E6/6 D6/2 B5/4 G5/4',
+      'E5/1 G5/1 C6/2 r/2 C6/1 D6/1 E6/2 D6/2 C6/2 G5/2',
+      'F#5/2 A5/2 r/2 D6/2 E6/2 F#6/2 A6/4',
+      'G6/2 E6/2 C6/2 A5/2 r/2 C6/1 B5/1 A5/4',
+      'F#5/4 A5/2 C6/2 D6/8',
+    ],
+    bass: ['R . R O . R O . R . 5 . O . 5 O'],
+    bassB: ['R R . O . R . 5 R . O . 3 . 5 .'],
+    arp: { pat: '0 . 2 . 3 . 2 . 0 . 2 . 3 . 4 .', oct: 4, duty: 0.125, vol: 0.05, len: 1 },
+    drums: ['k . h . x . h k . k h . x . h h'],
+    drumsB: ['k . h k x . h . k . h k x . o .'],
+    drumBars: { 7: 'k . h . x . h . . . . . x x x x', 12: 'k . . . x . . . k . . . x . . .' },
+    fill: 'k . h k x . x . x x t t T T c .',
+    repeat: { lift: 1, counter: 0.1, echoArp: true, leadDuty: 0.5 },
+  }),
+  // Park: breezy F major, 124 bpm. Hook: a lilting long-short turn "laaa di-da-dee DAAA" that starts on the IV
+  // chord (bars 1/5), thin 12.5% lead with echo, lazy bass, picnic B section.
+  park: variant(TRACKS.yard, {
+    gain: 1.19,
+    key: -2, bpm: 124, swing: 0.16,
+    voice: { duty: 0.125, accent: 0.25, vib: 16, echo: 0.15 },
+    chordsA: ['Cmaj7', 'G', 'Am7', 'D', 'Cmaj7', 'Bm', 'Am7 D', 'G'],
+    leadA: [
+      'E6/4 D6/1 C6/1 B5/2 C6/6 r/2',
+      'D6/2 B5/2 G5/4 r/2 G5/1 A5/1 B5/4',
+      'C6/4 B5/1 A5/1 G5/2 A5/6 r/2',
+      'F#5/2 A5/2 D6/4 C6/2 A5/2 F#5/4',
+      'E6/4 D6/1 C6/1 B5/2 G6/6 r/2',
+      'F#6/2 D6/2 B5/4 r/2 B5/1 C6/1 D6/4',
+      'E6/3 D6/1 C6/2 A5/2 F#5/3 G5/1 A5/4',
+      'G5/8 r/4 B5/2 D6/2',
+    ],
+    chordsB: ['Am7', 'D', 'Bm', 'Em', 'C', 'G', 'Am', 'D7'],
+    leadB: [
+      'r/2 E5/1 G5/1 A5/4 C6/4 B5/2 A5/2',
+      'F#5/6 A5/2 D6/4 C6/4',
+      'r/2 D5/1 F#5/1 B5/4 D6/4 A5/2 B5/2',
+      'G5/8 E5/4 B4/4',
+      'r/2 G5/1 A5/1 C6/4 E6/4 D6/2 C6/2',
+      'B5/6 D6/2 G6/4 D6/4',
+      'C6/3 B5/1 A5/2 E5/2 A5/4 G5/2 E5/2',
+      'F#5/4 D5/4 A5/4 ~C6/4',
+    ],
+    bass: ['R - . 5 - . O - R - . 5 - . 3 -'],
+    bassB: ['R . . 5 . . O . R . . 3 . . 5 .'],
+    arp: { pat: '0 1 2 4 2 1 0 1 2 4 2 1 0 1 2 1', oct: 4, duty: 0.25, vol: 0.045 },
+    drums: ['k . . h s . h . k . h . s . h .'],
+    drumsB: ['k . h h s . . h k . h . s . h h'],
+    drumBars: { 7: 'k . . . s . . . . . . . . . h .', 12: 'k . . . . . h . s . . . . . h .' },
+    fill: 'k . h . s . h . s . s s t . T .',
+    drumVol: 0.7,
+    repeat: { counter: 0.1, echoArp: true, leadDuty: 0.25 },
+  }),
+  // Cafe: G dorian jazz shuffle, 128 bpm. Hook: an off-beat pickup "(rest) da-da DA-daa" over a i7-IV7 vamp
+  // (bars 1/3/5), square lead, walking bass, ii-V B section.
+  cafe: variant(TRACKS.city, {
+    gain: 1.08,
+    key: -2, bpm: 128, swing: 0.2,
+    voice: { duty: 0.5, accent: 0.25, vib: 8 },
+    chordsA: ['Am7', 'D7', 'Am7', 'D7', 'Fmaj7', 'E7', 'Am7 D7', 'E7'],
+    leadA: [
+      'r/2 E5/1 G5/1 A5/2 C6/3 B5/1 A5/2 G5/2 E5/2',
+      'F#5/4 r/2 A5/2 C6/2 A5/2 F#5/2 D5/2',
+      'r/2 E5/1 G5/1 A5/2 C6/3 B5/1 A5/2 E6/4',
+      'D6/3 C6/1 A5/2 F#5/2 r/4 D5/2 E5/2',
+      'r/2 F5/1 A5/1 C6/2 E6/3 D6/1 C6/2 A5/2 F5/2',
+      'G#5/4 B5/2 D6/2 r/2 C6/1 B5/1 G#5/4',
+      'A5/2 C6/2 E6/2 G5/2 F#5/2 A5/2 C6/2 D6/2',
+      'B5/6 G#5/2 E5/4 r/4',
+    ],
+    chordsB: ['Dm7', 'G7', 'Cmaj7', 'Fmaj7', 'Dm7', 'E7', 'Am', 'E7'],
+    leadB: [
+      'F5/2 A5/2 C6/3 A5/1 r/2 D6/2 C6/2 A5/2',
+      'B5/4 r/2 G5/2 F5/2 D5/2 B4/4',
+      'E5/2 G5/2 B5/3 G5/1 r/2 C6/2 B5/2 G5/2',
+      'A5/8 r/2 E5/2 F5/2 G5/2',
+      'F5/2 A5/2 C6/3 A5/1 r/2 D6/2 F6/2 E6/2',
+      'D6/4 B5/2 G#5/2 E5/4 r/4',
+      'C6/3 B5/1 A5/2 E5/2 r/2 A5/1 B5/1 C6/4',
+      'B5/4 G#5/4 E5/4 r/2 E5/2',
+    ],
+    bass: ['R . 3 . 5 . 7 . O . 5 . 3 . 5 .'],
+    bassB: ['R . 5 . O . 5 . R . 3 . 5 . 7 .'],
+    bassVol: 0.4,
+    arp: { pat: '. . 1 2 . . 1 2 . . 1 2 . . 1 2', oct: 4, duty: 0.25, vol: 0.045, len: 2 },
+    drums: ['k . h . x . h h k . h . x . h .'],
+    drumsB: ['k . h h x . h . k . h h x . h .'],
+    drumBars: { 7: 'k . . . x . . . k . . . x . x x', 12: 'k . h . . . h . k . h . . . h .' },
+    fill: 'k . h . x . x x x . t . T . o .',
+    drumVol: 0.62,
+    pad: 0.016,
+    repeat: { counter: 0.09, leadDuty: 0.25 },
+  }),
+  // Factory: Bb minor conveyor belt, 146 bpm. Hook: a stamping 16th riff "da-da-di-DA  da-di-DA" (bars 1/3/5),
+  // motor bass, machine 16ths.
+  factory: variant(TRACKS.city, {
+    gain: 0.78,
+    key: 1, bpm: 146,
+    voice: { duty: 0.125, accent: 0.5, vib: 6 },
+    chordsA: ['Am', 'Am', 'F', 'G', 'Am', 'Am', 'F G', 'E'],
+    leadA: [
+      'A5/1 A5/1 E5/1 A5/1 r/2 C6/1 B5/1 A5/2 E5/2 G5/2 A5/2',
+      'r/2 E6/2 D6/2 C6/2 B5/2 G5/2 A5/4',
+      'F5/1 F5/1 C5/1 F5/1 r/2 A5/1 G5/1 F5/2 C5/2 E5/2 F5/2',
+      'G5/4 B5/4 D6/4 B5/2 G5/2',
+      'A5/1 A5/1 E5/1 A5/1 r/2 C6/1 B5/1 A5/2 E6/2 G6/2 A6/2',
+      'r/2 G6/2 E6/2 C6/2 B5/2 C6/2 E6/4',
+      'F6/2 C6/2 A5/2 F5/2 G5/2 B5/2 D6/2 G6/2',
+      'G#6/6 E6/2 B5/4 G#5/4',
+    ],
+    chordsB: ['Dm', 'E', 'Am', 'G', 'F', 'E', 'Dm E', 'E7'],
+    leadB: [
+      'D5/1 D5/1 F5/1 D5/1 A5/2 D5/2 D6/2 D5/2 C6/2 A5/2',
+      'B5/4 G#5/2 E5/2 B4/2 E5/2 G#5/4',
+      'A4/1 A4/1 C5/1 A4/1 E5/2 A4/2 A5/2 A4/2 G5/2 E5/2',
+      'D5/4 G5/4 B5/8',
+      'F5/1 F5/1 A5/1 F5/1 C6/2 F5/2 F6/2 F5/2 E6/2 C6/2',
+      'B5/2 G#5/2 E6/4 D6/2 B5/2 G#5/4',
+      'A5/2 D6/2 F6/4 G#5/2 B5/2 E6/4',
+      'D6/2 B5/2 G#5/2 E5/2 D5/2 B4/2 G#4/4',
+    ],
+    bass: ['R R O R R O R R O R R O R R O R'],
+    bassB: ['R O R O R O R O 5 o 5 o 5 o 5 o'],
+    arp: { pat: '0 2 4 2 0 2 4 2 0 2 4 2 0 2 4 2', oct: 4, duty: 0.125, vol: 0.045, len: 1 },
+    drums: ['k h k h x h h h k h k h x h t h'],
+    drumsB: ['k k h h x h k h k k h h x x h h'],
+    drumBars: { 7: 'k . . . x . . . k . . . x x x x', 12: 'k . h . k . h . k . h . k . h .' },
+    fill: 'k k x . x x x . t t T T c . c .',
+    drumVol: 0.8,
+    repeat: { lift: 2, counter: 0.09, echoArp: true, leadDuty: 0.25 },
+  }),
+  // Docks: D minor sea shanty, 112 bpm. Hook: a rolling "HEAVE-a-ho, ho-HO" (dotted, bars 1/2/5) over a
+  // descending i-bVII-bVI-V line, 3+3+2 shanty bass, warm duty-switch lead.
+  docks: variant(TRACKS.night, {
+    gain: 1.28,
+    key: -2, bpm: 112, swing: 0.14,
+    voice: { pwm: false, duty: 0.25, accent: 0.125, echo: 0.34, vib: 24 },
+    chordsA: ['Em', 'D', 'C', 'B7', 'Em', 'D', 'C B7', 'Em'],
+    leadA: [
+      'E5/3 E5/1 E5/2 G5/2 B5/4 A5/2 G5/2',
+      'F#5/3 F#5/1 F#5/2 A5/2 D6/6 r/2',
+      'E6/3 D6/1 C6/2 B5/2 A5/2 G5/2 E5/4',
+      'D#5/4 F#5/4 B5/6 r/2',
+      'E5/3 E5/1 E5/2 G5/2 B5/4 E6/2 D6/2',
+      'D6/3 C6/1 B5/2 A5/2 F#5/6 r/2',
+      'G5/2 A5/2 C6/2 E6/2 D#6/4 B5/4',
+      'E6/8 r/4 B4/2 B4/2',
+    ],
+    chordsB: ['Am', 'Em', 'C', 'G', 'Am', 'B7', 'Em', 'B7'],
+    leadB: [
+      'E5/3 A5/1 C6/4 B5/2 A5/2 E5/4',
+      'G5/3 F#5/1 E5/4 B4/8',
+      'E5/3 G5/1 C6/4 D6/2 E6/2 C6/4',
+      'B5/8 D6/2 B5/2 G5/4',
+      'E6/3 D6/1 C6/4 B5/2 A5/2 E5/4',
+      'F#5/3 A5/1 D#6/4 C6/2 B5/2 A5/4',
+      'G5/4 B5/4 E6/4 D6/2 B5/2',
+      'A5/4 F#5/4 D#5/4 B4/4',
+    ],
+    bass: ['R . . O . . 5 . R . . O . . 5 .'],
+    bassB: ['R . O . 5 . O . R . O . 3 . 5 .'],
+    arp: { pat: '0 2 4 0 2 4 0 2 4 0 2 4 0 2 4 2', oct: 4, duty: 0.125, vol: 0.045 },
+    drums: ['k . h h s . h . k h . h s . h h'],
+    drumsB: ['k . h . s h h . k . k h s . h .'],
+    drumBars: { 11: 'k . . . h . . . s . . . h . h h' },
+    fill: 'k . h . s . s . s . t t T . c .',
+    drumVol: 0.68,
+    pad: 0.02,
+    repeat: { counter: 0.09, echoArp: true, leadDuty: 0.5 },
+  }),
+  // Station: cold, urgent G minor, 128 bpm. Hook: a staccato octave alarm "BIP bip BIP" + falling answer
+  // (bars 1/3/5), driving 8th bass, stabbing B section.
+  station: variant(TRACKS.night, {
+    gain: 0.85,
+    key: 3, bpm: 128,
+    voice: { pwm: false, duty: 0.25, accent: 0.5, vib: 10, echo: 0.2 },
+    chordsA: ['Em', 'G', 'D', 'Am', 'Em', 'G', 'C D', 'B7'],
+    leadA: [
+      'E6/1 r/1 E5/1 r/1 E6/1 r/1 B5/2 G5/2 E5/2 F#5/2 G5/2',
+      'B5/4 D6/4 G5/4 r/4',
+      'D6/1 r/1 D5/1 r/1 D6/1 r/1 A5/2 F#5/2 D5/2 E5/2 F#5/2',
+      'A5/4 C6/4 E6/4 r/4',
+      'E6/1 r/1 E5/1 r/1 E6/1 r/1 B5/2 G5/2 B5/2 D6/2 E6/2',
+      'G6/4 D6/4 B5/2 G5/2 D6/4',
+      'E6/2 C6/2 G5/2 C6/2 D6/2 A5/2 F#5/2 A5/2',
+      'B5/2 D#6/2 F#6/4 D#6/4 B5/4',
+    ],
+    chordsB: ['C', 'Am', 'B7', 'Em', 'C', 'D', 'B7', 'B7'],
+    leadB: [
+      'G5/2 G5/2 r/2 E6/2 D6/2 C6/2 G5/4',
+      'A5/2 C6/2 E6/2 r/2 D6/2 C6/2 A5/4',
+      'B5/3 A5/1 F#5/2 D#5/2 B4/4 D#5/2 F#5/2',
+      'E5/2 G5/2 B5/2 E6/6 r/4',
+      'G6/2 G6/2 r/2 E6/2 D6/2 C6/2 G5/4',
+      'F#5/2 A5/2 D6/2 r/2 E6/2 F#6/2 A6/4',
+      'F#6/3 D#6/1 B5/4 A5/2 F#5/2 D#5/4',
+      'B4/2 D#5/2 F#5/2 A5/2 B5/8',
+    ],
+    bass: ['R O R O R O R O R O R O 5 o 5 o'],
+    bassB: ['R R O R R O R R O R R O 5 5 o 5'],
+    arp: { pat: '0 1 2 4 2 1 0 1 2 4 2 1 0 1 2 4', oct: 4, duty: 0.125, vol: 0.045, len: 1 },
+    drums: ['k . h . s . h k . k h . s . h h'],
+    drumsB: ['k h s h k h s h k k s h k h s h'],
+    drumBars: { 11: 'k . . . s . . . k . . . s s t T' },
+    fill: 'k h s h s s s s t t T T c . . .',
+    drumVol: 0.8,
+    pad: 0.014,
+    repeat: { lift: 1, counter: 0.09, echoArp: true, leadDuty: 0.125 },
+  }),
+  // Moon: low gravity, B minor, 136 bpm. Hook: a slow leaping "do-SOL-DOOOO" octave float (bars 1/3/5),
+  // half-time drums, long bass notes, floating square lead.
+  moon: variant(TRACKS.space, {
+    key: -3, bpm: 136,
+    voice: { duty: 0.5, accent: 0.25, echo: 0.3, vib: 18 },
+    chordsA: ['Dm', 'Gm', 'Dm', 'A', 'F', 'Gm', 'Bb A', 'Dm'],
+    leadA: [
+      'D5/2 A5/2 D6/8 C6/1 A5/1 F5/2',
+      'G5/6 Bb5/2 D6/4 r/4',
+      'D5/2 A5/2 F6/8 E6/1 D6/1 A5/2',
+      'C#6/6 E6/2 A5/8',
+      'F5/2 C6/2 F6/8 E6/1 C6/1 A5/2',
+      'Bb5/6 D6/2 G6/4 F6/4',
+      'F6/4 D6/4 E6/4 C#6/4',
+      'D6/12 r/4',
+    ],
+    chordsB: ['Bb', 'C', 'Am', 'Dm', 'Gm', 'C', 'F', 'A7'],
+    leadB: [
+      'F5/6 Bb5/2 D6/4 C6/2 Bb5/2',
+      'C6/6 G5/2 E5/4 G5/4',
+      'A5/6 C6/2 E6/4 D6/2 C6/2',
+      'D6/8 r/2 A5/2 D6/2 E6/2',
+      'F6/6 D6/2 Bb5/4 G5/4',
+      'E6/6 C6/2 G5/4 E6/4',
+      'F6/3 E6/1 C6/2 A5/2 F5/4 A5/4',
+      'G5/4 C#6/4 E6/4 G6/4',
+    ],
+    bass: ['R - - - O - - - R - - - 5 - O -'],
+    bassB: ['R - . R O - . O R - . R 5 - o -'],
+    arp: { pat: '4 2 1 0 4 2 1 0 4 2 1 0 4 2 1 0', oct: 4, duty: 0.25, vol: 0.045, len: 1 },
+    drums: ['k . . . h . . . s . . . h . h .'],
+    drumsB: ['k . . h h . . . s . . k h . h .'],
+    drumBars: { 8: 'k . . . . . . . s . . . . . . .', 12: 'c . . . . . . . . . . . . . . .' },
+    fill: 'k . . . s . . . s . s . t t T T',
+    drumVol: 0.75,
+    pad: 0.016,
+    repeat: { lift: 2, counter: 0.1, echoArp: true, leadDuty: 0.25 },
+  }),
+  // Nebula: shimmering F minor, 152 bpm. Hook: a falling 16th sparkle cascade then a held climb (bars 1/3/5),
+  // thin lead, sparkling 16th arp, 16th hats in the B section.
+  nebula: variant(TRACKS.space, {
+    key: 3, bpm: 152,
+    voice: { duty: 0.125, accent: 0.25, echo: 0.25, vib: 12 },
+    chordsA: ['Dm', 'F', 'C', 'Gm', 'Dm', 'F', 'C', 'A7'],
+    leadA: [
+      'A6/1 F6/1 D6/1 A5/1 r/2 D6/1 E6/1 F6/4 E6/2 D6/2',
+      'C6/4 A5/2 F5/2 A5/4 C6/4',
+      'G6/1 E6/1 C6/1 G5/1 r/2 C6/1 D6/1 E6/4 D6/2 C6/2',
+      'Bb5/6 A5/2 G5/4 D5/4',
+      'A6/1 F6/1 D6/1 A5/1 r/2 D6/1 E6/1 F6/2 A6/2 G6/2 F6/2',
+      'A6/4 F6/2 C6/2 F6/4 A6/4',
+      'G6/2 E6/2 C6/2 G5/2 C6/2 E6/2 G6/4',
+      'C#6/2 E6/2 G6/2 A6/2 E6/4 C#6/4',
+    ],
+    chordsB: ['Bb', 'F', 'C', 'Dm', 'Bb', 'C', 'A', 'A7'],
+    leadB: [
+      'D6/1 D6/1 r/1 D6/1 F6/3 D6/3 Bb5/4 F5/2',
+      'A5/4 C6/4 F6/4 E6/2 C6/2',
+      'E6/1 E6/1 r/1 E6/1 G6/3 E6/3 C6/4 G5/2',
+      'A5/8 F5/4 D5/4',
+      'F6/1 F6/1 r/1 F6/1 D6/3 Bb5/3 F6/4 D6/2',
+      'E6/4 G6/4 C6/4 E6/4',
+      'C#6/2 E6/2 A6/4 G6/2 E6/2 C#6/4',
+      'A5/2 C#6/2 E6/2 G6/2 A6/8',
+    ],
+    bass: ['R . R O R . R O R . R O 5 . 5 o'],
+    bassB: ['R O . O R O . O 5 o . o 5 o 5 o'],
+    arp: { pat: '0 1 2 4 5 4 2 1 0 1 2 4 5 4 2 1', oct: 4, duty: 0.125, vol: 0.05, len: 1 },
+    drums: ['k . h h s . h k . k h h s . h h'],
+    drumsB: ['k h h h s h h h k h k h s h h h'],
+    drumBars: { 8: 'k . . . s . . . k . . . s . . .' },
+    fill: 'k . s . s s s s t t t T T T c .',
+    drumVol: 0.78,
+    repeat: { lift: 2, counter: 0.09, echoArp: true, leadDuty: 0.5 },
+  }),
+});
+
+// ---- one-shot songs + small loops (Galaga's signature cues) --------------------------------------
+const ONCE = { chords: [] as string[], lead: [] as string[], bass: ['R'], drums: ['.'], once: true };
+Object.assign(TRACKS, {
+  // Stage start fanfare (2 bars): plays at the first wave of an area visit and after a nap.
+  stage: {
+    ...ONCE, bpm: 150,
+    intro: {
+      chords: ['C', 'G'],
+      lead: ['G4/1 C5/1 E5/1 G5/1 C6/3 G5/1 E6/4 D6/2 C6/2', 'B5/2 G5/2 D6/2 B5/2 G6/6 r/2'],
+      drums: ['c . . . s . . . k . s . k . s s', 'k . s . k s s s c . . . . . . .'],
+      bass: 'R . O . R . O . R . O . R O R O',
+    },
+    leadVoice: { wave: 'pulse', duty: 0.25, vol: 0.19, vib: 14, echo: 0.15, accent: 0.5 },
+    arp: { pat: '0 1 2 4 0 1 2 4 0 1 2 4 0 1 2 4', oct: 4, duty: 0.125, vol: 0.05, len: 1 },
+  },
+  // Boss down / area clear: triumphant 3-bar victory stinger.
+  victory: {
+    ...ONCE, bpm: 144,
+    intro: {
+      chords: ['F', 'G', 'C'],
+      lead: ['A5/2 C6/2 F6/2 A5/2 C6/2 F6/2 A6/4', 'G6/2 F6/2 E6/2 D6/2 B5/2 D6/2 G6/4', 'C6/1 E6/1 G6/2 E6/1 G6/1 C7/10'],
+      drums: ['k . h . s . h . k . h . s . h h', 'k . h . s . h . k . s . s s s s', 'c . . . . . . . . . . . . . . .'],
+      bass: 'R . O . R . O . R . O . R . O .',
+    },
+    leadVoice: { wave: 'pulse', duty: 0.5, vol: 0.18, vib: 16, echo: 0.2, accent: 0.25 },
+    arp: { pat: '0 1 2 4 0 1 2 4 0 1 2 4 0 1 2 4', oct: 4, duty: 0.125, vol: 0.05, len: 1 },
+    pad: 0.02,
+  },
+  // Pom naps: music-box lullaby (Brahms' Wiegenlied, public domain) before the wave restarts.
+  nap: {
+    ...ONCE, bpm: 190,
+    intro: {
+      chords: ['F', 'C7', 'Bb F'],
+      lead: ['A5/2 A5/2 C6/8 A5/2 A5/2', 'C6/8 A5/2 C6/2 F6/2 E6/2', 'D6/4 D6/4 C6/8'],
+      drums: ['. . . . . . . . . . . . . . . .'],
+      bass: 'R - - - - - - - 5 - - - - - - -',
+    },
+    leadVoice: { wave: 'tri', vol: 0.55, vib: 18, echo: 0.3 },
+    arp: { pat: '4 . 2 . 3 . 2 . 4 . 2 . 3 . 2 .', oct: 5, duty: 0.125, vol: 0.04, len: 2 },
+    bassVol: 0.34,
+    pad: 0.028,
+  },
+  // Treat Bonanza results (Galaga's "results" jingle).
+  results: {
+    ...ONCE, bpm: 140,
+    intro: {
+      chords: ['C', 'F G', 'C'],
+      lead: ['C6/1 D6/1 E6/1 G6/1 E6/2 G6/2 C7/4 r/4', 'A6/2 G6/2 F6/2 A6/2 G6/2 F6/2 D6/2 B5/2', 'C6/8 r/8'],
+      drums: ['k . h . s . h . k . h . s . h .', 'k . s . k . s . k s s s t t T T', 'c . . . . . . . . . . . . . . .'],
+      bass: 'R . O . R . O . R . O . R . O .',
+    },
+    leadVoice: { wave: 'pulse', duty: 0.25, vol: 0.18, vib: 12, accent: 0.5 },
+    arp: { pat: '0 1 2 4 0 1 2 4 0 1 2 4 0 1 2 4', oct: 4, duty: 0.125, vol: 0.05, len: 1 },
+  },
+  // Treat Bonanza (bonus stage, Galaga's "challenging stage"): bouncy Bb major, call-and-response hook.
+  bonus: {
+    gain: 0.94,
+    bpm: 150, key: -2, bAt: 4,
+    chords: ['C', 'Am', 'F', 'G', 'C', 'Am', 'Dm G', 'C'],
+    lead: [
+      'C6/1 C6/1 r/2 G5/2 E5/2 G5/1 A5/1 C6/2 r/2 E6/2',
+      'D6/2 C6/2 A5/4 r/2 E5/2 A5/2 B5/2',
+      'C6/1 C6/1 r/2 A5/2 F5/2 A5/1 B5/1 C6/2 r/2 F6/2',
+      'E6/2 D6/2 B5/4 G5/4 r/4',
+      'C6/1 C6/1 r/2 G5/2 E5/2 G5/1 A5/1 C6/2 r/2 E6/2',
+      'D6/2 C6/2 A5/2 C6/2 E6/4 G6/4',
+      'F6/2 E6/2 D6/2 A5/2 B5/2 D6/2 G6/4',
+      'E6/3 D6/1 C6/4 G5/2 E5/2 G5/2 B5/2',
+    ],
+    leadVoice: { wave: 'pulse', duty: 0.5, vol: 0.17, vib: 10, accent: 0.25, glide: 0.04 },
+    bass: ['R . O . R . O . R . O . R . O .'],
+    bassB: ['R O . O R O . O 5 o . o 5 o 5 o'],
+    arp: { pat: '0 2 4 2 0 2 4 2 0 2 4 2 0 2 4 2', oct: 4, duty: 0.125, vol: 0.05, len: 1 },
+    drums: ['k . h k s . h . k k h . s . h h'],
+    drumsB: ['k . h k s . h k . k h . s . o .'],
+    fill: 'k . s . s s s . t t T T c . . .',
+    repeat: { lift: 2, counter: 0.1, echoArp: true, leadDuty: 0.25 },
+  },
+  // Sector map: calm, curious D major with an echoing lead (no longer reuses the title theme).
+  map: {
+    bpm: 96, bAt: 4,
+    chords: ['D', 'Bm', 'G', 'A', 'D', 'F#m', 'G', 'A7'],
+    lead: [
+      'F#5/3 A5/1 D6/4 C#6/2 A5/2 F#5/4',
+      'D5/2 F#5/2 B5/8 A5/4',
+      'G5/3 B5/1 D6/4 E6/2 D6/2 B5/4',
+      'C#6/8 r/4 A5/2 B5/2',
+      'F#5/3 A5/1 D6/4 E6/2 F#6/2 A6/4',
+      'F#6/4 E6/2 C#6/2 A5/8',
+      'B5/3 D6/1 G6/4 F#6/2 E6/2 D6/4',
+      'E6/8 C#6/4 A5/4',
+    ],
+    leadVoice: { wave: 'pulse', duty: 0.25, vol: 0.17, vib: 16, echo: 0.25, accent: 0.125 },
+    bass: ['R . . O . . 5 . R . . O . . 5 .'],
+    bassB: ['R . . O . . 3 . R . . 5 . . O .'],
+    arp: { pat: '0 1 2 4 2 1 0 1 2 4 2 1 0 1 2 1', oct: 4, duty: 0.25, vol: 0.045 },
+    drums: ['k . . . h . . . s . . . h . h .'],
+    drumsB: ['k . . h h . . . s . . . h . h h'],
+    drumVol: 0.55,
+    pad: 0.018,
+    repeat: { counter: 0.09, echoArp: true },
+  },
+} satisfies Record<string, Track>);
 
 // ---- compiler -------------------------------------------------------------------------------
 const NOTE_IDX: Record<string, number> = { C: 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4, F: 5, 'F#': 6, Gb: 6, G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10, Bb: 10, B: 11 };
@@ -256,34 +804,59 @@ export function parseChord(s: string): { root: number; iv: number[] } | null {
   return { root: NOTE_IDX[m[1]], iv: QUAL[m[2]] };
 }
 
-export interface StepEvents { lead?: { m: number; len: number }; bass?: { m: number; len: number }; arp?: number; drum?: string; pad?: number[]; padLen?: number }
-export interface Compiled { steps: StepEvents[]; bars: number; stepSec: number; errors: string[] }
+export interface StepEvents {
+  lead?: { m: number; len: number; from?: number };
+  bass?: { m: number; len: number };
+  arp?: number; drum?: string; pad?: number[]; padLen?: number;
+  /** auto counter-melody note (only played on repeat passes). */
+  ctr?: { m: number; len: number };
+}
+export interface Compiled {
+  /** intro steps followed by loop steps. */
+  steps: StepEvents[];
+  /** number of intro steps (played once, before the loop). */
+  intro: number;
+  /** bars in the loop (excluding the intro). */
+  bars: number;
+  stepSec: number;
+  errors: string[];
+}
 
-export function compileTrack(t: Track): Compiled {
-  const errors: string[] = [];
-  const bars = t.chords.length; const N = bars * 16;
+type Chord = { root: number; iv: number[] } | null;
+interface Section { chords: string[]; lead: string[]; bass: (bar: number) => string; drums: (bar: number) => string; arp?: Track['arp']; pad?: number }
+
+function compileSection(sec: Section, label: string, errors: string[]): StepEvents[] {
+  const bars = sec.chords.length; const N = bars * 16;
   const steps: StepEvents[] = Array.from({ length: N }, () => ({}));
-  const chordAt: ({ root: number; iv: number[] } | null)[] = new Array(N).fill(null);
-  t.chords.forEach((cs, b) => {
+  const chordAt: Chord[] = new Array(N).fill(null);
+  sec.chords.forEach((cs, b) => {
     const parts = cs.trim().split(/\s+/); const per = 16 / parts.length;
     parts.forEach((p, j) => {
-      const ch = parseChord(p); if (!ch) errors.push(`bad chord "${p}"`);
+      const ch = parseChord(p); if (!ch) errors.push(`${label}bad chord "${p}"`);
       for (let s = 0; s < per; s++) chordAt[b * 16 + j * per + s] = ch;
-      if (t.pad && ch) { const st = steps[b * 16 + j * per]; st.pad = [0, 1, 2].map(i => 60 + ch.root + ch.iv[i]); st.padLen = per; }
+      if (sec.pad && ch) { const st = steps[b * 16 + j * per]; st.pad = [0, 1, 2].map(i => 60 + ch.root + ch.iv[i]); st.padLen = per; }
     });
   });
   // lead
-  let pos = 0;
-  for (const tok of t.lead.join(' ').trim().split(/\s+/)) {
+  let pos = 0; let prev = -1;
+  for (const raw of sec.lead.join(' ').trim().split(/\s+/).filter(Boolean)) {
+    const glide = raw.startsWith('~'); const tok = glide ? raw.slice(1) : raw;
     const [n, d] = tok.split('/'); const len = d ? +d : 2;
-    if (!(len > 0)) { errors.push(`bad duration "${tok}"`); continue; }
-    if (n !== 'r') { const m = midi(n); if (m < 0) errors.push(`bad note "${tok}"`); else if (pos < N) steps[pos].lead = { m, len }; }
+    if (!(len > 0)) { errors.push(`${label}bad duration "${raw}"`); continue; }
+    if (n !== 'r') {
+      const m = midi(n);
+      if (m < 0) errors.push(`${label}bad note "${raw}"`);
+      else {
+        if (pos < N) steps[pos].lead = glide && prev > 0 && prev !== m ? { m, len, from: prev } : { m, len };
+        prev = m;
+      }
+    }
     pos += len;
   }
-  if (pos !== N) errors.push(`lead length ${pos} != ${N} steps (${bars} bars)`);
+  if (pos !== N) errors.push(`${label}lead length ${pos} != ${N} steps (${bars} bars)`);
   // bass
   for (let b = 0; b < bars; b++) {
-    const pat = t.bass[b % t.bass.length].split(/\s+/);
+    const pat = sec.bass(b).split(/\s+/);
     let last: { m: number; len: number } | undefined;
     for (let s = 0; s < 16; s++) {
       const i = b * 16 + s; const tok = pat[s % pat.length]; const ch = chordAt[i];
@@ -294,25 +867,97 @@ export function compileTrack(t: Track): Compiled {
     }
   }
   // arp
-  if (t.arp) {
-    const pat = t.arp.pat.split(/\s+/);
+  if (sec.arp) {
+    const pat = sec.arp.pat.split(/\s+/);
     for (let i = 0; i < N; i++) {
       const tok = pat[i % pat.length]; const ch = chordAt[i]; if (!ch || tok === '.') continue;
       const k = +tok; const tones = ch.iv.length === 3 ? [...ch.iv, 12] : ch.iv;
-      steps[i].arp = (t.arp.oct + 1) * 12 + ch.root + tones[k % tones.length] + 12 * Math.floor(k / tones.length);
+      steps[i].arp = (sec.arp.oct + 1) * 12 + ch.root + tones[k % tones.length] + 12 * Math.floor(k / tones.length);
     }
+  }
+  // auto counter-melody: one chord tone per half bar in G3..C5, the smallest move from the previous one,
+  // avoiding the lead's pitch class at that moment (so it reads as a second line, not a doubling).
+  let cm = 64; let leadNow = -1;
+  for (let i = 0; i < N; i++) {
+    if (steps[i].lead) leadNow = steps[i].lead!.m;
+    if (i % 8 !== 0) continue;
+    const ch = chordAt[i]; if (!ch) continue;
+    let best = -1, bd = 99;
+    for (let m = 55; m <= 72; m++) {
+      const pc = ((m - ch.root) % 12 + 12) % 12; if (!ch.iv.includes(pc)) continue;
+      if (leadNow >= 0 && (m - leadNow) % 12 === 0) continue;
+      const dist = Math.abs(m - cm) + (m === cm ? 1.5 : 0); if (dist < bd) { bd = dist; best = m; }
+    }
+    if (best > 0) { steps[i].ctr = { m: best, len: 8 }; cm = best; }
   }
   // drums
   for (let b = 0; b < bars; b++) {
-    const pat = (b === bars - 1 && t.fill ? t.fill : t.drums[b % t.drums.length]).split(/\s+/);
+    const pat = sec.drums(b).split(/\s+/);
     for (let s = 0; s < 16; s++) { const tok = pat[s]; if (tok && tok !== '.') steps[b * 16 + s].drum = tok; }
   }
-  return { steps, bars, stepSec: 60 / t.bpm / 4, errors };
+  return steps;
 }
 
-/** All track problems (bad chords, wrong bar lengths). Empty when every track is well-formed. */
+export function compileTrack(t: Track): Compiled {
+  const errors: string[] = [];
+  const bars = t.chords.length; const bAt = t.bAt ?? Math.floor(bars / 2);
+  const loop = compileSection({
+    chords: t.chords, lead: t.lead, arp: t.arp, pad: t.pad,
+    bass: b => (b >= bAt && t.bassB ? t.bassB[(b - bAt) % t.bassB.length] : t.bass[b % t.bass.length]),
+    drums: b => (b === bars - 1 && t.fill ? t.fill : t.drumBars?.[b] ?? (b >= bAt && t.drumsB ? t.drumsB[(b - bAt) % t.drumsB.length] : t.drums[b % t.drums.length])),
+  }, '', errors);
+  let intro: StepEvents[] = [];
+  if (t.intro) {
+    const it = t.intro;
+    intro = compileSection({ chords: it.chords, lead: it.lead, arp: t.arp, bass: () => it.bass ?? t.bass[0], drums: b => it.drums[b % it.drums.length] ?? '' }, 'intro: ', errors);
+    for (const s of intro) delete s.ctr;
+  }
+  const steps = [...intro, ...(t.once ? [] : loop)];
+  const key = t.key ?? 0;
+  if (key) for (const st of steps) {
+    if (st.lead) { st.lead.m += key; if (st.lead.from !== undefined) st.lead.from += key; }
+    if (st.bass) st.bass.m += key;
+    if (st.ctr) st.ctr.m += key;
+    if (st.arp !== undefined) st.arp += key;
+    if (st.pad) st.pad = st.pad.map(m => m + key);
+  }
+  if (t.once && !intro.length) errors.push('one-shot song without an intro');
+  return { steps, intro: intro.length, bars: t.once ? 0 : bars, stepSec: 60 / t.bpm / 4, errors };
+}
+
+/** All track problems (bad chords, wrong bar lengths) plus sfx ids used in source but not defined. */
 export function validateTracks(): string[] {
   const out: string[] = [];
   for (const [id, t] of Object.entries(TRACKS)) for (const e of compileTrack(t).errors) out.push(`${id}: ${e}`);
+  for (const e of lintSfxCalls()) out.push(e);
   return out;
+}
+
+// ---- sfx call-site lint (node only) ----------------------------------------------------------
+
+/** Pure: every string literal inside `sfx(...)` calls in `files` that is not a known sfx id. */
+export function findUnknownSfx(files: { path: string; src: string }[], ids: readonly string[] = SFX_IDS): string[] {
+  const known = new Set(ids); const out: string[] = [];
+  for (const f of files) {
+    const re = /\bsfx\(([^()]*)\)/g; let m: RegExpExecArray | null;
+    while ((m = re.exec(f.src))) {
+      const lits = m[1].match(/(['"`])([^'"`]*)\1/g) ?? [];
+      for (const l of lits) { const id = l.slice(1, -1); if (!known.has(id)) out.push(`sfx id "${id}" used in ${f.path}:${f.src.slice(0, m.index).split('\n').length} is not in SFX_IDS`); }
+    }
+  }
+  return out;
+}
+
+/** Scans src/**.ts for sfx('id') calls (only when running under node, e.g. tools/lint-content.ts). */
+export function lintSfxCalls(ids: readonly string[] = SFX_IDS): string[] {
+  try {
+    const proc = (globalThis as any).process; const get = proc?.getBuiltinModule;
+    if (typeof get !== 'function' || typeof import.meta?.url !== 'string' || !import.meta.url.startsWith('file:')) return [];
+    const fs = get('node:fs'); const path = get('node:path'); const url = get('node:url');
+    const srcDir = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..');
+    const files: { path: string; src: string }[] = [];
+    const walk = (d: string) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (/\.ts$/.test(e.name) && !path.relative(srcDir, p).startsWith(`audio${path.sep}`)) files.push({ path: path.relative(srcDir, p), src: fs.readFileSync(p, 'utf8') }); } };
+    walk(srcDir);
+    return findUnknownSfx(files, ids);
+  } catch { return []; }
 }
