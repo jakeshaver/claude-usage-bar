@@ -180,7 +180,18 @@ class Player implements Module {
     };
     this.vx = steer(this.vx, ax); this.vy = steer(this.vy, ay);
     if (Math.abs(this.vx) < 0.05) this.vx = 0; if (Math.abs(this.vy) < 0.05) this.vy = 0;
-    this.x = clamp(this.x + this.vx, 14, WORLD_W - 14);
+    // in a Big Cat fight Pom stays inside the lane walls (boss bullets pop at them, so the gutters would be a free
+    // safe zone); a Pom caught outside when the fight starts glides back in 2px a tick, never a snap
+    let nx = clamp(this.x + this.vx, 14, WORLD_W - 14);
+    const IX = g.mods.interaction;
+    if (IX?.mode === 'boss' && typeof IX.lane === 'function') {
+      const [l, r] = IX.lane() as [number, number]; const lo = l + 12, hi = r - 12;
+      if (lo < hi) {
+        if (nx < lo) { nx = Math.max(nx, Math.min(lo, this.x + 2)); if (this.vx < 0) this.vx = 0; }
+        if (nx > hi) { nx = Math.min(nx, Math.max(hi, this.x - 2)); if (this.vx > 0) this.vx = 0; }
+      }
+    }
+    this.x = nx;
     this.y = clamp(this.y + this.vy, MIN_Y, MAX_Y);
     // banking eases toward the stick so the lean frames do not flicker on taps
     const bt = clamp(this.vx / 2.2, -1, 1);
