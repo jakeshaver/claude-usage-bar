@@ -80,7 +80,7 @@ export class Boss {
   update() {
     const g = this.g; this.t++; this.stT++; if (this.flash > 0) this.flash--; if (this.hitT > 0) this.hitT--;
     if (this.t > BOSS_LIMIT && this.st !== 'enter') { this.dead = true; this.napped = true; return; }
-    const P = g.mods.player; const px = P?.x ?? WORLD_W / 2, py = P?.y ?? 316;
+    const P = g.mods.player; const px = P?.x ?? WORLD_W / 2, py = P?.y ?? 300;
     const lastX = this.x, lastY = this.y;
     this.jit = 0;
 

@@ -20,6 +20,8 @@ export interface Cat {
   beam?: number; beamUsed?: boolean;
   /** captive pup position: -1 riding above the holder (in formation), +1 hanging below it (in flight). */
   pupK?: number;
+  /** bonus stage: squadron index (sent as `group` in the bonus cat:boop payload) */
+  bgroup?: number;
 }
 /** `art` names the bullet sprite (cats: blt_fur / blt_yarn, bosses: one per bossPattern). */
 export interface Shot { x: number; y: number; vx: number; vy: number; kind: 'turd' | 'hairball' | 'yarn'; t: number; art?: string }
@@ -153,8 +155,11 @@ class Interaction implements Module {
     const ed = this.enemy(def.breed);
     for (let gi = 0; gi < def.groups; gi++) {
       const track = new Track(bonusPath(def.pattern, gi)); const p0 = track.at(0, tp);
-      for (let k = 0; k < 8; k++)
-        this.cats.push(this.mkCat({ ...ed, hp: 1 }, p0.x, p0.y, 'wait', { track, speed: 2.5, lat: k % 2 ? -8 : 8, delay: gi * 140 + Math.floor(k / 2) * 16 }));
+      // one single-file train per squadron: 8 ticks x 2.5 px = 20 px of arc between cats, squadrons 150 ticks apart
+      for (let k = 0; k < 8; k++) {
+        const c = this.mkCat({ ...ed, hp: 1 }, p0.x, p0.y, 'wait', { track, speed: 2.5, lat: 0, delay: gi * 150 + k * 8 });
+        c.bgroup = gi; this.cats.push(c);
+      }
     }
   }
 
@@ -209,7 +214,7 @@ class Interaction implements Module {
     if (c.def.behavior === 'splitter') for (const s of [-1, 1]) this.spawnKitten(c.x + s * 6, c.y, s * 1.5, -1.6, c.slot);
     if (this.bonus) this.bonus.hits++;
     c.dead = true;
-    g.bus.emit('cat:boop', { breed: c.def.id, x: c.x, y: c.y, points: pts, glow: !!c.glow, bonus: this.mode === 'bonus' });
+    g.bus.emit('cat:boop', { breed: c.def.id, x: c.x, y: c.y, points: pts, glow: !!c.glow, bonus: this.mode === 'bonus', group: this.mode === 'bonus' ? c.bgroup : undefined });
   }
 
   /** Where the captive pup floats: above its holder in formation (as Galaga parks the captured fighter), 12px below its
@@ -497,7 +502,7 @@ class Interaction implements Module {
     this.staged = true; this.stageReq = name; this.stageT = 0;
     if (name === 'play') { g.autopilot = true; this.stageReq = null; return; }
     g.autopilot = false;
-    if (P) { P.x = WORLD_W / 2; P.y = 316; P.vx = 0; P.vy = 0; }
+    if (P) { P.x = WORLD_W / 2; P.y = 300; P.vx = 0; P.vy = 0; } // player START_Y
     if (name === 'tell' || name === 'boss') {
       const bossId = g.mods.world?.area?.(g.state.areaId)?.boss ?? 'boss_whiskers';
       this.startBoss(bossId); this.boss!.stageTell(this.stagePhase);
@@ -583,10 +588,7 @@ class Interaction implements Module {
         r.push(1, y + 1, (ctx: CanvasRenderingContext2D) => captureBeam(ctx, x, y + 12, Math.min(140, H - y), c.t, k));
       }
       r.push(2, y, (ctx: CanvasRenderingContext2D) => {
-        if (c.glow) { // memory cat: a warm, dithered pixel halo with orbiting sparkles
-          pxDither(ctx, x, y, 17, 'f', (c.t >> 3) & 1);
-          pxRing(ctx, x, y, 18, (c.t >> 3) & 1 ? 'f' : '7', 3, c.t / 20);
-        }
+        // memory carriers: the halo, gold rim, crown and held polaroid are drawn by the memories module
         // hit flash: the cat blinks to a solid white silhouette (on, off, on, off...) for the first 10 ticks: the main
         // "that hurt" signal. After that a red rim lingers for a moment so the breed stays readable while it recovers.
         const sil = c.flash > 3 && (c.flash & 2) !== 0, hurt = c.flash > 0 && c.flash <= 3;

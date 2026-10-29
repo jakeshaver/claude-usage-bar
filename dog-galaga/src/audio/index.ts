@@ -267,7 +267,10 @@ class Audio implements Module {
     if (!g.headless && !this.failed && !this.running()) {
       this.pollPad(g);
       // a pad player (or anyone who starts without a key/tap) gets told once, outside the title screen
-      if (!this.hinted && g.tick > 90 && (g.state?.scene ?? 'title') !== 'title') {
+      // ...and only on a calm screen: no briefing, title card or open menu to stack under
+      const sc = g.state?.scene ?? 'title', W = g.mods.world as any, Q = g.mods.quest as any, U = g.mods.ui as any;
+      const calm = (sc === 'play' || sc === 'map') && !(W?.titleCard > 0) && !Q?.briefingPending?.() && (U?.menuOpen ?? 'none') === 'none';
+      if (!this.hinted && g.tick > 90 && calm) {
         this.hinted = true;
         try { (g.mods.ui as any)?.toast?.('TAP OR PRESS A KEY FOR SOUND'); } catch { /* ignore */ }
       }

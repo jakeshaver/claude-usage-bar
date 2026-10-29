@@ -152,6 +152,7 @@ class UI implements Module {
   /** Fast-forward the whole open conversation (dedicated skip key, or SKIP BRIEFING in the pause menu). */
   skipDialogue(g: Game) {
     const Q = g.mods.quest; if (!Q) return;
+    Q.skipAll?.(); // bounded inside the engine; also handles a briefing staged behind the title card
     for (let i = 0; i < 80 && Q.dlg && g.state.scene === 'dialogue'; i++) { Q.dlg.chars = 1e9; Q.advance(); }
     g.mods.audio?.sfx('blip');
   }
@@ -434,9 +435,13 @@ class UI implements Module {
       nl.forEach((l, i) => text(ctx, l, x1, 21 + i * 9, C.text, { shadow: C.ink }));
       if (nl.length === 1 && A.subtitle) text(ctx, this.clip(A.subtitle.toUpperCase(), 18), x1, 30, C.dim);
       const tot = A.waves.length + (A.boss ? 1 : 0); const cur = Math.min(tot, s.waveIndex + 1);
-      header(ctx, 'WAVE', x1, 44, w0, C.hot, t);
+      const MB = g.state.scene === 'bonus' && !B0 ? g.mods.minigames?.def : null;
+      header(ctx, MB ? 'BONUS' : 'WAVE', x1, 44, w0, MB ? C.gold : C.hot, t);
       const wy = 55;
-      if (B0) {
+      if (MB) {
+        text(ctx, `BONUS STAGE ${String(g.content.bonus.indexOf(MB) + 1).padStart(2, '0')}`, x1, wy, C.gold, { shadow: C.ink });
+        text(ctx, this.clip(String(MB.name).toUpperCase(), 18), x1, wy + 9, C.dim);
+      } else if (B0) {
         chamferFill(ctx, x1, wy - 1, w0, 13, C.mag, 3); chamferFill(ctx, x1 + 1, wy - 1, w0 - 2, 12, (t >> 4) % 2 ? C.hot : C.mag, 3);
         icon(ctx, 'cat', x1 + 6, wy + 2, C.text); text(ctx, 'BIG CAT WAVE', x1 + 16, wy + 2, C.text);
         arrow(ctx, x1 + w0 - 8, wy + 5, 'l', 3, C.text);
@@ -461,21 +466,28 @@ class UI implements Module {
     chamferFill(ctx, x1 + 56, 82, w0 - 56, 18, C.night, 2); drawSprite(ctx, 'pk_memory', x1 + 65, 91);
     text(ctx, `${s.memories.length}/${g.content.memories.length}`, x1 + 76, 87, C.text);
     header(ctx, 'QUEST', x1, 106, w0, C.violet, t);
-    const q = g.content.quests.find(q => s.quests[q.id] === 'active');
+    // quest.tracked() returns null while a NEW QUEST toast is still held: no find() fallback then
+    const Q = g.mods.quest;
+    const q = Q?.tracked ? Q.tracked() : g.content.quests.find(q => s.quests[q.id] === 'active');
     if (q) {
       text(ctx, this.lines(q.name, 18, 1)[0], x1, 117, C.violet, { shadow: C.ink });
       icon(ctx, 'flag', x1, 128, C.violet);
       const pr = g.mods.quest?.progress?.(q);
       if (pr && pr.need > 1) { segBar(ctx, x1 + 10, 129, 10, 5, 4, pr.have / pr.need, C.violet); text(ctx, `${pr.have}/${pr.need}`, x1 + w0, 128, C.text, { align: 'right' }); }
-      else { text(ctx, 'IN PROGRESS', x1 + 10, 128, C.dim); for (let i = 0; i < 3; i++) rect(ctx, x1 + 78 + i * 4, 133, 2, 2, ((t >> 4) % 4) > i ? C.violet : C.peri); }
+      else { text(ctx, Q?.goal?.(q) || 'IN PROGRESS', x1 + 10, 128, C.dim); if (!Q?.goal) for (let i = 0; i < 3; i++) rect(ctx, x1 + 78 + i * 4, 133, 2, 2, ((t >> 4) % 4) > i ? C.violet : C.peri); }
     } else { text(ctx, 'NO ACTIVE QUEST', x1, 117, C.dim); icon(ctx, 'flag', x1, 128, C.peri); text(ctx, 'FLY ON, CAPTAIN', x1 + 10, 128, C.peri); }
     // threat slot: fixed 64px (boss armor, bonus tally, live breed roster, or the next formation preview)
     const TY = 142;
     if (B0) this.bossBlock(g, ctx, B0, x1, TY, w0);
     else if (g.state.scene === 'bonus') {
-      header(ctx, 'BONANZA', x1, TY, w0, C.gold, t, true);
-      const b = g.mods.interaction?.bonus;
-      if (b) { icon(ctx, 'gift', x1, TY + 12, C.gold); text(ctx, `${b.hits} / ${b.total}`, x1 + 10, TY + 12, C.text); segBar(ctx, x1, TY + 24, 20, 4, 3, b.hits / Math.max(1, b.total), C.gold); text(ctx, 'TREATS CAUGHT', x1, TY + 34, C.dim); }
+      // static stage info: the live HITS counter lives in the playfield (minigames), never a second tally here
+      header(ctx, 'BONUS STAGE', x1, TY, w0, C.gold, t, true);
+      const MD = g.mods.minigames?.def; const en = MD ? g.content.enemies.find(e => e.id === MD.breed) : null;
+      if (en) {
+        chamferFill(ctx, x1, TY + 12, 36, 36, C.night, 3); drawSprite(ctx, en.sprite, x1 + 18, TY + 30);
+        text(ctx, 'NO RETURN', x1 + 42, TY + 16, C.text); text(ctx, 'FIRE', x1 + 42, TY + 25, C.text);
+        text(ctx, 'BOOP THEM', x1 + 42, TY + 36, C.gold); text(ctx, 'ALL!', x1 + 42, TY + 45, C.gold);
+      }
     } else this.roster(g, ctx, x1, TY, w0);
     if (!touch) {
       // scanner anchored right under the threat slot, filling down to the clock blocks
@@ -628,7 +640,8 @@ class UI implements Module {
     const t = this.t;
     const isPom = /pom/i.test(d.node.speaker); const isBoss = /empress|boss|sergeant|madame|duchess/i.test(d.node.speaker + (d.node.portrait ?? ''));
     const accent = isPom ? C.pink : isBoss ? C.hot : C.line;
-    const x = PF_X + 1, w = PF_W - 2, h = DLG_H, y = H - h - 1;
+    // docks to the top while Pom sits in the bottom band the box would cover (quest.dock)
+    const x = PF_X + 1, w = PF_W - 2, h = DLG_H, y = g.mods.quest?.dock?.(h + 3) === 'top' ? 4 : H - h - 1;
     // solid backing flush with the playfield edges (no world pixels peek through the chamfers)
     rect(ctx, x, y - 2, w, h + 3, C.ink);
     rect(ctx, x, y - 2, w, 1, darkOf(accent));
@@ -666,7 +679,8 @@ class UI implements Module {
     const ruleL = tx + 6 + textWidth(nm) + 5, ruleR = nx - textWidth(nextLbl) - 4 - nw - 6;
     if (ruleR > ruleL) dither(ctx, ruleL, y + 10, ruleR - ruleL, 1, darkOf(accent));
     // body: max three lines
-    const lines = wrap(d.node.text.slice(0, Math.floor(d.chars)), 51).slice(0, 3);
+    // the engine wraps the full page first, so a half-typed word never jumps lines when it completes
+    const lines: string[] = g.mods.quest?.visibleLines ? g.mods.quest.visibleLines() : wrap(d.node.text.slice(0, Math.floor(d.chars)), 51).slice(0, 3);
     lines.forEach((l, i) => text(ctx, l, tx, y + 20 + i * 11, C.text, { shadow: C.ink }));
     if (!done && (t >> 2) % 2) rect(ctx, tx + (lines.length ? textWidth(lines[lines.length - 1]) + 2 : 0), y + 20 + Math.max(0, lines.length - 1) * 11, 4, 7, accent);
     if (done) arrow(ctx, x + w - 12, y + h - 7 + bob, 'd', 3, C.gold);
