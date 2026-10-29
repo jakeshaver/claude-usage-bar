@@ -332,25 +332,41 @@ function pupStand(f) {
   g.outline('0');
   return g;
 }
+/** Lying on its back (hand-placed: at 22x13 a generated pose read as a crate): paws flopped over toward the head,
+ *  round pink belly with a cream fluff rim, head tipped on its cheek (shut eye, nose up, tongue lolling), ear on the
+ *  grass. Frame 1 kicks the hind paw and flicks the tongue. */
+const PUP_BACK = [[
+    '......................',
+    '...00.....00..........',
+    '..0880...0880.........',
+    '.09a90..09a90.000..00.',
+    '.0990...0990.088900700',
+    '..09900000990089997770',
+    '.0897cccc7790090099770',
+    '.0a97ccccc790099990dd0',
+    '09a997cccc7900a99a00d0',
+    '0a0a99777799a0baa0..0.',
+    '.0.0aa9999aabbba0.....',
+    '....0aaaaaa0bbb0......',
+    '.....000000.000.......',
+  ], [
+    '...00.................',
+    '..0880....00..........',
+    '.09a90...0880.........',
+    '.0990...09a90.000..00.',
+    '.0990...0990.088900700',
+    '..09900000990089997770',
+    '.0897cccc7790090099770',
+    '.0a97ccccc790099990dd0',
+    '09a997cccc7900a99a0d00',
+    '0a0a99777799a0baa0..0.',
+    '.0.0aa9999aabbba0.....',
+    '....0aaaaaa0bbb0......',
+    '.....000000.000.......',
+  ]];
 function pupBack(f) {
-  const W = 20, H = 12, g = new Grid(W, H);
-  // tail flat on the grass, thumping
-  if (f) { g.px(2, 10, '9'); g.px(1, 10, '9'); } else { g.px(2, 9, '9'); g.px(1, 8, '9'); }
-  // body on its back: brown sides, the pale belly turned up to the sky
-  const bd = new Grid(W, H).ellipse(9, 8.6, 6.6, 2.6, '9'); bd.relight('9', { hi: '8', lo: 'a' }); g.over(bd);
-  g.over(new Grid(W, H).ellipse(9.2, 6.9, 4.8, 1.3, '7'));
-  // four short legs paddling in the air, paws curled toward the head (alternate pairs kick on the wag beat)
-  for (const [x, k] of [[4, 0], [7, 1], [10, 0], [13, 1]]) {
-    const up = (k ^ f) ? 1 : 0; for (let y = 3 - up; y <= 6; y++) g.px(x, y, '9');
-    g.px(x, 2 - up, '7'); g.px(x + 1, 2 - up, '7');
-  }
-  // head lying on its side: muzzle out to the right, ear flopped on the grass, eyes squeezed shut, tongue out
-  const hd = new Grid(W, H).ellipse(16, 8.2, 2.9, 2.6, '9'); hd.relight('9', { hi: '8', lo: 'a' }); g.over(hd);
-  g.over(new Grid(W, H).poly([[17.4, 7.2], [19.9, 7.4], [19.9, 9.6], [17.4, 9.8]], '7'));
-  g.px(19, 7, '0'); g.px(18, 10, 'c');
-  g.over(new Grid(W, H).poly([[13.4, 9.4], [16.2, 10.2], [15.6, 11.9], [13.2, 11.6]], 'a'));
-  g.outline('0');
-  g.px(15, 7, '0'); g.px(16, 8, '0'); g.px(17, 7, '0');
+  const rows = PUP_BACK[f], g = new Grid(rows[0].length, rows.length);
+  g.stamp(0, 0, rows);
   return g;
 }
 
