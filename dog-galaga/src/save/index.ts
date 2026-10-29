@@ -1,9 +1,11 @@
 import type { Game, Module } from '../core/game';
-import { W, H } from '../core/game';
+import { W, H, PF_X, PF_W } from '../core/game';
 import { sanitizeState, STATE_VERSION } from '../core/state';
 import { decodeEnvelope, encodeEnvelope, fromExportString, toExportString, type Decoded } from './codec';
 import { SafeStore, browserStorage, memStorage, type FallbackReason, type Storage } from './storage';
 import { drawIndicator, IND_FRAMES, IND_W, IND_H } from './indicator';
+
+export { drawFloppy, FLOPPY, FLOPPY_W, FLOPPY_H } from './indicator';
 
 export { checksum, migrate, MIGRATIONS } from './codec';
 export { memStorage, SafeStore } from './storage';
@@ -18,9 +20,11 @@ export const KEYS = {
   QUARANTINE: 'poodle-patrol:quarantine',
   /** original of a save written by a newer build, kept before we overwrite it */
   FUTURE: 'poodle-patrol:future',
+  /** keepsakes that outlive any save: high score and settings (a corrupt save or START FRESH never resets them) */
+  KEEP: 'poodle-patrol:keep',
 } as const;
-const { MAIN, BACKUP, SETTINGS, QUARANTINE, FUTURE } = KEYS;
-const CARRY = [MAIN, BACKUP, SETTINGS], SPARE = [QUARANTINE, FUTURE, BACKUP];
+const { MAIN, BACKUP, SETTINGS, QUARANTINE, FUTURE, KEEP } = KEYS;
+const CARRY = [MAIN, BACKUP, SETTINGS, KEEP], SPARE = [QUARANTINE, FUTURE, BACKUP];
 
 /** Write throttle: a burst of up to BURST writes is immediate, then one per REFILL frames (~1 s). */
 export const BURST = 4, REFILL = 60;
@@ -28,9 +32,29 @@ export const BURST = 4, REFILL = 60;
 export type LoadStatus = 'ok' | 'recovered' | 'corrupt' | 'none';
 const NO_WRITE_SCENES = new Set(['boot', 'recovery']);
 export const FALLBACK_TOAST: Record<FallbackReason, string> = {
-  blocked: 'STORAGE IS OFF. SAVING IN MEMORY',
-  full: 'SAVE SPACE FULL. SAVING IN MEMORY',
+  blocked: "CAN'T SAVE ON THIS BROWSER. PROGRESS KEPT THIS SESSION",
+  full: 'NO ROOM IN THE TOY BOX. PROGRESS KEPT THIS SESSION',
 };
+/** frames between two save notices, so they never stack with each other */
+const NOTICE_GAP = 120;
+/** scenes where a save notice may appear (never over dialogue, the recovery screen or boot) */
+const NOTICE_SCENES = new Set(['play', 'bonus', 'title', 'map']);
+
+/**
+ * Where the autosave floppy sits, on the HUD's inner grid. In play the right panel's text column runs
+ * x = PF_X+PF_W+10 .. +118; the floppy is right-aligned to that column's edge.
+ * - keyboard / gamepad: beside the FLIGHT TIME clock, bottom 6px above the panel's inner frame
+ * - touch deck visible: the free slot above the ACTION deck (the clock block is hidden there, and the
+ *   bottom-right corner belongs to the TOOT button and the right thumb)
+ * - full-screen scenes (title, map): bottom-right, 8px in from the screen edge
+ */
+export function indicatorPos(scene: string, touch: boolean): { x: number; y: number } {
+  const colRight = PF_X + PF_W + 118;
+  if (scene === 'play' || scene === 'bonus' || scene === 'dialogue') {
+    return touch ? { x: colRight - IND_W, y: 214 } : { x: colRight - IND_W, y: H - 10 - IND_H };
+  }
+  return { x: W - 8 - IND_W, y: H - 8 - IND_H };
+}
 export const FUTURE_TOAST = 'SAVE FROM A NEWER BUILD: LOADED IT';
 
 /**
@@ -41,6 +65,8 @@ export const FUTURE_TOAST = 'SAVE FROM A NEWER BUILD: LOADED IT';
 class Save implements Module {
   id = 'save';
   api = this;
+  /** draw above every other overlay (ui's HUD and menus). Requested as a core sort key in render.ts. */
+  overlayZ = 100;
   g!: Game;
   store: Storage & { persistent?: boolean; trySet?(k: string, v: string): boolean } = memStorage();
   lastStatus: LoadStatus = 'none';
@@ -58,6 +84,11 @@ class Save implements Module {
   writes = 0;
   /** frames left on the autosave indicator */
   blink = 0;
+  /** showcase: draw the indicator frozen at this many frames left (null = live) */
+  holdBlink: number | null = null;
+  private noticeAt = 0;
+  private keptHi = 0;
+  private keptRaw: string | null = null;
 
   init(g: Game) {
     this.g = g;
@@ -72,6 +103,18 @@ class Save implements Module {
       if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') hide(); });
     }
     this.restoreSettings();
+    // Overlays draw in module order, and ui's full-screen HUD is registered after save, which would hide
+    // the floppy. Until core sorts overlays by `overlayZ` or registers save last (docs/core-requests/save.md
+    // #2), move save's entry to the end ONCE, right after boot: a microtask runs after createGame() has
+    // returned, so this is never inside g.init()'s or g.step()'s loop over g.modules. No-op when already
+    // last, and never in headless runs (tests, bot), which do not draw.
+    if (!g.headless && typeof queueMicrotask === 'function') queueMicrotask(() => this.drawLast());
+  }
+
+  private drawLast() {
+    const m = this.g.modules, i = m.indexOf(this);
+    if (i < 0 || i === m.length - 1) return;
+    m.splice(i, 1); m.push(this);
   }
 
   /** Swap the backend (tests, or a host that provides its own), wrapped in a SafeStore with memory fallback. */
@@ -81,19 +124,57 @@ class Save implements Module {
   }
 
   update(g: Game) {
-    // Overlays draw in module order and ui's full-screen HUD comes after save in boot.ts, which would hide
-    // the autosave icon. Until core registers save last (requested in docs/core-requests/save.md), move
-    // this module to the end once, outside g.init()'s loop. No-op when already last.
-    if (g.modules[g.modules.length - 1] !== this && g.modules.includes(this)) { g.modules.splice(g.modules.indexOf(this), 1); g.modules.push(this); }
     this.clock++;
     if (this.tokens < BURST && this.clock >= this.refillAt) { this.tokens++; this.refillAt = this.clock + REFILL; }
     if (this.pending && this.tokens > 0) this.write();
-    if (this.blink > 0) this.blink--;
-    if (this.outbox.length && g.mods.ui?.toast) { for (const t of this.outbox.splice(0)) g.mods.ui.toast(t); }
+    if (this.blink > 0 && this.holdBlink === null) this.blink--;
+    if (this.outbox.length && this.clock >= this.noticeAt && this.noticeReady(g)) {
+      g.mods.ui.toast(this.outbox.shift()!); this.noticeAt = this.clock + NOTICE_GAP;
+    }
   }
 
-  overlay(_g: Game, ctx: CanvasRenderingContext2D) {
-    if (this.blink > 0) drawIndicator(ctx, W - IND_W - 10, H - IND_H - 10, this.blink);
+  /** Save notices wait for a calm moment: not during the sector title card, dialogue or the recovery screen. */
+  private noticeReady(g: Game): boolean {
+    if (!g.mods.ui?.toast || !NOTICE_SCENES.has(g.state.scene)) return false;
+    if (g.mods.ui.menuOpen && g.mods.ui.menuOpen !== 'none') return false;
+    return !((g.mods.world?.titleCard ?? 0) > 0);
+  }
+
+  /** true when the on-screen touch deck is showing (the bottom-right corner is the TOOT button) */
+  private touchDeck(g: Game): boolean {
+    const st = g.state.settings.touch;
+    if (st === 'on') return true;
+    if (st === 'off') return false;
+    return g.mods.ui?.touch?.visible?.(g) ?? g.input.lastDevice === 'touch';
+  }
+
+  overlay(g: Game, ctx: CanvasRenderingContext2D) {
+    const left = this.holdBlink ?? this.blink;
+    if (left <= 0) return;
+    const p = indicatorPos(g.state.scene, this.touchDeck(g));
+    drawIndicator(ctx, p.x, p.y, left);
+  }
+
+  /**
+   * Showcase stages (for critics and the integrator; wired from src/showcase as ?showcase=save&stage=...):
+   * - 'indicator': a live play scene, frozen, with the floppy held solid and the storage-fallback toast up
+   * - 'indicator-touch': the same with the touch deck on
+   * - 'recovery' (default): the recovery screen
+   */
+  stage(name = 'recovery'): void {
+    const g = this.g;
+    if (name !== 'indicator' && name !== 'indicator-touch') { g.setScene('recovery'); return; }
+    if (name === 'indicator-touch') g.state.settings.touch = 'on';
+    const W_ = g.mods.world, Q = g.mods.quest;
+    if (g.state.scene === 'title' || g.state.scene === 'boot' || g.state.scene === 'recovery') W_?.newGame?.();
+    for (let n = 0; n < 60 && Q?.dlg; n++) Q.advance();
+    if (W_) W_.titleCard = 0;
+    for (let i = 0; i < 240; i++) g.step();
+    g.mods.ui?.muteToasts?.(false);
+    g.mods.ui?.toast?.(FALLBACK_TOAST.blocked);
+    for (let i = 0; i < 40; i++) g.step();
+    this.holdBlink = IND_FRAMES - 4;
+    g.paused = true;
   }
 
   private notify(text: string) {
@@ -143,6 +224,7 @@ class Save implements Module {
     }
     this.store.set(MAIN, raw);
     this.lastRaw = raw; this.lastData = data; this.writes++;
+    this.keep();
     this.blink = IND_FRAMES;
     this.g.bus.emit('save:written', { slot: 'main' });
     return true;
@@ -156,17 +238,52 @@ class Save implements Module {
       const raw = encodeEnvelope({ ...d.data, settings }, d.at);
       this.store.set(MAIN, raw); this.lastRaw = raw; this.lastData = null;
     } else this.store.set(SETTINGS, JSON.stringify(settings));
+    this.keep();
     this.blink = IND_FRAMES;
     return true;
   }
 
-  /** On boot, apply stored settings (volumes, accessibility) before the player picks CONTINUE. */
+  /**
+   * Store the high score and settings on their own (a few dozen bytes), so no corrupt save or START FRESH
+   * can ever reset them. Written only when they change; best effort (never triggers the memory fallback).
+   */
+  private keep() {
+    try {
+      const hi = Math.max(this.keptHi, this.g.state.hiScore | 0);
+      const v = JSON.stringify({ hi, settings: this.g.state.settings });
+      if (v === this.keptRaw && this.store.get(KEEP) === v) return;
+      if (this.store.trySet) this.store.trySet(KEEP, v); else this.store.set(KEEP, v);
+      this.keptHi = hi; this.keptRaw = v;
+    } catch { /* a keepsake must never break saving */ }
+  }
+
+  /** Best high score we can still find: the keepsake, either slot, even a slot whose checksum fails. */
+  private bestHi(): number {
+    let hi = 0;
+    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.min(Math.floor(v), 99999999) : 0);
+    try { const k = this.store.get(KEEP); if (k) hi = Math.max(hi, num(JSON.parse(k)?.hi)); } catch { /* unreadable */ }
+    for (const key of [MAIN, BACKUP]) {
+      try { const r = this.store.get(key); const d = decodeEnvelope(r) ?? decodeEnvelope(r, true); hi = Math.max(hi, num(d?.data?.hiScore)); } catch { /* unreadable */ }
+    }
+    return hi;
+  }
+
+  /** Carry the best known high score into the live state (boot, START FRESH). */
+  private restoreHi() {
+    const hi = this.bestHi();
+    if (hi > (this.g.state.hiScore | 0)) this.g.state.hiScore = hi;
+    this.keptHi = Math.max(this.keptHi, hi);
+  }
+
+  /** On boot, apply stored settings (volumes, accessibility) and the high score before the player picks CONTINUE. */
   restoreSettings() {
     try {
       let s: any = decodeEnvelope(this.store.get(MAIN))?.data?.settings ?? decodeEnvelope(this.store.get(BACKUP))?.data?.settings;
       if (!s) { const r = this.store.get(SETTINGS); if (r) s = JSON.parse(r); }
+      if (!s) { const r = this.store.get(KEEP); if (r) s = JSON.parse(r)?.settings; }
       if (s && typeof s === 'object') this.g.state.settings = sanitizeState({ settings: s }, this.g.state.seed).settings;
     } catch { /* defaults are fine */ }
+    try { this.restoreHi(); } catch { /* 0 is fine */ }
   }
 
   // ---------------- reading ----------------
@@ -236,10 +353,35 @@ class Save implements Module {
     W.enterArea(s.areaId, s.waveIndex);
   }
 
-  /** "Start fresh": removes main and backup. The quarantined copy (if any) is kept. */
+  /**
+   * "Start fresh": removes main and backup. The quarantined copy (if any) is kept, and so are the high
+   * score (keepsake) and the current settings, like an arcade cabinet keeps its HI-SCORE.
+   */
   wipe() {
+    try { this.restoreHi(); this.keep(); } catch { /* best effort */ }
+    try { this.store.set(SETTINGS, JSON.stringify(this.g.state.settings)); } catch { /* best effort */ }
     this.store.del(MAIN); this.store.del(BACKUP);
     this.live = false; this.pending = false; this.lastRaw = this.lastData = null;
+  }
+
+  /**
+   * Everything the recovery screen needs, worded for players (ui draws it; see docs/core-requests/save.md #3).
+   * - `primary`: label for row 0 ('PATCH UP MY SAVE' | 'TRY BACKUP SAVE' | 'TRY AGAIN')
+   * - `status`: one line for under the subtitle, e.g. 'MAIN: CHEWED  BACKUP: SAFE'
+   * - `doomed`: true when row 0 cannot find anything, so ui should confirm with `confirm` before wiping
+   */
+  recoveryOptions() {
+    const i = this.info();
+    const word = (s: string) => (s === 'ok' ? 'SAFE' : s === 'damaged' ? 'NIBBLED' : s === 'corrupt' ? 'CHEWED' : 'GONE');
+    const anyDamaged = i.main === 'damaged' || i.backup === 'damaged';
+    const primary = i.main === 'ok' || i.backup === 'ok' ? 'TRY BACKUP SAVE' : anyDamaged ? 'PATCH UP MY SAVE' : 'TRY AGAIN';
+    return {
+      primary, status: `MAIN: ${word(i.main)}  BACKUP: ${word(i.backup)}`,
+      doomed: !(i.main === 'ok' || i.backup === 'ok' || anyDamaged),
+      confirm: 'NOTHING LEFT TO FETCH. START FRESH?',
+      recoveredToast: (slot: string) => (slot === 'salvage' ? 'SAVE PATCHED UP. GOOD AS NEW' : 'SAVE PATCHED UP FROM BACKUP'),
+      freshToast: 'STARTING FRESH. HI-SCORE KEPT!',
+    };
   }
 
   // ---------------- export / import ----------------

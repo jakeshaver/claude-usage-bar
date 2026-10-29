@@ -8,7 +8,9 @@ import { STATE_VERSION } from '../core/state';
 import type { Game } from '../core/game';
 import { checksum, encodeEnvelope, migrate, toExportString, type Migration } from './codec';
 import { memStorage, type Storage } from './storage';
-import { KEYS, BURST, REFILL, FALLBACK_TOAST, FUTURE_TOAST } from './index';
+import { KEYS, BURST, REFILL, FALLBACK_TOAST, FUTURE_TOAST, indicatorPos } from './index';
+import { IND_W, IND_H } from './indicator';
+import { W, H, PF_X, PF_W } from '../core/game';
 
 export interface SelftestCase { name: string; ok: boolean; detail?: string }
 
@@ -21,6 +23,8 @@ const fresh = () => createGame({ headless: true });
 /** a second "process" that shares the first one's storage (the quit / relaunch boundary) */
 function relaunch(store: Storage): Game { const g = fresh(); S(g).store = store; S(g).restoreSettings(); return g; }
 function stepN(g: Game, n: number) { for (let i = 0; i < n; i++) g.step(); }
+/** close the sector intro dialogue the way a player tapping through it would */
+function skipDialogue(g: Game) { for (let n = 0; n < 80 && g.mods.quest?.dlg; n++) g.mods.quest.advance(); }
 function playUntil(g: Game, pred: () => boolean, max = 60 * 60 * 20) {
   for (let i = 0; i < max && !pred(); i++) { if (g.state.scene === 'map') { const ex = g.mods.world.exitsFrom(g.state.areaId); g.mods.world.chooseExit(ex[0].to); } g.step(); }
 }
@@ -120,6 +124,57 @@ const CASES: [string, () => void][] = [
     eq([...g2.errors, ...g3.errors], [], 'no errors reported');
   }],
 
+  ['recovery screen options and START FRESH keep the high score and settings', () => {
+    const g = fresh(); g.mods.world.newGame(); g.ops.addScore(48200); g.state.settings.music = 0.25; S(g).save();
+    eq(g.state.hiScore, 48200, 'hi score set');
+    const store = S(g).store; const good = store.get(KEYS.MAIN)!;
+    // both slots unreadable: the hi score still comes back on the next boot (keepsake), START FRESH keeps it
+    store.set(KEYS.MAIN, 'chewed'); store.set(KEYS.BACKUP, 'also chewed');
+    const g2 = relaunch(store);
+    eq(g2.state.hiScore, 48200, 'title shows the kept hi score before CONTINUE');
+    eq(S(g2).load(), 'corrupt', 'recovery');
+    let o = S(g2).recoveryOptions();
+    eq([o.primary, o.status, o.doomed], ['TRY AGAIN', 'MAIN: CHEWED  BACKUP: CHEWED', true], 'nothing left: confirm before wiping');
+    S(g2).wipe(); g2.setScene('title');
+    eq(g2.state.hiScore, 48200, 'hi score survives START FRESH');
+    const g3 = relaunch(store); eq([g3.state.hiScore, g3.state.settings.music], [48200, 0.25], 'hi score and settings survive a relaunch after the wipe');
+    g3.mods.world.newGame(); eq(g3.state.hiScore, 48200, 'new game keeps it'); eq(g3.state.score, 0, 'score resets');
+    // keepsake lost too: the hi score is read from a nibbled save (checksum broken, data intact)
+    const env = JSON.parse(good); env.sum = 'nope'; store.set(KEYS.MAIN, JSON.stringify(env)); store.del(KEYS.KEEP);
+    const g4 = relaunch(store); eq(g4.state.hiScore, 48200, 'hi score read from a damaged slot');
+    eq(S(g4).load(), 'corrupt', 'still needs the recovery screen');
+    o = S(g4).recoveryOptions();
+    eq([o.primary, o.status, o.doomed], ['PATCH UP MY SAVE', 'MAIN: NIBBLED  BACKUP: GONE', false], 'damaged slot: patch up');
+    eq(o.recoveredToast('salvage'), 'SAVE PATCHED UP. GOOD AS NEW', 'salvage toast');
+    // a good backup: try backup
+    const g5 = fresh(); g5.mods.world.newGame(); S(g5).save(); g5.state.score = 3; S(g5).save();
+    S(g5).store.set(KEYS.MAIN, 'x'); eq(S(g5).recoveryOptions().primary, 'TRY BACKUP SAVE', 'backup safe');
+    eq([...g.errors, ...g2.errors, ...g3.errors, ...g4.errors], [], 'no errors');
+  }],
+
+  ['save never reorders g.modules mid-step; notices never stack; indicator stays in the HUD grid', () => {
+    const g = fresh(); const order = g.modules.map(m => m.id);
+    let updates = 0; const orig = S(g).update.bind(S(g)); S(g).update = (gg: Game) => { updates++; orig(gg); };
+    g.mods.world.newGame(); stepN(g, 10);
+    eq(g.modules.map(m => m.id), order, 'module order untouched by update()');
+    eq(updates, 10, 'save.update runs exactly once per step');
+    // two notices arrive on the same frame: shown one after the other, never stacked
+    const shown: [string, number][] = []; const ui = g.mods.ui; const t0 = ui.toast.bind(ui);
+    ui.toast = (t: string) => { shown.push([t, g.tick]); t0(t); };
+    skipDialogue(g); stepN(g, 200); shown.length = 0;
+    (S(g) as any).notify('ONE'); (S(g) as any).notify('TWO');
+    stepN(g, 300);
+    eq(shown.map(x => x[0]), ['ONE', 'TWO'], 'both shown in order');
+    check(shown[1][1] - shown[0][1] >= 100, `spaced out (${shown[1][1] - shown[0][1]} ticks)`);
+    // indicator placement: right-aligned to the right panel's text column, clear of the touch deck
+    const col = PF_X + PF_W + 118;
+    const kb = indicatorPos('play', false), tc = indicatorPos('play', true), ti = indicatorPos('title', false);
+    eq([kb.x + IND_W, kb.y + IND_H], [col, H - 10], 'keyboard: beside FLIGHT TIME, above the inner frame');
+    eq(tc.x + IND_W, col, 'touch: same column'); check(tc.y + IND_H <= 236, 'touch: above the ACTION deck (TOUCH_TOP 236)');
+    eq([ti.x + IND_W, ti.y + IND_H], [W - 8, H - 8], 'title: bottom-right corner');
+    eq([IND_W, IND_H], [16, 16], '16px grid');
+  }],
+
   ['fuzz: truncated and random saves never throw', () => {
     const g = fresh(); g.mods.world.newGame(); S(g).save();
     const good = S(g).store.get(KEYS.MAIN)!; const rnd = lcg(42);
@@ -142,7 +197,11 @@ const CASES: [string, () => void][] = [
     S(g).useStorage(null);
     check(!S(g).info().persistent, 'falls back to memory');
     g.mods.world.newGame(); g.state.score = 42; S(g).save(); g.step();
-    eq(toasts.filter(t => t === FALLBACK_TOAST.blocked).length, 1, 'one friendly toast');
+    // the notice waits for a calm moment: never over the intro dialogue or the sector title card
+    eq(toasts.filter(t => t === FALLBACK_TOAST.blocked).length, 0, 'no toast over the intro / title card');
+    skipDialogue(g); stepN(g, 200);
+    eq(toasts.filter(t => t === FALLBACK_TOAST.blocked).length, 1, 'one friendly toast once the title card is gone');
+    check(!toasts.some(t => /STORAGE|MEMORY/.test(t)), 'cozy wording, no tech words');
     eq(S(g).decode(S(g).store.get(KEYS.MAIN)).score, 42, 'save kept in memory');
     eq(S(g).load(), 'ok', 'loads from memory');
     // a store that throws SecurityError on every call
