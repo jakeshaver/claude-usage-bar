@@ -6,7 +6,7 @@ import { col } from '../core/palette';
 import { entryPath, divePath, bonusPath, Track, selfGaps, type Pt, type TrackPos } from './paths';
 import { tuning, type Tuning } from './tuning';
 import { pxRing, pxDither, pxSpark, pxDisc } from '../core/pixel';
-import { ditherShadow, captureBeam, bubble, drawBullet, drawCombat, plaster, tractor, pickupBadge } from './art';
+import { ditherShadow, ditherRect, captureBeam, bubble, drawBullet, drawCombat, plaster, tractor, pickupBadge, ringC } from './art';
 import { Boss } from './boss';
 import { COL_SP, ROW_SP, WALL_GAP, GUTTER, plan, shapeFor, entryFor, signatureFor, latticeFor, laneOf, pitchFor, line, cellsUnique, closeRows, type Shape, type Entry } from './formation';
 
@@ -49,11 +49,14 @@ export interface Pickup { kind: string; x: number; y: number; vy: number; t: num
 
 const WAVE_LIMIT = 75 * 60;  // cats lose interest after 75s, so waves can never stall
 const MAX_TURDS = 4;
+/** A wave never holds more than this many cats in all (rack + reinforcements): late waves stay brisk, never a slog. */
+const WAVE_MAX = 26;
 const WAVE_TURDS = 2;       // Galaga's two-shot limit against the formation (spread shots add their extra lanes)
 // Formation grid (Galaga-like readability): at most 7 columns x 4 rows on a 40x34 pitch, with air between every cat.
 // The top row sits under the HUD toast lane (a single toast spans y 8..22), the bottom row stays above y ~160.
 const FORM_TOP = 50;
 const STREAM_STEP = 11;     // ticks between cats in one entry lane (11 x 4.0 >= 44px along the path: 32px sprites never overlap)
+const STREAM_AIR = 40;      // px between two cats of one entry stream (1.25 sprite heights): streams never clump
 const LANE_BREAK = 6;       // extra ticks between groups of 8 in one lane (Galaga's streams come in bursts)
 const HURRY_DIVERS = 2;     // last stand: at most this many stragglers out of the grid at once (one leader + a wingmate)
 const GLIDE_T = 32;         // ticks a home takes to slide when the grid closes ranks: every cat moves at once and lands
@@ -71,6 +74,9 @@ const ESC_GAP = 90;         // ticks the squad stays short-handed before the Big
 /** Escort cats' half width (opaque) and the air every escort keeps: one cat's width (28px) from the boss's hitbox and
  *  from each other (centre pitch 56 between escorts). */
 const ESC_HALF = 14, ESC_AIR = 28;
+/** Wing slots: every escort keeps at least ESC_CLEAR px of air to the Big Cat's hitbox; each slot further out along a
+ *  wing steps WING_DX across and WING_DY back (down the field). */
+const ESC_CLEAR = 40, WING_DX = 34, WING_DY = 22;
 /** How far each Big Cat tier's art reaches: half width (cat, jets, saucer, throne wings) and below its centre. */
 const BOSS_HW = [34, 36, 48, 78], BOSS_BOTTOM = [34, 32, 38, 44];
 const HURRY_LEAVE = 6 * 60; // once only ~30% of a wave is left, stragglers dive from their slots, then fly off after 6s
@@ -101,6 +107,25 @@ function spriteW(name: string): number {
 }
 /** Ticks a signature wave's flight path is sketched on the field (a dotted telegraph) before its first cat flies. */
 const SIG_LEAD = 54;
+/** Signature outlines mark only this many of the next cells to fill (never the whole rack at once). */
+const SIG_MARKS = 5;
+/** Ticks a moon dust puff lasts. */
+const PUFF_T = 22;
+
+/** A street mailbox (the ambush's tell): ink-lined blue box on a brown post, red flag; `open` 0 shut, 1 the lid
+ *  lifting, 2 flipped wide open (with a burst of sparks on the pop). */
+function mailbox(ctx: CanvasRenderingContext2D, x: number, y: number, open: number, t: number, pop: boolean) {
+  const R = (dx: number, dy: number, w: number, h: number, k: string) => { ctx.fillStyle = col(k); ctx.fillRect(x + dx, y + dy, w, h); };
+  R(-2, 3, 5, 9, '0'); R(-1, 4, 3, 8, 'a');                     // post
+  R(-8, -4, 17, 10, '0'); R(-7, -3, 15, 8, 'n'); R(-7, -3, 15, 2, 'm'); R(-6, 2, 13, 2, 'v');   // box
+  R(9, -6, 2, 8, '0'); R(10, -5, 1, 4, open ? 'r' : 'h');            // flag (up once it pops)
+  if (open === 0) { R(-8, -5, 17, 2, '0'); R(-7, -5, 15, 1, 'o'); }
+  else if (open === 1) { R(-8, -8, 17, 4, '0'); R(-7, -7, 15, 2, 'o'); R(-6, -4, 13, 1, '0'); }
+  else { R(-9, -14, 3, 11, '0'); R(-8, -13, 1, 9, 'o'); R(-6, -4, 13, 2, '0'); }
+  if (pop && (t >> 1) & 1) { R(-4, -12, 1, 3, '6'); R(3, -13, 1, 3, '6'); R(0, -16, 1, 3, 'f'); R(-6, -10, 2, 1, 'f'); R(5, -10, 2, 1, 'f'); }
+}
+/** Orbit signature: its ring runs this far inside the lane's gutter lines (the right gutter sits at the view's edge). */
+const ORBIT_INSET = 18;
 /** Busy backdrops (moored boats, machine panels, dusk brick): a dithered shade band sits behind the rack. */
 const RACK_SHADE = new Set(['docks', 'factory', 'alley']);
 const shadeCache = new Map<string, HTMLCanvasElement>();
@@ -133,27 +158,31 @@ class Interaction implements Module {
    *  sector signature's rack motion (docks: rows bob like moored boats) */
   cells: { row: number; u: number }[] = []; reT = 0; bob = false;
   /** signature wave telegraph: ticks since the wave started (-1: none) and the lane paths it sketches */
-  sigT = -1; sigTracks: Track[] = []; sigFloor = 0; sigHalf = 0;
+  sigT = -1; sigTracks: Track[] = []; sigFloor = 0; sigHalf = 0; sigWave = false;
   /** the column count the wave's shape was laid out on (a silhouette may sit on a narrower lattice than the lane's) */
   planCols = 6;
   /** phase-change shockwaves around the Big Cat */
-  shocks: { x: number; y: number; t: number }[] = [];
+  shocks: { x: number; y: number; t: number; big?: boolean }[] = [];
+  /** moon float dust puffs where the drifting cats touch down */
+  puffs: { x: number; y: number; t: number }[] = [];
+  /** id of the Big Cat just knocked out (until the next wave / fight starts): ui's goal row can read BOOPED at once */
+  bossDown: string | null = null;
 
   // showcase staging (?showcase=interaction&stage=lineup|capturer|rescue|splitter|tank|dive|tell|boss|bullets|play)
-  stageReq: string | null = null; staged = false; stageT = 0; stageAt = 0; stagePhase = 0; frozen = false;
+  stageReq: string | null = null; staged = false; stageT = 0; stageAt = 0; stagePhase = 0; frozen = false; stageAtk: string | null = null;
 
   init(g: Game) {
     this.g = g;
     try {
       if (typeof location !== 'undefined' && location.search) {
         const p = new URLSearchParams(location.search);
-        if (p.get('showcase') === 'interaction') { this.stageReq = p.get('stage') ?? 'play'; this.stageAt = +(p.get('at') ?? 0); this.stagePhase = +(p.get('phase') ?? 0); }
+        if (p.get('showcase') === 'interaction') { this.stageReq = p.get('stage') ?? 'play'; this.stageAt = +(p.get('at') ?? 0); this.stagePhase = +(p.get('phase') ?? 0); this.stageAtk = p.get('atk'); }
       }
     } catch { /* no URL (tests, headless bot) */ }
   }
   enemy(id: string) { return this.g.content.enemies.find(e => e.id === id) ?? this.g.content.enemies[0]; }
 
-  clearAll() { this.cats = []; this.turds = []; this.spits = []; this.pickups = []; this.boss = null; this.active = false; this.mode = 'none'; this.bonus = null; this.shocks = []; }
+  clearAll() { this.bossDown = null; this.puffs = []; this.cats = []; this.turds = []; this.spits = []; this.pickups = []; this.boss = null; this.active = false; this.mode = 'none'; this.bonus = null; this.shocks = []; }
   /** Pom napped: clear the air. Waves restart; a boss keeps its damage (cozy, never a full reset). */
   napReset() { this.turds = []; this.spits = []; this.pickups = []; if (this.boss) { this.boss.reenter(); this.cats = []; this.escT = 40; } else this.clearAll(); }
   liveCats() { return this.cats.length + (this.boss ? 1 : 0); }
@@ -219,7 +248,7 @@ class Interaction implements Module {
     const T = tuning(g, w.fireRate, w.diveRate);
     const areaIdx = g.content.areas.findIndex(a => a.id === areaId);
     const by = new Map<string, number>();
-    const geo = this.waveGeo(areaId, areaIdx, i, w); const p = plan(w, geo.shape, i, id => this.enemy(id), Math.round(22 + 12 * T.d), geo.lat.cols);
+    const geo = this.waveGeo(areaId, areaIdx, i, w); const p = plan(w, geo.shape, i, id => this.enemy(id), Math.min(WAVE_MAX, Math.round(22 + 12 * T.d)), geo.lat.cols);
     for (const d of [...p.homes.map(h => h.def), ...p.reserve]) by.set(d.id, (by.get(d.id) ?? 0) + 1);
     return [...by].map(([breed, n]) => ({ breed, n }));
   }
@@ -253,7 +282,7 @@ class Interaction implements Module {
     this.shape = geo.shape;
     let n = 0; const first = this.cats.length;
     this.ranks = -1; this.rankKey = -1; this.rankT = 0; this.reT = 0;
-    const pl = plan(w, this.shape, i, id => this.enemy(id), Math.round(22 + 12 * T.d), this.cols);
+    const pl = plan(w, this.shape, i, id => this.enemy(id), Math.min(WAVE_MAX, Math.round(22 + 12 * T.d)), this.cols);
     this.cells = pl.cells; this.planCols = pl.cols;
     const slots = pl.homes.map(h => ({ def: h.def, row: h.row, u: h.u, slot: this.cell(h.row, h.u) }));
     // entry lanes run in parallel and back to back (Galaga: the convoy assembles in ~4s, not over half the wave).
@@ -296,6 +325,20 @@ class Interaction implements Module {
         if (ok) { step0 = s; break; }
       }
     }
+    // a stream keeps STREAM_AIR (1.25 sprite heights) between its cats along the whole flight, also through tight turns
+    // where the arc spacing folds up: the stream step grows until the chord between two cats one step apart (anywhere
+    // on the lane's path) is at least STREAM_AIR. Measured once per lane on its first cat's path.
+    const laneStep = new Map<string, number>();
+    const stepFor = (key: string, slot: Pt): number => {
+      let st = laneStep.get(key); if (st !== undefined) return st;
+      st = step0;
+      if (!lap && !key.startsWith('col') && !key.startsWith('pop')) {
+        const tr = this.entryTrack(entry, key.startsWith('-1') ? -1 : 1, slot, below, rackL, rackR).track; const v = T.entrySpeed;
+        const chordOk = (gap: number) => { for (let a = 0; a + gap < tr.len - 50; a += 4) { tr.at(a, tp); const x = tp.x, y = tp.y; tr.at(a + gap, tp); if (y > -10 && tp.y > -10 && Math.hypot(tp.x - x, tp.y - y) < STREAM_AIR) return false; } return true; };
+        while (st < 22 && !chordOk(st * v)) st++;
+      }
+      laneStep.set(key, st); return st;
+    };
     for (const { def, slot, row, u } of (entry === 'popout' ? popOrder : entry === 'conga' ? congaOrder : slots)) {
       let side = 1, lat = 0, key = '', delay = -1, speed = T.entrySpeed;
       // each stream feeds its own half of the rack, so streams never cross under it
@@ -333,7 +376,7 @@ class Interaction implements Module {
         default: lat = 0;   // single file: the gutter turns are too tight for a cat flying abreast
       }
       key = key || side + ':' + lat; const li = laneN.get(key) ?? 0; laneN.set(key, li + 1);
-      if (delay < 0) delay = li * step0 + (lap ? 0 : Math.floor(li / 8) * LANE_BREAK);
+      if (delay < 0) delay = li * stepFor(key, slot) + (lap ? 0 : Math.floor(li / 8) * LANE_BREAK);
       const et = this.entryTrack(entry, side, slot, below + (entry === 'escort' ? 24 : 0), rackL, rackR);
       const p0 = et.track.at(0, tp);
       // formations abreast close up into single file before the shared approach line (where cats peel off one by one)
@@ -354,7 +397,7 @@ class Interaction implements Module {
       const lanes = new Map<string, number>();
       for (const c of [...mine].sort((a, b) => a.delay - b.delay)) {
         const key = laneOfCat.get(c)!; const last = lanes.get(key);
-        const step = entry === 'popout' ? 18 : step0;
+        const step = entry === 'popout' ? 18 : laneStep.get(key) ?? step0;
         if (last !== undefined && c.delay < last + step) c.delay = last + step;
         lanes.set(key, c.delay);
       }
@@ -371,9 +414,9 @@ class Interaction implements Module {
       if (!moved) break;
     }
     // a signature wave sketches its flight path on the field first (a dotted telegraph), then the cats follow it
-    this.sigT = -1; this.sigTracks = [];
+    this.sigT = -1; this.sigTracks = []; this.sigWave = false;
     if (signatureFor(areaId, i) === entry) {
-      this.sigT = 0; this.sigFloor = below - 22; this.sigHalf = Math.max(rackR - this.cx, this.cx - rackL) + 18;
+      this.sigT = 0; this.sigWave = true; this.sigFloor = below - 22; this.sigHalf = Math.max(rackR - this.cx, this.cx - rackL) + 18;
       const seen = new Set<string>();
       for (const c of [...mine].sort((a, b) => a.delay - b.delay)) {
         const k = laneOfCat.get(c)!; if (seen.has(k) || !c.track) continue;
@@ -399,7 +442,10 @@ class Interaction implements Module {
    *  before the shared approach line (pairs flying abreast close up into single file there). */
   private entryTrack(entry: Entry, side: number, slot: Pt, below: number, rackL: number, rackR: number): { track: Track; pre: number } {
     const [l, r] = laneOf(this.g.state.areaId);
-    const raw = entryPath(entry, side, [slot[0], slot[1]], below, side > 0 ? rackL - 40 : WORLD_W - rackR - 40, [l + GUTTER, r - GUTTER]);
+    // the orbit ring runs a little inside the gutter lines: with the camera panned to either side its sprites keep
+    // ORBIT_INSET px of air to the playfield edge and never brush the HUD panels
+    const ins = entry === 'orbit' ? ORBIT_INSET : 0;
+    const raw = entryPath(entry, side, [slot[0], slot[1]], below, side > 0 ? rackL - 40 : WORLD_W - rackR - 40, [l + GUTTER + ins, r - GUTTER - ins]);
     // the sky's loop-the-loops swing out beside the rack (no walls up there): only kept to the entry edge
     const pts = entry === 'cloudloop' && AIRBORNE.has(this.g.state.areaId) && this.g.state.areaId !== 'mothership'
       ? raw.map(([x, y]) => [WORLD_W / 2 + Math.max(-ENTRY_EDGE, Math.min(ENTRY_EDGE, x - WORLD_W / 2)), y] as Pt) : this.inLane(raw, below);
@@ -425,7 +471,7 @@ class Interaction implements Module {
     this.T = tuning(this.g);
     const def = this.enemy(id);
     this.boss = new Boss(this.g, this, def); this.active = true; this.mode = 'boss';
-    this.escT = ESC_GAP; this.diveT = 200; this.escAx = WORLD_W / 2; this.escSide = this.g.rng.chance(0.5) ? 1 : -1;
+    this.escT = ESC_GAP; this.diveT = 200; this.escAx = WORLD_W / 2; this.escAy = -70; this.escSide = this.g.rng.chance(0.5) ? 1 : -1;
     this.spawnEscorts();   // the squad streams in alongside the Big Cat's entrance swoop: it is never alone on stage
     this.g.bus.emit('boss:start', { bossId: id });
   }
@@ -538,37 +584,52 @@ class Interaction implements Module {
   private escSlot(i: number): Pt {
     const geo = this.escGeo(); const o = geo.slots[i] ?? geo.slots[geo.slots.length - 1];
     const [l, rr] = laneOf(this.g.state.areaId); const pad = WALL_GAP + ESC_HALF;
-    // the shoulders under the boss step out of the charge lane while it winds up and pounces
-    const sg = o[0] < 0 ? -1 : 1; const dx = o[0] + (o[2] ? sg * Math.round(this.escSpread) : 0);
+    // the V's lower slots step out of the charge lane while the Big Cat winds up and pounces
+    const sg = o[0] < 0 ? -1 : 1; let dx = o[0] + (o[2] ? sg * Math.round(this.escSpread) : 0), dy = o[1];
+    // the entrance: the whole V rides a little wider and trails higher, then closes into formation as the Big Cat
+    // arrives (every slot moves the same way, so the wing shape reads all the way down)
+    const fk = this.boss?.formK?.() ?? 0;
+    if (fk > 0) { dx *= 1 + 0.3 * fk; dy -= 46 * fk; }
     // homes never leave the lane: clamped to the wall + 16px of air
-    return [Math.max(l + pad, Math.min(rr - pad, Math.round(this.escAx + dx))), Math.round(this.escAy + o[1])];
+    return [Math.max(l + pad, Math.min(rr - pad, Math.round(this.escAx + dx))), Math.round(this.escAy + dy)];
   }
   /**
-   * Escort wing slots for this Big Cat (offsets from the boss centre; a third element marks the shoulders under it).
-   * Wide lanes: a cradle of wing slots, upper wings beside the boss, shoulders under it, lower wings stacked under the
-   * upper ones (pairs in that order: 4 escorts = wings + shoulders, 6 = all three). Narrow lanes (street, alley,
-   * mothership) have no room beside a drifting boss: a V of four, the inner pair under the boss and the outer pair up
-   * at its sides. Every escort sits ESC_AIR px (one cat) clear of the boss's hitbox and 56 px from its neighbours, and
-   * the centre strip under the boss (its charge lane) stays open.
+   * Escort wing slots for this Big Cat (offsets from the boss centre; a third element marks the slots under it, which
+   * step out of the charge lane). Pairs in order: slot 2k is the left, 2k+1 the right cat of pair k. Every escort keeps
+   * ESC_CLEAR (40) px of air to the Big Cat's hitbox and is clear of its craft art.
+   *  - open lanes: a swept wing per side, the first escort beside the Big Cat, the second stepped WING_DX out and
+   *    WING_DY back; a third pair (6-cat squads) sits under it, a full 40px below its hitbox;
+   *  - narrow lanes (street, alley): one escort beside it per side, the second pair stepped back under it into a V;
+   *  - a craft too wide to fly beside (the Empress in the mothership's hall): a V under the saucer, outer pair at the
+   *    walls, inner pair stepped back toward the middle.
    */
   private escGeo(): { slots: [number, number, number?][]; ext: number; wide: boolean } {
     const r = this.boss?.r ?? 26; const tier = this.boss?.tier ?? 0; const [l, rr] = laneOf(this.g.state.areaId);
     const hw = BOSS_HW[tier] ?? 34, bot = BOSS_BOTTOM[tier] ?? 34;
-    const laneHalf = (rr - l) / 2 - WALL_GAP - ESC_HALF;
-    // beside the boss: a cat of air from its hitbox, and clear of its craft's art (jets, saucer, throne wings)
-    const side = Math.max(r + ESC_AIR + ESC_HALF + 2, hw + 12 + ESC_HALF);
-    const pitch = 2 * ESC_HALF + ESC_AIR;         // 56: escort to escort
-    if (laneHalf - side >= 40) {
-      const sh = r + 16, up = -24;
-      return { wide: true, ext: side, slots: [[-side, up], [side, up], [-sh, up + 2 * pitch, 1], [sh, up + 2 * pitch, 1], [-side, up + pitch], [side, up + pitch]] };
+    const L = (rr - l) / 2 - WALL_GAP - ESC_HALF;     // furthest an escort centre may sit from the lane's middle
+    const X0 = Math.max(r + ESC_CLEAR + ESC_HALF, hw + 12 + ESC_HALF);
+    const deep = r + 4 + ESC_CLEAR + ESC_HALF + 4;     // under the hitbox (half height r + 4) with 40px of air
+    if (X0 + WING_DX <= L) {
+      const X1 = X0 + WING_DX, d = 4 + WING_DY;
+      return { wide: true, ext: X1, slots: [[-X0, 4], [X0, 4], [-X1, d], [X1, d], [-(r + 22), deep, 1], [r + 22, deep, 1]] };
     }
-    const a = r + 4, low = Math.max(r + ESC_AIR + ESC_HALF, bot + 12 + ESC_HALF);
-    const b = Math.min(laneHalf, Math.max(side, laneHalf - 24));
-    // no room beside a craft this wide (the Empress's throne in the mothership's narrow hall): a low V under the
-    // throne, the outer pair at the walls just under the saucer rim and the wings, the inner pair a row lower under
-    // the throne's middle (both pairs readable below the dialogue box and clear of the throne art)
-    if (b < side) { const lo2 = bot + 14; return { wide: false, ext: laneHalf, slots: [[-laneHalf, lo2], [laneHalf, lo2], [-a, lo2 + 34, 1], [a, lo2 + 34, 1]] }; }
-    return { wide: false, ext: b, slots: [[-a, low, 1], [a, low, 1], [-b, low - pitch], [b, low - pitch]] };
+    if (X0 <= L) return { wide: false, ext: X0, slots: [[-X0, 4], [X0, 4], [-(X0 - 32), deep, 1], [X0 - 32, deep, 1]] };
+    const lo = bot + 36; const xo = Math.round(L), xi = Math.round(L - WING_DX);
+    return { wide: false, ext: L, slots: [[-xo, lo], [xo, lo], [-xi, lo + WING_DY, 1], [xi, lo + WING_DY, 1]] };
+  }
+  /** Angles (from the Big Cat) of its parked escorts nearby: its rings part around them instead of passing through. */
+  escortAngles(x: number, y: number): number[] {
+    const out: number[] = [];
+    for (const c of this.cats) if (c.eslot !== undefined && !c.dead && (c.st === 'form' || c.st === 'home') && Math.hypot(c.x - x, c.y - y) < 150) out.push(Math.atan2(c.y - y, c.x - x));
+    return out;
+  }
+  /** X of every escort parked across row y (a curtain bullet is never born on top of one). */
+  escortXs(y: number): number[] { return this.cats.filter(c => c.eslot !== undefined && !c.dead && c.st === 'form' && Math.abs(c.y - y) < 20).map(c => c.x); }
+  /** Drop any score number still floating over the Big Cat (the phase beat's flash reads clean). */
+  clearNumbers(x: number, y: number) {
+    const fx = this.g.mods.effects as { texts?: { x: number; y: number; life: number }[]; nTexts?: number } | undefined;
+    if (!fx || !Array.isArray(fx.texts)) return;
+    for (let i = 0; i < (fx.nTexts ?? 0); i++) { const t = fx.texts[i]; if (t && Math.abs(t.x - x) < 70 && Math.abs(t.y - y) < 70) t.life = 1; }
   }
   /** World x range the Big Cat (and its squad's anchor) keeps to, so every escort stays WALL_GAP px inside the lane. */
   bossRange(): [number, number] {
@@ -610,11 +671,26 @@ class Interaction implements Module {
       const pts: Pt[] = geo.wide ? this.inLane(entryPath('swirl-left', side, slot, slot[1] + 36), slot[1] + 36)
         : [[slot[0] - side * 10, H + 30], [slot[0] - side * 4, slot[1] + 90], [slot[0], slot[1] + 30], slot];
       const track = new Track(pts); const p0 = track.at(0, tp);
+      // during the entrance the squad descends in formation with the Big Cat (its wings close up as it arrives)
+      if (b.entering) { this.cats.push(this.mkCat(def, slot[0], slot[1], 'form', { slot, track: null, speed: this.T.entrySpeed, side, diveSeed: this.g.rng.next(), row: 0, u: i, eslot: i })); j++; continue; }
       // the pair index sets the cue: both cats of a pair fly together, the next pair one stream step behind
       this.cats.push(this.mkCat(def, p0.x, p0.y, 'wait', { slot, track, speed: this.T.entrySpeed, lat: 0, delay: 1 + (i >> 1) * STREAM_STEP * 2, side, diveSeed: this.g.rng.next(), row: 0, u: i, eslot: i }));
       j++;
     }
     if (j) this.g.mods.audio?.sfx('blip');
+  }
+  /** Knock-out: the air clears (every hairball pops into a sparkle), the escorts and kittens scatter, a hard beat of
+   *  hit-stop and a white flash; the Big Cat then staggers for a moment before the finale (Boss 'ko'). */
+  bossKO(x: number, y: number) {
+    const fx = this.g.mods.effects;
+    for (const s of this.spits) fx?.burst(s.x, s.y, 'sparkle');
+    this.spits = []; for (const c of this.cats) { if (c.st === 'wait') c.dead = true; c.st = 'leave'; c.tell = 0; }
+    // (the flash is the Big Cat's own solid radial wipe, Boss.render: never the dithered screen flash)
+    fx?.hitStop(10); fx?.shake(5, 20); fx?.burst(x, y, 'boom');
+    this.clearNumbers(x, y);
+    this.shocks.push({ x, y, t: 0, big: true }, { x, y, t: -6, big: true });
+    this.bossDown = this.boss?.def.id ?? null;
+    this.g.mods.audio?.sfx('bark');
   }
   /** Phase change: a shockwave rolls off the Big Cat and fresh escorts fill the squad. */
   bossPhase(x: number, y: number) {
@@ -691,12 +767,15 @@ class Interaction implements Module {
     if (this.mode === 'wave' && !this.stageReq) this.closeRanks();
     if (this.boss) { // the escort squad's anchor rides with the Big Cat, inside its range
       const [lo, hi] = this.bossRange(); this.escAx = Math.max(lo, Math.min(hi, this.boss.x));
-      this.escAy = Math.max(60, Math.min(84, this.boss.y));   // bobs with the boss, stays up when it pounces
+      // bobs with the boss, stays up when it pounces; during the entrance the squad descends with it
+      this.escAy = this.boss.entering ? this.boss.y : Math.max(60, Math.min(84, this.boss.y));
       const b = this.boss; const charging = b.atk === 'charge' && (b.st === 'tell' || b.st === 'attack');
       this.escSpread += ((charging ? 26 : 0) - this.escSpread) * 0.15;
     }
     for (const s of this.shocks) s.t++;
-    this.shocks = this.shocks.filter(s => s.t < 28);
+    for (const p of this.puffs) p.t++;
+    if (this.puffs.length) this.puffs = this.puffs.filter(p => p.t < PUFF_T);
+    this.shocks = this.shocks.filter(s => s.t < (s.big ? 34 : 28));
     for (const c of this.cats) { // homes glide toward their (possibly re-packed) cells
       if (c.eslot !== undefined) { const p = this.escSlot(c.eslot); c.slot = p; c.home = [p[0], p[1]]; continue; }
       const h = c.home;
@@ -744,7 +823,7 @@ class Interaction implements Module {
 
     // Big Cat escorts: a squad flanks the boss, peels off in Galaga dives, and is replaced a while after the last falls
     const b0 = this.boss;
-    if (this.mode === 'boss' && b0 && !b0.dead) {
+    if (this.mode === 'boss' && b0 && !b0.dead && b0.st !== 'ko') {
       // the squad is topped up as soon as it is down to one escort (never a lone Big Cat for long), also mid-entrance
       const esc = this.cats.filter(c => c.eslot !== undefined && !c.dead);
       // a broken wing pair (one of its two cats gone) also whistles up its partner, so the squad stays mirrored
@@ -813,7 +892,8 @@ class Interaction implements Module {
           // lateral offset: pairs flying abreast, zigzag weave; fades in after the peel and out near the end
           // (an entry starts off screen at full offset, so pairs never sit on top of each other while they come in)
           const fade = c.st === 'enter' ? Math.min(1, ((c.latEnd ?? tr.len) - c.s) / 40) : Math.min(1, c.s / 40, (tr.len - c.s) / 50);
-          const off = c.lat * Math.max(0, fade) + (c.weave ? Math.sin(c.s / 22) * c.weave * Math.max(0, Math.min(1, (c.s - Math.max(60, (c.exitLen ?? 0) + 16)) / 40)) : 0);
+          const off = c.lat * Math.max(0, fade) + (c.weave ? Math.sin(c.s / 22) * c.weave * Math.max(0, Math.min(1, (c.s - Math.max(60, (c.exitLen ?? 0) + 16)) / 40)) : 0)
+            + (c.st === 'enter' && this.entry === 'float' && c.eslot === undefined ? this.floatSway(c, c.s) : 0);
           c.x = tp.x - tp.hy * off; c.y = tp.y + tp.hx * off;
           // a dive still in its exit column rides the rack's sway, so it stays centred between the parked columns
           if (c.st === 'dive' && c.exitLen) c.x += (this.swayX() - (c.sw0 ?? 0)) * Math.max(0, Math.min(1, (c.exitLen - c.s) / 24));
@@ -833,7 +913,10 @@ class Interaction implements Module {
         case 'home': case 'return': {
           const [sx, sy] = this.liveSlot(c); const dx = sx - c.x, dy = sy - c.y; const d = Math.hypot(dx, dy);
           const sp = c.st === 'home' ? c.speed : Math.min(c.speed, 1 + d * 0.05);
-          if (d <= sp + 0.5) { c.x = sx; c.y = sy; c.st = 'form'; c.rest = 0; }
+          if (d <= sp + 0.5) {
+            if (c.st === 'home' && this.entry === 'float' && this.sigWave && this.mode === 'wave') this.puffs.push({ x: sx, y: sy, t: 0 });
+            c.x = sx; c.y = sy; c.st = 'form'; c.rest = 0;
+          }
           else { c.x += dx / d * sp; c.y += dy / d * sp; }
           // a straggler giving up first lands in its cell, then lifts off with the block (never peels off mid-glide)
           if (timedOut) c.st = 'leave';
@@ -851,7 +934,11 @@ class Interaction implements Module {
           if (c.y > H + 20) c.dead = true;
           break;
         }
-        case 'leave': c.y -= 3; if (c.y < -40) c.dead = true; break;
+        case 'leave':
+          // a scattering escort peels away from the Big Cat (outward, then up), never back across its body
+          if (c.eslot !== undefined) { c.x += (c.slot[0] < this.escAx ? -1 : 1) * 2.4; c.y -= 1.6; if (c.x < -30 || c.x > WORLD_W + 30) c.dead = true; }
+          else c.y -= 3;
+          if (c.y < -40) c.dead = true; break;
       }
       c.vx = c.st === 'kdive' ? c.vx : c.x - ox; if (c.st !== 'kdive') c.vy = c.y - oy;
       c.up = (c.st === 'enter' || c.st === 'dive' || c.st === 'flyby') && c.vy < -0.9 * Math.max(0.5, Math.abs(c.vx));
@@ -889,7 +976,9 @@ class Interaction implements Module {
         if (b.vulnerable()) {
           g.mods.effects?.burst(sx, sy, 'splat'); b.damage(1); g.state.stats.hits++; g.mods.audio?.sfx('thud');
           // every hit on a Big Cat scores (more once it is grumpy, more for later bosses): the score climbs all fight
-          const pts = 10 + 10 * b.phase + 5 * b.tier; g.ops.addScore(pts); g.mods.effects?.floatText(sx, sy - 8, String(pts));
+          // (the hit that sets off a phase beat or the knock-out pops no number over the flashing face)
+          const pts = 10 + 10 * b.phase + 5 * b.tier; g.ops.addScore(pts);
+          if (!b.beatPending()) g.mods.effects?.floatText(sx, sy - 8, String(pts)); else this.clearNumbers(b.x, b.y);
         }
         else g.mods.effects?.burst(s.x, b.y + 20, 'sparkle');
       }
@@ -1049,7 +1138,9 @@ class Interaction implements Module {
     this.g.mods.audio?.sfx('hack');
   }
 
-  bossSpit(x: number, y: number, vx: number, vy: number, art = 'blt_paw') { if (this.spits.length < this.T.bossSpitCap) this.spits.push({ x, y, vx, vy, kind: 'hairball', t: 0, art }); }
+  bossSpit(x: number, y: number, vx: number, vy: number, art = 'blt_paw', boost = 0) { if (this.spits.length < this.T.bossSpitCap + boost) this.spits.push({ x, y, vx, vy, kind: 'hairball', t: 0, art }); }
+  /** This area's lane walls (world x). */
+  lane(): [number, number] { return laneOf(this.g.state.areaId); }
 
   private collect(k: Pickup) {
     const g = this.g; const P = g.mods.player;
@@ -1091,9 +1182,14 @@ class Interaction implements Module {
     if (name === 'play') { g.autopilot = true; this.stageReq = null; return; }
     g.autopilot = false;
     if (P) { P.x = WORLD_W / 2; P.y = 300; P.vx = 0; P.vy = 0; } // player START_Y
-    if (name === 'tell' || name === 'boss') {
-      const bossId = g.mods.world?.area?.(g.state.areaId)?.boss ?? 'boss_whiskers';
-      this.startBoss(bossId); this.boss!.stageTell(this.stagePhase);
+    const bossId = g.mods.world?.area?.(g.state.areaId)?.boss ?? 'boss_whiskers';
+    // (the Big Cat's taunt is skipped: these moments are staged straight into play)
+    const skipTaunt = () => { if (g.mods.quest) g.mods.quest.dlg = null; if (g.state.scene === 'dialogue') g.setScene('play'); g.mods.ui?.muteToasts?.(true); };
+    if (name === 'entrance') { this.startBoss(bossId); skipTaunt(); return; }   // the WARNING bands and the descent, from tick 0
+    if (name === 'tell' || name === 'boss' || name === 'phasebeat' || name === 'ko') {
+      this.startBoss(bossId); this.boss!.stageTell(this.stagePhase, this.stageAtk ?? undefined);
+      skipTaunt();
+      if (name === 'phasebeat' || name === 'ko') { this.boss!.st = 'idle'; this.boss!.stT = 0; }
       // the escort squad is already parked around the boss
       this.escAx = this.boss!.x; this.escAy = this.boss!.y; this.spawnEscorts();
       for (const c of this.cats) { const p = this.escSlot(c.eslot ?? 0); c.st = 'form'; c.x = p[0]; c.y = p[1]; c.rest = 0; }
@@ -1150,6 +1246,9 @@ class Interaction implements Module {
         break;
       }
       case 'tell': { const b = this.boss; if (!b || (at ? t >= at : b.st === 'tell' && b.stT >= 24 && b.flash === 0)) return freeze(); break; }
+      case 'entrance': if (t >= (at || 80)) return freeze(); break;
+      case 'phasebeat': { const b = this.boss; if (b && t === 2) b.hp = Math.floor(b.maxHp * (this.stagePhase >= 1 ? 0.3 : 0.6)); if (t >= (at || 20)) return freeze(); break; }
+      case 'ko': { const b = this.boss; if (b && t === 2) b.damage(b.hp); if (t >= (at || 20)) return freeze(); break; }
       case 'boss': { const b = this.boss; if (!b || (at ? t >= at : b.st === 'attack' && b.stT >= 36)) return freeze(); break; }
       case 'bullets': {
         const arts = ['blt_fur', 'blt_yarn', 'blt_paw', 'blt_bone', 'blt_yarnbig', 'blt_star'];
@@ -1207,12 +1306,90 @@ class Interaction implements Module {
     });
   }
 
+  /** Signature waves sketch where the rack is about to fill: small dim corner ticks mark only the next few cells (the
+   *  next SIG_MARKS cats to arrive), vanishing as each cat lands, so the outline never reads as debug UI. The top-down
+   *  drops add their own tells: street ambush pops the lids of a row of mailboxes along the top edge and darkens the
+   *  column about to slam in (a dither shadow sweeping down it), landing on growing shadows; moon float cats bob down
+   *  on a low-gravity sway, trailing a dotted arc, and kick up a dust puff where they land. */
+  private renderSigCells(r: any) {
+    const t = this.waveT; const blink = (t >> 3) & 1; const ground = this.grounded();
+    const drop = this.entry === 'ambush' || this.entry === 'float';
+    const todo = this.cats.filter(c => !c.res && !c.dead && c.eslot === undefined && (c.st === 'wait' || c.st === 'enter') && c.track)
+      .sort((a, b) => a.delay - b.delay || a.id - b.id);
+    if (!todo.length) return;
+    const lead = this.sigT >= 0 && this.sigT < SIG_LEAD ? this.sigT : 1e9;
+    const street = this.entry === 'ambush' && this.g.state.areaId === 'street';
+    r.push(1, -998, (ctx: CanvasRenderingContext2D) => {
+      const cols = new Map<number, Cat>();   // the next cat of each column (ambush mailboxes / shadows)
+      for (const c of todo) { const k = Math.round(c.u * 2); if (!cols.has(k)) cols.set(k, c); }
+      if (this.entry === 'ambush') for (const c of cols.values()) {
+        const [x0, y0] = this.liveSlot(c); const x = Math.round(x0), y = Math.round(y0);
+        const d = c.st === 'wait' ? c.delay : -1;
+        if (d >= 0 && d < 48) { // the column about to slam in darkens from the top, its two edges inked
+          const len = Math.round((y - 18) * Math.min(1, (48 - d) / 24));
+          if (len > 0) { ditherRect(ctx, x - 9, 0, 19, len, '0', blink); ctx.fillStyle = col('0'); ctx.fillRect(x - 10, 0, 1, len); ctx.fillRect(x + 10, 0, 1, len); }
+        }
+      }
+      if (street) { // a row of mailboxes along the top of the road: each lid pops open just before its column slams in
+        const seen = new Set<number>();
+        for (const c of this.cats) {
+          if (c.res || c.eslot !== undefined) continue; const k = Math.round(c.u * 2); if (seen.has(k)) continue; seen.add(k);
+          const nx = cols.get(k); const x = Math.round(this.liveSlot(c)[0]);
+          const d = nx ? (nx.st === 'wait' ? nx.delay : -1) : 999;
+          mailbox(ctx, x, 14, d < 0 ? 2 : d < 30 ? (d < 10 ? 2 : 1) : 0, t, d >= 0 && d < 12);
+        }
+      }
+      todo.forEach((c, k) => {
+        if (k >= SIG_MARKS) return;
+        if (lead < Math.min(SIG_LEAD - 10, 6 + k * 4)) return;   // the marks pop in one by one during the tell
+        const [x0, y0] = this.liveSlot(c); const x = Math.round(x0), y = Math.round(y0);
+        const tr = c.track!; const prog = c.st === 'enter' ? Math.min(1, c.s / Math.max(1, tr.len)) : 0;
+        if (drop && ground) ditherShadow(ctx, x + 4, y + 12, 8 + Math.round(18 * prog), 3 + Math.round(4 * prog));
+        // corner ticks: a 1px corner with 2px arms in one dim palette colour (lit a step brighter for the very next cat)
+        const h = 14 - (drop ? Math.round(3 * prog) : 0);
+        ctx.fillStyle = col(k === 0 && blink ? '5' : '4');
+        for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+          const cx = x + sx * h, cy = y + sy * h;
+          ctx.fillRect(Math.min(cx, cx - sx * 2), cy, 3, 1); ctx.fillRect(cx, Math.min(cy, cy - sy * 2), 1, 3);
+        }
+      });
+      if (this.entry === 'float') for (const c of todo) { // a dotted low-gravity arc trailing each drifting cat
+        if (c.st !== 'enter' || !c.track) continue;
+        for (let j = 1; j <= 4; j++) {
+          const s0 = c.s - j * 9; if (s0 < 0) break;
+          c.track.at(s0, tp); const off = this.floatSway(c, s0);
+          const px = Math.round(tp.x - tp.hy * off), py = Math.round(tp.y + tp.hx * off) - 14;
+          if (py < 2) continue;
+          ctx.fillStyle = col('0'); ctx.fillRect(px - 1, py - 1, 3, 3); ctx.fillStyle = col(j === 1 ? '6' : '5'); ctx.fillRect(px, py, 1, 1);
+        }
+      }
+    });
+  }
+  /** Moon float: the lazy side-to-side bob of a drifting cat at arc length s (eases in after the edge, out before its cell). */
+  private floatSway(c: Cat, s: number): number {
+    const len = c.track?.len ?? 1;
+    return Math.sin(s / 16) * 9 * Math.max(0, Math.min(1, s / 40, (len - s) / 50));
+  }
+  /** Dust puffs where a floating cat touches down (moon float): a few pale dither motes spreading and fading. */
+  private renderPuffs(r: any) {
+    for (const p of this.puffs) r.push(1, p.y + 12, (ctx: CanvasRenderingContext2D) => {
+      const k = p.t / PUFF_T; const sp = Math.round(4 + 14 * k);
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI + 0.3; const x = Math.round(p.x + Math.cos(a) * sp * (i & 1 ? 1 : -1)), y = Math.round(p.y + 14 - Math.sin(a) * sp * 0.35 - k * 4);
+        const sz = k < 0.5 ? 2 : 1; ctx.fillStyle = col(k < 0.35 ? '5' : k < 0.7 ? '4' : '3'); ctx.fillRect(x, y, sz, sz);
+        if (k < 0.5) { ctx.fillStyle = col('5'); ctx.fillRect(x + (i & 1 ? 3 : -3), y + 1, 1, 1); }
+      }
+    });
+  }
+
   render(g: Game, r: any) {
     const sc = g.state.scene;
     if (sc !== 'play' && sc !== 'bonus' && sc !== 'dialogue') return;
     const ground = this.grounded(), rim = this.rimKey(), tint = this.tint();
     if (this.mode === 'wave' && RACK_SHADE.has(g.state.areaId) && this.cells.length) this.renderShade(r);
     if (this.sigT >= 0 && this.mode === 'wave') this.renderSigTell(r);
+    if (this.sigWave && this.mode === 'wave' && !this.entryDone) this.renderSigCells(r);
+    if (this.puffs.length) this.renderPuffs(r);
     for (const c of this.cats) {
       if (c.st === 'wait' || c.y < -30 || c.dead) continue;
       const frame = Math.floor((c.t + c.id * 7) / 12) % 2;
@@ -1270,9 +1447,13 @@ class Interaction implements Module {
       if (c?.track) { const tr = c.track; r.push(1, 0, (ctx: CanvasRenderingContext2D) => { for (let s = 0; s < tr.len; s += 6) { tr.at(s, tp); ctx.fillStyle = col(s < c.s ? '5' : 'f'); ctx.fillRect(Math.round(tp.x), Math.round(tp.y), 2, 2); } }); }
     }
     if (this.boss) this.boss.render(r);
-    for (const s of this.shocks) if (s.t > 0) { // phase-change shockwave: a pixel ring rolling off the Big Cat, inked so it reads on any floor
-      const rad = Math.round(14 + s.t * 5); const k = s.t < 10 ? '6' : s.t < 20 ? 'd' : 'r';
-      r.push(4, -1, (ctx: CanvasRenderingContext2D) => { pxRing(ctx, s.x, s.y, rad + 1, '0'); pxRing(ctx, s.x, s.y, rad, k); if (s.t < 18) pxRing(ctx, s.x, s.y, rad - 1, k); });
+    for (const s of this.shocks) if (s.t > 0) { // shockwave: a 3px pixel band rolling off the Big Cat, inked on both sides
+      // so it reads on any floor, with a white inner highlight (the knock-out's rolls faster and further)
+      const rad = Math.round(14 + s.t * (s.big ? 8 : 5)); const k = s.t < 10 ? 'f' : s.t < 20 ? 'd' : 'r';
+      r.push(4, -1, (ctx: CanvasRenderingContext2D) => {
+        ringC(ctx, s.x, s.y, rad + 2, '0'); ringC(ctx, s.x, s.y, rad + 1, k); ringC(ctx, s.x, s.y, rad, k);
+        if (s.t < 22) ringC(ctx, s.x, s.y, rad - 1, '6'); ringC(ctx, s.x, s.y, rad - (s.t < 22 ? 2 : 1), '0');
+      });
     }
     for (const s of this.turds) r.push(3, s.y, (ctx: CanvasRenderingContext2D) => drawSprite(ctx, 'turd', s.x, s.y, { frame: 0 }));
     // enemy bullets sit above everything else in the air layer: fixed high-contrast art, never blinking

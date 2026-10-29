@@ -200,10 +200,61 @@ export function plaster(ctx: Ctx, x: number, y: number) {
   ctx.fillStyle = col('8'); ctx.fillRect(X, Y, 1, 1);
 }
 
-/** Rectangle filled with a 50% checkerboard of one palette color. */
+/** Rectangle filled with a 50% checkerboard of one palette color (one pattern fill, not a fillRect per pixel). */
+const patCache = new Map<string, CanvasPattern | null>();
 export function ditherRect(ctx: Ctx, x: number, y: number, w: number, h: number, key: string, parity = 0) {
-  x = Math.round(x); y = Math.round(y); ctx.fillStyle = col(key);
+  x = Math.round(x); y = Math.round(y); w = Math.round(w); h = Math.round(h); if (w <= 0 || h <= 0) return;
+  // the pattern is anchored to the canvas origin: pick the phase so pixel (x+i, y+j) is lit when (x+y+i+j+parity) is even
+  // in user space (the camera translate is always a whole pixel, so the checkerboard never shimmers)
+  const ph = (parity & 1); const ck = key + ph;
+  let pat = patCache.get(ck);
+  if (pat === undefined) {
+    pat = null;
+    if (typeof document !== 'undefined') {
+      const c = document.createElement('canvas'); c.width = 2; c.height = 2; const cx = c.getContext('2d')!;
+      cx.fillStyle = col(key); if (ph) { cx.fillRect(1, 0, 1, 1); cx.fillRect(0, 1, 1, 1); } else { cx.fillRect(0, 0, 1, 1); cx.fillRect(1, 1, 1, 1); }
+      pat = ctx.createPattern(c, 'repeat');
+    }
+    patCache.set(ck, pat);
+  }
+  if (pat) { ctx.fillStyle = pat; ctx.fillRect(x, y, w, h); return; }
+  ctx.fillStyle = col(key);
   for (let j = 0; j < h; j++) for (let i = ((x + y + j + parity) & 1); i < w; i += 2) ctx.fillRect(x + i, y + j, 1, 1);
+}
+
+/**
+ * Cached pixel ring: the same pixels as core/pixel's pxRing (dashed rings turning with `phase`), pre-rendered once per
+ * radius / colour / dash / phase step and blitted, so the boss's halos and telegraphs cost one drawImage a frame.
+ */
+const ringCache = new Map<string, HTMLCanvasElement | null>();
+export function ringC(ctx: Ctx, cx: number, cy: number, r: number, key: string, dash = 0, phase = 0) {
+  r = Math.max(1, Math.round(r));
+  let q = 0;
+  if (dash > 0) { const per = (Math.PI * 2) / dash; q = Math.round((((phase % per) + per) % per) / per * 16) % 16; phase = (q / 16) * per; }
+  const ck = `${r}|${key}|${dash}|${q}`;
+  let cv = ringCache.get(ck);
+  if (cv === undefined) {
+    cv = null;
+    if (typeof document !== 'undefined') {
+      if (ringCache.size > 900) ringCache.clear();
+      cv = document.createElement('canvas'); cv.width = cv.height = r * 2 + 3;
+      pxRing(cv.getContext('2d')!, r + 1, r + 1, r, key, dash, phase);
+    }
+    ringCache.set(ck, cv);
+  }
+  if (cv) ctx.drawImage(cv, Math.round(cx) - r - 1, Math.round(cy) - r - 1);
+  else pxRing(ctx, cx, cy, r, key, dash, phase);
+}
+
+/** Solid pixel annulus (r0 inner, r1 outer radius) in one palette colour: two fillRects per row, no anti-aliasing. */
+export function annulus(ctx: Ctx, cx: number, cy: number, r0: number, r1: number, key: string) {
+  const X = Math.round(cx), Y = Math.round(cy); r1 = Math.round(r1); r0 = Math.max(0, Math.round(r0));
+  ctx.fillStyle = col(key);
+  for (let dy = -r1; dy <= r1; dy++) {
+    const wo = Math.floor(Math.sqrt(r1 * r1 - dy * dy)); const wi = Math.abs(dy) < r0 ? Math.floor(Math.sqrt(r0 * r0 - dy * dy)) : -1;
+    if (wi < 0) ctx.fillRect(X - wo, Y + dy, wo * 2 + 1, 1);
+    else if (wo > wi) { ctx.fillRect(X - wo, Y + dy, wo - wi, 1); ctx.fillRect(X + wi + 1, Y + dy, wo - wi, 1); }
+  }
 }
 
 /** Soap bubble around a captive / floating pup: dithered ice fill, solid rim, two glints. `pulse` makes it throb

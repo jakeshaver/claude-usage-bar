@@ -8,7 +8,10 @@ import type { EnemyDef, WaveDef } from '../core/types';
 export const COL_SP = 40;     // cats are 28px wide opaque (32px sprite): 12px of air between neighbours (8px sprite to sprite)
 export const ROW_SP = 34;     // cats are 28px tall opaque: 6px of air between rows (the rack reads as a lattice, not a blob)
 export const MAX_COLS = 7;
-export const MAX_ROWS = 4;    // four rows: the rack's bottom row stays well above Pom's flight band (y >= 196)
+export const MAX_ROWS = 4;
+/** At most this many cats parked on screen at once (Galaga's rack is 40, but ours has wider air): a bigger wave keeps
+ *  its extras off stage as reinforcements, so even the late sectors read as 20-24 cats, never an overstuffed wall. */
+export const ON_CAP = 24;    // four rows: the rack's bottom row stays well above Pom's flight band (y >= 196)
 const CAT_W = 28;
 
 /** Lane walls per area (world x, the playfield is 448 wide): buildings, rails, conduits the rack must stay inside. */
@@ -201,15 +204,16 @@ export function plan(w: WaveDef, shape: Shape, waveIdx: number, enemy: (id: stri
     for (let k = 0; k < n; k++) (def.behavior === 'capturer' ? lead : rest).push(def);
   }
   const queue = [...lead.slice(0, 4), ...rest].slice(0, Math.max(2, cap));
-  let R = shape === 'diamond' ? 4 : 3; while (R < MAX_ROWS && capacity(shape, R, M) < queue.length) R++;
+  const onN = Math.min(queue.length, ON_CAP);
+  let R = shape === 'diamond' ? 4 : 3; while (R < MAX_ROWS && capacity(shape, R, M) < onN) R++;
   // the silhouette shapes fit snugly (a narrower or deeper lattice), so a wave that would only fill the top rows of a
   // wide vee or diamond still shows its outline instead of collapsing into a plain block
   if (!LATTICE_FAMILY.has(shape)) {
-    let best = { w: capacity(shape, R, M) - queue.length, m: M, r: R };
+    let best = { w: capacity(shape, R, M) - onN, m: M, r: R };
     if (best.w < 0) best.w = 1e9;
     const mMin = Math.max(shape === 'flanks' ? 5 : 4, M - 2);
     for (let m = M; m >= mMin; m--) for (let r = shape === 'diamond' ? 4 : 3; r <= MAX_ROWS; r++) {
-      const w = capacity(shape, r, m) - queue.length;
+      const w = capacity(shape, r, m) - onN;
       if (w >= 0 && w < best.w) best = { w, m, r };
     }
     if (best.w < 1e9) { M = best.m; R = best.r; }
@@ -217,7 +221,7 @@ export function plan(w: WaveDef, shape: Shape, waveIdx: number, enemy: (id: stri
   const rows = shapeRows(shape, R, M); const out: Home[] = [];
   const cells = rows.flatMap((us, row) => us.map(u => ({ row, u })));
   // reinforcements: what does not fit waits (at most one more rackful, so a wave never drags on)
-  const room = cells.length;
+  const room = Math.min(cells.length, onN);
   const reserve = queue.splice(room).slice(0, Math.max(4, room));
   const edgeIn = waveIdx % 2 === 1;
   const gapped = shape === 'wings' || shape === 'flanks' || shape === 'pillars' || shape === 'squads' || shape === 'checker';

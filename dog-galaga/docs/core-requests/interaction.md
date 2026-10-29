@@ -338,3 +338,86 @@ Round 2 (interaction only). Please update the ARCHITECTURE interaction entry:
   to panel") covers it. The card now stays inside the right HUD column during its slide, and the title sits on its own
   line. If the zoom-1 cafe overlap is still visible after this merge, send it to memories again.
 - Verified: bot green on all paths; the docks autopilot shot at wave 4 renders with zero errors.
+
+## Polish 5
+
+Round 1 (interaction only, no core changes needed). Please update the ARCHITECTURE interaction entry:
+- **Big Cat entrance:** `ENTER_T` 176 ticks: Galaga '88 WARNING bands (two hazard-striped gold/ink bands with red edges
+  slide across the playfield from opposite sides, a blinking `WARNING` label and the Big Cat's name between them, 104
+  ticks, drawn only while the scene is `'play'`), then the Big Cat descends straight down the middle of its range from
+  tick 56 with its escort squad in formation (`spawnEscorts` during the entrance parks the squad in `'form'`; the wings
+  ride wider and trail higher, `Boss.formK()`, and close into their slots as it arrives; a thud + small shake on
+  landing). A re-entrance after a nap is a 110-tick swoop without the bands.
+- **Escort wings:** wide lanes fly a swept-back V: inner pair beside and just below the boss (`+-side, +26`), outer pair a
+  row lower and 44 px further out (`+82`), with 6 escorts a pair of shoulders closing the V's lower row (`+-(r+16)`,
+  `+82`). `ext = side + 44` (the drift range is narrower). Mothership low V: 10 px more air under the saucer rim
+  (outer pair `bot + 24`, inner pair 40 px lower).
+- **Choreography per phase:** phase 0 = signature attack; phase 1 cycles `[signature, ring, signature, second]`; phase 2
+  cycles `[signature, curtain, second, signature, ring]`. `ring`: 12-16 slow hairballs (the backyard Big Cat's at 0.55x)
+  with a gap aimed at Pom (two offset rings in phase 2), telegraphed by a swelling dashed ring and a lime notch at the
+  gap. `curtain`: 3 (backyard tier) or 4 volleys shed across the lane every 28 ticks from emitters 60 px apart (between
+  the escort rows), drifting alternately left/right; telegraphed by lit emitters with their two drift dashes. Phase 2
+  `fan` is two fans crossing. The boss bullet cap grows `+9 per phase` (+6 more during a curtain).
+- **Phase-change beat:** 9-tick hit-stop, a gold (phase 1) / red (phase 2) flash, the WARNING bands again for 60 ticks
+  labelled `PHASE 2 / GETTING GRUMPY` or `FINAL PHASE / MAXIMUM GRUMPY`, plus the existing boom, shockwave and refill.
+- **Defeat:** at 0 hp the Big Cat is knocked out (`'ko'`, 44 ticks, invulnerable): hit-stop 10, white flash, every
+  hairball pops into a sparkle, the escorts scatter outward (never back across its body), it staggers red-hot with
+  dizzy stars and little booms, then the usual `bigboop` finale and `boss:defeat`.
+- **Small Big Cats** (tiers 0-1, no craft) wear a slowly turning double dashed halo; their telegraphs are 1.35x (charge
+  lane, fan edges, aim line, spiral ring, summon rings).
+- **Signature outlines:** every signature wave sketches the rack's outline with pixel bracket corners on each target
+  cell (popping in in arrival order during the 54-tick tell, gone as each cat lands); street ambush darkens the next
+  column from the top just before it slams in and lands on growing dither shadows; moon float's brackets close in as
+  the cats drift down. Mothership remixes inherit these.
+- **Orbit** runs `ORBIT_INSET` 10 px inside the gutter lines (no HUD clipping with the camera panned).
+- **Streams:** each entry lane's step grows until two cats one step apart are at least `STREAM_AIR` 40 px apart
+  (1.25 sprite heights) anywhere on the shared path.
+- **On-screen cap:** `formation.ON_CAP` 24: a wave never parks more than 24 cats; the rest are reinforcements (station
+  wave 3: 24 on screen + 9 reinforcements).
+- Showcase stages: `?showcase=interaction&stage=entrance|phasebeat|ko` (`&at=`, `&phase=`), `&atk=ring|curtain|fan|...`
+  forces the staged attack (tools/screenshot.mjs does not forward `atk`: pass it in `--url=...?atk=ring`). Boss stages
+  now skip the taunt dialogue. REQUEST (tools, optional): forward `atk` in tools/screenshot.mjs.
+
+Round 2 (interaction only in code; three small requests for other modules):
+- **ui (HUD after a KO):** `interaction.bossDown` now holds the id of the Big Cat that was just knocked out (set at the
+  KO, cleared by `clearAll` / the next wave or fight). Please read it in the sector-goal row and the wave plate: when
+  `interaction.bossDown === area.boss`, the BIG CAT row should read `BOOPED` (lime, with a tick icon) instead of
+  `AHEAD`, and the wave plate should read `BIG CAT BOOPED` (or show the strip with every cell done) instead of
+  falling back to `8/8` during the ~140-tick finale and outro.
+- **world (mothership decals):** the purple eye decals and the short vertical purple bar segments on the mothership
+  floor have the same size and saturation as the enemy bullets and lasers. Please darken them two palette steps
+  (`u` -> `2`/`3`, `t` -> `4`) or desaturate them, so the bullet layer is the only bright small element in the hall.
+- **effects (optional):** `flash()` draws a 1:1 checkerboard over the whole playfield; interaction no longer calls it
+  for the KO (the Big Cat now draws its own 3-frame solid radial wipe), but other callers might prefer a solid
+  2-frame flash too.
+
+Please update the ARCHITECTURE interaction entry:
+- **Entrance:** `ENTER_T` 176, the WARNING bands stay up for 168 ticks and the Big Cat starts its descent at tick 8,
+  under the bands (the headline never blinks off: it pulses red / white while the bands are open).
+- **Escort wings:** explicit wing slots, every escort at least `ESC_CLEAR` 40 px from the boss hitbox. Open lanes:
+  per side one escort beside the Big Cat and one stepped `WING_DX` 34 out and `WING_DY` 22 back; 6-cat squads add a
+  pair under it 40 px below the hitbox. Narrow lanes (street, alley): one beside per side, the second pair stepped
+  back under it into a V. The Empress (hall too narrow for her wings) rides 10 px higher (`hy` 66) with a V under the
+  saucer: outer pair at the walls 36 px below the saucer art, inner pair 34 px in and 22 px further back. The
+  entrance V rides 30% wider and trails 46 px higher, then closes (every slot moves alike).
+- **Choreography:** phase 1 (`PHASE 2` band) and phase 2 (`FINAL PHASE`) run background emitters under the main
+  attack: a slow ring with a gap facing Pom (every `128 - 12*tier` / `104 - 10*tier` ticks; final phase adds an
+  offset second ring for tier >= 1) and paired 5-shot fans sweeping inward from both flanks (crossing mid-field),
+  each with its own short tell (a swelling dashed ring / lit flank pips). Mid-sector Big Cats (tier >= 1) fire a
+  light ring every ~160 ticks even in phase 0. Rings and fans skip any angle that would cross a parked escort.
+  `curtain` = walls of bullets 14 px apart spanning the whole lane with 2 (narrow) or 3 marked 38 px doors (one slid
+  onto Pom), 3/4/5 volleys 30 ticks apart drifting alternately left/right; telegraphed by the lit row and lime door
+  posts with marching arrows. Boss bullet cap `+14 per phase` (+40 during a curtain).
+- **Phase beat:** no toast any more (the band carries it); the hit that triggers a beat or the KO pops no damage
+  number, and numbers still floating over the boss are dropped.
+- **KO:** 3 frames of a solid radial wipe (white disc, then white/gold bands racing out) drawn by the Big Cat (honours
+  `settings.flash` / `reduceMotion`), no dithered screen flash; two 3 px shockwaves with a white inner highlight.
+- **Small Big Cats** (tiers 0-1): a dark drop plate (deep-night disc, plum dither core, ink edge, magenta rim) and
+  one turning dashed ring behind them, a 1px white outline outside the sprite's ink, and 1.7x telegraphs.
+- **Signature outlines:** only the next `SIG_MARKS` 5 cells get corner ticks (1px corners, 2px arms, one dim
+  lavender `4`); street ambush has a row of mailboxes along the top edge whose lids pop open (flag up, sparks) just
+  before their column slams in, plus inked dither column shadows; moon float cats bob on a shared low-gravity sway,
+  trail a dotted arc, and kick up a dust puff where they land.
+- **Waves** hold at most `WAVE_MAX` 26 cats in all (station wave 3: 24 on screen + 2 reinforcements). Orbit ring
+  `ORBIT_INSET` 18 px inside the gutter lines.
+- Perf: rings are blitted from cached canvases (`art.ringC`), dither rects are one pattern fill.
