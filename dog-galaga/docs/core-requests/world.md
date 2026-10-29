@@ -80,3 +80,26 @@ surface). Rare fast foreground flyers (birds, leaves, steam, cloud wisps, debris
 - 7: already handled by ui (two reserved name lines + clipped subtitle in the right panel); verified on the cafe capture.
 - 8: noted; intro lines were made tod-neutral anyway.
 - Integrator seam fixes in world: boss defeat holds 140 ticks before the outro, nap banner uses ui `headline()`, banners/title cards hide while a ui menu is open.
+
+## Polish 1
+
+### P1-1 (showcase owner) world showcase: Pom shows up in some frames and not others
+`src/showcase/index.ts` case `'world'` hides Pom with a one-off `g.mods.player.y = 999`, but the player module clamps /
+eases her back into the playfield, so whether she is in the shot depends on how long the page ran before the capture
+(the critic saw her missing in moon dawn/day/dusk but present at night; my own captures show the opposite mix). For
+comparable review shots, please make it deterministic: either keep her out every frame (e.g. re-apply the offscreen
+position in a per-step hook, or a `player.hidden = true` flag the player renderer honours), or always show her at her
+spawn point (x224, y300). Not a world defect: the background is identical either way.
+
+### P1-2 ARCHITECTURE.md section 2 wording (supersedes #9)
+Replace the time-of-day paragraph with:
+"Time of day is light, not a recolour: segments are painted into a palette-index buffer in day colours, then every
+palette entry is lit by a coloured light (multiply + ambient in linear RGB, `paint.ts` `lightRamp`) and matched back to
+the palette by hue-weighted OKLab distance, so each material keeps its hue family and only value and temperature move.
+Where the lit colour falls between two entries, a 25/50/75% ordered dither of two neighbouring entries is used; a few
+big ground materials are pinned per time of day (dewy lawn at dawn, olive lawn with amber tufts at dusk, blue-green lawn
+at night). Dawn: cool slate neutrals, pink highlights, lavender shadows cast down-left, peach rim light; dusk: darker,
+amber, plum shadows cast east, amber rim light on west faces; night: navy, warm windows and sodium lamp pools (solid core
++ 2-step dither falloff). Lamp pools never get cut by a segment edge: a pool from a world-spaced lamp spills into the
+neighbouring segment, any other pool shrinks to fit. Interiors use their own lights (pale peach dawn, amber dusk, dim
+night with day-coloured pendant pools); sky and space tilesets keep their own backdrops/ramps."

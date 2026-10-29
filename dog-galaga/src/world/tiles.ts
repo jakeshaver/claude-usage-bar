@@ -5,9 +5,9 @@
 // darkest cat colours (indigo / dark brown bodies with ink outlines), so cats,
 // turds and hairballs pop (Galaga readability).
 import { Rng } from '../core/rng';
-import { col } from '../core/palette';
+import { col, KEY } from '../core/palette';
 import type { Tod } from '../core/types';
-import { Painter, spans, bayer, ramp, TOD_RAMP, DUSK_SUN, type Ramp } from './paint';
+import { Painter, spans, bayer, ramp, lightRamp, TOD_RAMP, LIGHT, type Ramp } from './paint';
 import type { Background } from './bg';
 
 export const SEG = 256;
@@ -94,10 +94,10 @@ function grass(p: Painter, x: number, y: number, w: number, h: number, rng: Rng,
   const n = Math.floor((w * h) / 520 * density);
   for (let i = 0; i < n; i++) tuft(p, rng.chance(0.75) ? hi : '1', x + rng.int(1, w - 6), y + rng.int(2, h - 2));
 }
-function lamp(p: Painter, x: number, y: number, r = 40, clip?: [number, number, number, number]) {
+function lamp(p: Painter, x: number, y: number, r = 40, clip?: [number, number, number, number], spill = false) {
   p.shRect(x - 1, y - 1, 3, 3, 14);
   p.obj(() => { p.disc('0', x + 0.5, y + 0.5, 3); p.disc('p', x + 0.5, y + 0.5, 2); p.glow('q', 'f', x, y, 1, 1); p.glow('o', '7', x - 1, y - 1, 1, 1); });
-  p.pool(x, y + 2, r, clip);
+  p.pool(x, y + 2, r, clip, spill);
 }
 function crate(p: Painter, x: number, y: number, w = 20, h = 20, k = 'a') {
   p.shRect(x, y, w, h, 8);
@@ -367,9 +367,11 @@ const backyard: LayerDef = { speed: 1, opaque: true, paint(p, z) {
   if (top) brownstoneBacks(p, r);
   const lots = [[0, 144], [148, 300], [304, 448]];
   // the middle lot (centre of the playfield) always holds this segment's hero object
-  const hero = ['dog', 'pool', 'patio', 'clothes', 'dog', 'garden'][z.s % 6];
+  // (the opening segment keeps the spawn column low and flat: Pom's doghouse sits in the left lot there, the middle lot is open lawn)
+  const hero = z.s === 0 ? 'yard' : ['dog', 'pool', 'patio', 'clothes', 'dog', 'garden'][z.s % 6];
   const side = ['clothes', 'yard', 'garden', 'patio', 'yard', 'clothes'];
   for (let i = side.length - 1; i > 0; i--) { const j = r.int(0, i); [side[i], side[j]] = [side[j], side[i]]; }
+  if (z.s === 0) side[0] = 'dog';
   lots.forEach(([x0, x1], li) => {
     const kind = li === 1 ? hero : side[li];
     const cx = (x0 + x1) >> 1, y0 = top + 14, y1 = SEG - 8;
@@ -535,9 +537,72 @@ function pen(p: Painter, x: number, y: number, w: number, h: number, rng: Rng) {
 /** mown lawn: 40px stripes in world space, the darker stripe only marked by sparse regular dark tufts (quiet texture, no dither) */
 function lawn(p: Painter, z: Seg) {
   p.r('k', 0, 0, SW, SEG);
+  // mown stripes: every other 40px band (world-spaced) carries a sparse regular grid of lighter blade tips
+  for (let y = 0; y < SEG; y++) if (Math.floor(z.wy(y) / 40) % 2 === 0 && (z.wy(y) & 3) === 0) for (let x = (z.wy(y) & 4) ? 2 : 0; x < SW; x += 4) p.r('j', x, y, 1, 1);
   for (let i = 0; i < 40; i++) tuft(p, z.r.chance(0.6) ? 'j' : '1', z.r.int(4, SW - 8), z.r.int(2, SEG - 2));
 }
 const DARK_CANOPY = ['0', '1', 'k'];
+/** a shade tree inside the park: canopy over a long cast shadow (so low sun reads on the lawn) */
+function parkTree(p: Painter, cx: number, cy: number, rr: number, r: Rng) {
+  p.shEll(cx, cy, rr * 0.8, rr * 0.7, 26);
+  const seed = r.int(0, 1e6); p.obj(() => canopy(p, cx, cy, rr, new Rng(seed)));
+}
+/** gingham picnic blanket with a wicker basket, a sandwich and a forgotten squeaky bone */
+function picnic(p: Painter, x: number, y: number) {
+  const w = 34, h = 26;
+  p.obj(() => {
+    p.r('0', x - 1, y - 1, w + 2, h + 2);
+    for (let j = 0; j < h; j += 4) for (let i = 0; i < w; i += 4) p.r(((i + j) >> 2) & 1 ? '7' : (j >> 2) & 1 ? 'e' : 'r', x + i, y + j, Math.min(4, w - i), Math.min(4, h - j));
+    p.r('0', x + 4, y + 4, 13, 10); p.r('a', x + 5, y + 5, 11, 8); p.r('9', x + 5, y + 5, 11, 1); for (let i = x + 6; i < x + 15; i += 2) p.r('b', i, y + 7, 1, 5); p.r('0', x + 7, y + 3, 7, 1);
+    p.r('0', x + 21, y + 14, 8, 7); p.r('8', x + 22, y + 15, 6, 5); p.r('j', x + 22, y + 17, 6, 1);
+    p.r('7', x + 22, y + 6, 6, 2); p.r('7', x + 21, y + 5, 2, 1); p.r('7', x + 21, y + 8, 2, 1); p.r('7', x + 27, y + 5, 2, 1); p.r('7', x + 27, y + 8, 2, 1);
+  });
+}
+/** dog-bag station by the path: a post with a green dispenser and a little bin */
+function bagStation(p: Painter, x: number, y: number) {
+  p.shRect(x, y, 4, 4, 18);
+  p.obj(() => { p.r('0', x - 1, y - 1, 6, 6); p.r('p', x, y, 4, 4); p.r('0', x - 3, y + 6, 10, 8); p.r('k', x - 2, y + 7, 8, 6); p.r('j', x - 2, y + 7, 8, 1); p.r('7', x, y + 10, 4, 2); bin(p, x + 14, y + 8, 'k'); });
+}
+/** a few low lawn details: daisy clusters, clover, a dropped tennis ball or frisbee (tiny, so the lawn stays calm) */
+function lawnBits(p: Painter, x0: number, x1: number, r: Rng) {
+  for (let i = 0; i < 3; i++) { const cx = r.int(x0, x1), cy = r.int(8, SEG - 8); for (let k = 0; k < 5; k++) { const x = cx + r.int(-7, 7), y = cy + r.int(-4, 4); p.r('7', x, y, 1, 1); p.r('7', x - 1, y + 1, 3, 0 + 1); p.r('f', x, y + 1, 1, 1); } }
+  for (let i = 0; i < 2; i++) { const cx = r.int(x0, x1), cy = r.int(8, SEG - 8); for (let k = 0; k < 4; k++) p.r('j', cx + r.int(-6, 6), cy + r.int(-3, 3), 2, 2); }
+  if (r.chance(0.5)) { const x = r.int(x0, x1), y = r.int(10, SEG - 10); p.shEll(x, y, 2, 2, 3); p.obj(() => { p.disc('0', x, y, 3); p.disc('i', x, y, 2); p.r('7', x - 1, y - 1, 1, 1); }); }
+  else { const x = r.int(x0, x1), y = r.int(10, SEG - 10); p.shEll(x, y, 5, 4, 3); p.obj(() => { p.ell('0', x, y, 6, 5); p.ell('d', x, y, 5, 4); p.ring('e', x, y, 3, 2, 1); p.r('c', x - 3, y - 3, 2, 1); }); }
+}
+/** fallen leaves under a tree: a scatter of 2px warm leaves, thinning out with distance */
+function leafLitter(p: Painter, cx: number, cy: number, rr: number, r: Rng) {
+  for (let i = 0; i < 22; i++) { const a = r.range(0, 6.28), d = rr * Math.sqrt(r.next()); const x = Math.round(cx + Math.cos(a) * d + 8), y = Math.round(cy + Math.sin(a) * d * 0.8 + 6); p.r(r.pick(['h', 'a', 'g', '9']), x, y, 2, 1); if (r.chance(0.4)) p.r('b', x, y + 1, 1, 1); }
+}
+/** a patch where a dog has been digging: churned soil, a dirt spray and a half-buried bone */
+function digPatch(p: Painter, x: number, y: number, r: Rng) {
+  p.ell('b', x, y, 8, 5); p.ell('a', x - 1, y - 1, 6, 3); p.ell('1', x + 1, y + 1, 3, 2);
+  for (let i = 0; i < 7; i++) p.r(r.pick(['a', 'b']), x + r.int(-14, 14), y + r.int(-8, 8), 1, 1);
+  p.r('0', x + 3, y - 3, 8, 3); p.r('7', x + 4, y - 2, 6, 1); p.r('7', x + 9, y - 3, 2, 1); p.r('7', x + 9, y - 1, 2, 1);
+}
+/** a red fire hydrant by the path (a dog park essential), with its little shadow */
+function hydrant(p: Painter, x: number, y: number) {
+  p.shEll(x, y, 4, 4, 10);
+  p.obj(() => { p.disc('0', x, y, 5); p.disc('r', x, y, 4); p.disc('h', x + 1, y + 1, 2); p.r('c', x - 2, y - 3, 2, 1); p.r('0', x - 7, y - 1, 3, 3); p.r('o', x - 7, y, 2, 1); p.r('0', x + 5, y - 1, 3, 3); p.r('o', x + 6, y, 2, 1); p.disc('0', x, y, 1.5); p.r('o', x, y, 1, 1); });
+}
+/** clipped box hedge with a poodle topiary on top (the park keeper is a fan) */
+function topiary(p: Painter, x: number, y: number) {
+  p.shRect(x, y, 30, 12, 10);
+  p.obj(() => {
+    p.r('0', x - 1, y - 1, 32, 14); p.r('k', x, y, 30, 12); p.r('j', x, y, 30, 2); p.r('1', x, y + 10, 30, 2);
+    for (let i = 3; i < 30; i += 6) p.r('j', x + i, y + 4, 2, 1);
+    // poodle: pom-pom head, ears, body puff and tail puff, clipped round
+    const dx = x + 15, dy = y + 4;
+    for (const [ox, oy, rr] of [[-8, 0, 4], [0, 1, 5], [8, -1, 3], [-11, -3, 2], [10, -5, 2]] as [number, number, number][]) { p.disc('0', dx + ox, dy + oy, rr + 1); }
+    for (const [ox, oy, rr] of [[-8, 0, 4], [0, 1, 5], [8, -1, 3], [-11, -3, 2], [10, -5, 2]] as [number, number, number][]) { p.disc('k', dx + ox, dy + oy, rr); p.r('j', dx + ox - 1, dy + oy - rr + 1, 2, 1); }
+  });
+}
+/** small specific park life: digging patches, a hydrant by the path, a topiary, a forgotten leash */
+function parkLife(p: Painter, z: Seg, px: (y: number) => number, r: Rng, kL: number, kR: number) {
+  every(z, 288, 150, y => { if (y > 10 && y < SEG - 10) hydrant(p, px(y) - 24, y); });
+  { const left = r.chance(0.5), kind = left ? kL : kR; if (z.s % 3 === 1 && kind !== 4 && kind !== 7 && kind !== 3) topiary(p, left ? 34 : 384, r.int(30, 200)); }
+  if (r.chance(0.5)) { const x = r.int(170, 270), y = r.int(30, SEG - 30); p.obj(() => { for (let i = 0; i < 18; i++) p.r('d', x + i, y + Math.round(Math.sin(i / 3) * 2), 1, 1); p.r('0', x + 17, y - 2, 4, 4); p.r('o', x + 18, y - 1, 2, 2); }); } // a dropped leash
+}
 /** park bench facing the path + a bin, for the edge strips */
 function parkEdge(p: Painter, kind: number, x0: number, right: boolean, r: Rng) {
   // x0 = inner edge of the strip; props stay in x0-100 .. x0 (left) or x0 .. x0+100 (right)
@@ -549,6 +614,8 @@ function parkEdge(p: Painter, kind: number, x0: number, right: boolean, r: Rng) 
     case 3: tunnel(p, X(48), 30, 170); break;
     case 4: pen(p, X(6, 92), 30, 92, 170, r); break;
     case 5: fountain(p, X(40), 70); bench(p, X(16, 36), 130, false); bench(p, X(16, 36), 190, false); bin(p, X(70), 160); break;
+    case 7: pond(p, X(56), 128, r); bench(p, X(30, 36), 196, false); break;
+    case 8: picnic(p, X(36, 34), 40); parkTree(p, X(64), 176, 28, r); bagStation(p, X(14, 4), 222); break;
     default: canopy(p, X(48), r.int(60, 190), r.int(26, 34), r, DARK_CANOPY); bench(p, X(8, 12), 40, true);
   }
 }
@@ -564,12 +631,20 @@ const park: LayerDef = { speed: 1, opaque: true, paint(p, z) {
   // dark-canopy trees outside the fence
   for (const tx of [4, 444]) canopy(p, tx, r.int(40, 210), r.int(24, 32), r, DARK_CANOPY);
   // agility kit and park furniture on the edge strips only; the path side gets furniture, the other side agility gear
-  const midX = px(128); const kL = (z.s + (z.seed % 7)) % 7, kR = (z.s * 3 + 2 + (z.seed % 5)) % 7;
-  void midX; parkEdge(p, kL, 140, false, r); parkEdge(p, kR === kL ? (kR + 3) % 7 : kR, 308, true, r);
+  const kL = (z.s + (z.seed % 9)) % 9, kR = (z.s * 3 + 2 + (z.seed % 5)) % 9;
+  lawnBits(p, 40, 150, r); lawnBits(p, 300, 410, r);
+  for (let i = 0; i < 2; i++) digPatch(p, i ? r.int(316, 404) : r.int(44, 132), r.int(24, SEG - 24), r); // under the kit, so props cover it
+  parkEdge(p, kL, 140, false, r); parkEdge(p, kR === kL ? (kR + 4) % 9 : kR, 308, true, r);
+  // shade trees just inside the fence, at the far ends of the edge strips (never on a side holding the picnic or the pen)
+  { const left = r.chance(0.5), kind = left ? kL : kR, top = r.chance(0.5);
+    if (r.chance(0.7) && kind !== 8 && kind !== 4) { const tx = left ? r.int(44, 60) : r.int(388, 404), ty = top ? r.int(14, 40) : r.int(200, 236); parkTree(p, tx, ty, r.int(18, 24), r); leafLitter(p, tx, ty, 34, r); } }
+  parkLife(p, z, px, r, kL, kR === kL ? (kR + 4) % 9 : kR);
   // flower bed tucked against the fence
   if (r.chance(0.6)) { const fx = r.chance(0.5) ? 50 : 398, fy = r.int(30, 220); p.ell('0', fx, fy, 12, 8); p.ell('b', fx, fy, 11, 7); for (let k2 = 0; k2 < 10; k2++) { const a = r.range(0, 6.28), d = r.range(0, 1); p.r(r.pick(['d', '7', 't']), fx + Math.cos(a) * d * 8, fy + Math.sin(a) * d * 4, 1, 1); } }
-  // a lamp by the path
-  const ly = r.int(140, 200); lamp(p, px(ly) + 18, ly, 30); bench(p, px(60) + 18, 40, true);
+  // lamps along the path (world-spaced), a bench, and paw prints in the gravel
+  every(z, 192, 40, y => { if (y > -40 && y < SEG + 40) lamp(p, px(y) + 18, y, 30, undefined, true); });
+  bench(p, px(60) + 18, 40, true);
+  for (let y = 6, i = 0; y < SEG; y += 11, i++) if ((z.s + (y >> 6)) % 3 === 0) { const x = px(y) + (i % 2 ? 3 : -4); p.r('1', x, y + 1, 3, 2); p.r('1', x - 1, y - 1, 1, 1); p.r('1', x + 1, y - 2, 1, 1); p.r('1', x + 3, y - 1, 1, 1); }
 } };
 // ---------------------------------------------------------------- ALLEY
 function dumpster(p: Painter, x: number, y: number) {
@@ -617,9 +692,50 @@ function fireEscape(p: Painter, wallX: number, y: number, left: boolean) {
     }
   });
 }
+/** chalk hopscotch on the concrete (light grey chalk, 1px lines), with a little chalk cat face at the top */
+function hopscotch(p: Painter, x: number, y: number) {
+  const box = (bx: number, by: number) => p.frame('o', bx, by, 12, 12);
+  let yy = y;
+  for (let i = 0; i < 6; i++) { if (i === 2 || i === 4) { box(x - 6, yy); box(x + 6, yy); } else box(x, yy); yy += 11; }
+  p.r('o', x + 5, y + 3, 2, 5); // a chalk "1"
+  const cx = x + 6, cy = y - 10; p.frame('c', cx - 5, cy - 3, 11, 8); p.r('c', cx - 5, cy - 5, 2, 2); p.r('c', cx + 4, cy - 5, 2, 2); p.r('c', cx - 2, cy, 1, 1); p.r('c', cx + 2, cy, 1, 1);
+}
+/** dark oil stain: a soft-edged blot one step darker than the concrete */
+function oilStain(p: Painter, x: number, y: number, rng: Rng) {
+  const rx = rng.int(6, 11), ry = rng.int(3, 5);
+  p.ell('v', x, y, rx, ry); p.ell('v', x + rx * 0.6, y + 2, rx * 0.5, ry * 0.6); p.ell('1', x - 1, y, rx * 0.45, ry * 0.45); p.r('2', x - 2, y - 1, 2, 1);
+}
+/** a loose newspaper page: pale sheet with column lines, slightly askew */
+function newspaper(p: Painter, x: number, y: number, rng: Rng) {
+  const w = rng.int(9, 12), h = rng.int(7, 9);
+  p.obj(() => { p.r('p', x, y + 1, w, h); p.r('o', x + 1, y, w, h); for (let j = y + 2; j < y + h - 1; j += 2) { p.r('p', x + 2, j, (w >> 1) - 2, 1); p.r('p', x + (w >> 1) + 1, j, (w >> 1) - 2, 1); } p.r('q', x + 2, y + 1, w - 3, 1); });
+}
+/** Big Sal's dinner spot: a dented food bowl and a picked-clean fish skeleton */
+function catBowl(p: Painter, x: number, y: number) {
+  p.shEll(x, y, 4, 3, 3);
+  p.obj(() => {
+    p.ell('0', x, y, 5, 4); p.ell('r', x, y, 4, 3); p.ell('e', x, y + 1, 2.5, 1.5); p.r('9', x - 1, y, 2, 1); p.r('c', x - 3, y - 2, 2, 1);
+    const fx = x + 8, fy = y + 2; p.r('o', fx, fy, 9, 1); for (let i = 1; i < 7; i += 2) { p.r('o', fx + i, fy - 2, 1, 2); p.r('o', fx + i, fy + 1, 1, 2); } p.r('o', fx + 9, fy - 1, 2, 3); p.r('0', fx + 10, fy, 1, 1); p.r('o', fx - 2, fy - 1, 1, 1); p.r('o', fx - 2, fy + 1, 1, 1);
+  });
+}
+/** a delivery scooter parked against the wall (top view): handlebars, seat, top box */
+function scooter(p: Painter, x: number, y: number, k: string) {
+  p.shRect(x, y, 10, 30, 8);
+  p.obj(() => {
+    p.r('0', x + 3, y - 2, 4, 3); p.r('0', x + 3, y + 30, 4, 3);
+    p.r('0', x, y, 10, 30); p.r(k, x + 1, y + 1, 8, 28); p.r('0', x - 3, y + 4, 16, 2); p.r('p', x - 2, y + 4, 14, 1);
+    p.r('1', x + 2, y + 9, 6, 9); p.r('q', x + 2, y + 9, 6, 1);
+    p.r('0', x - 1, y + 19, 12, 11); p.r('7', x, y + 20, 10, 9); p.r('o', x, y + 27, 10, 2); p.r('d', x + 3, y + 22, 4, 4);
+    p.glow('7', 'f', x + 4, y + 1, 2, 1, 1, 0);
+  });
+}
+/** drainpipe running down a wall edge, with brackets */
+function drainpipe(p: Painter, x: number, y0: number, y1: number) {
+  p.obj(() => { p.r('0', x - 1, y0, 5, y1 - y0); p.r('p', x, y0, 3, y1 - y0); p.r('o', x, y0, 1, y1 - y0); for (let y = y0 + 10; y < y1; y += 40) { p.r('0', x - 2, y, 7, 3); p.r('q', x - 1, y + 1, 5, 1); } });
+}
 const alley: LayerDef = { speed: 1, opaque: true, paint(p, z) {
   const r = z.r;
-  p.r('v', 96, 0, 256, SEG);
+  p.r('q', 96, 0, 256, SEG);
   // concrete slab seams (very quiet) + sealed cracks
   every(z, 48, 0, y => { if (y >= 0 && y < SEG) p.r('1', 100, y, 248, 1); });
   for (let i = 0; i < 3; i++) cracked(p, r.int(130, 280), r.int(4, SEG - 20), r);
@@ -628,16 +744,25 @@ const alley: LayerDef = { speed: 1, opaque: true, paint(p, z) {
   puddle(p, r.int(150, 200), r.int(30, 110), r);
   puddle(p, r.int(250, 300), r.int(140, 220), r);
   // manhole (world-spaced, steam rises from it in the anim)
-  every(z, 280, 60, y => { if (y < -10 || y > SEG + 10) return; p.disc('0', 262, y, 8); p.disc('q', 262, y, 7); p.ring('1', 262, y, 5, 5, 1); for (let i = -3; i <= 3; i += 2) p.r('1', 258, y + i, 9, 1); });
+  every(z, 280, 60, y => { if (y < -10 || y > SEG + 10) return; p.disc('0', 262, y, 8); p.disc('p', 262, y, 7); p.ring('1', 262, y, 5, 5, 1); for (let i = -3; i <= 3; i += 2) p.r('1', 258, y + i, 9, 1); });
+  // gutters along both walls: a darker kerb strip with a lit lip
+  p.r('v', 96, 0, 7, SEG); p.r('p', 103, 0, 1, SEG); p.r('v', 345, 0, 7, SEG); p.r('p', 344, 0, 1, SEG);
+  for (let i = 0; i < 3; i++) oilStain(p, r.chance(0.5) ? r.int(132, 176) : r.int(272, 316), r.int(8, SEG - 8), r);
+  if (z.s % 3 === 1) hopscotch(p, r.chance(0.5) ? 148 : 284, r.int(30, 140));
+  for (let i = 0; i < r.int(1, 3); i++) newspaper(p, r.chance(0.5) ? r.int(108, 150) : r.int(290, 330), r.int(6, SEG - 14), r);
   for (const side of [0, 1]) {
     const bx = side ? 352 : 0;
     let y = -(z.s * 37 % 64);
     while (y < SEG) { const hh = r.int(80, 140); roof(p, bx, y, 96, hh, 40, r.pick(['q', 'v']), r.pick(['p', 'b', 'a'])); acUnit(p, bx + (side ? r.int(40, 60) : r.int(14, 34)), y + r.int(20, Math.max(24, hh - 40))); y += hh; }
     for (let fy = 10 + r.int(0, 30); fy < SEG - 64; fy += r.int(100, 130)) fireEscape(p, side ? 352 : 96, fy, !side);
+    drainpipe(p, side ? 352 : 92, 0, SEG);
   }
+  if (z.s % 3 === 0) catBowl(p, r.chance(0.5) ? 130 : 312, r.int(20, 230));
+  if (z.s % 4 === 3) scooter(p, 334, r.int(20, 200), r.pick(['r', 'm', 'g']));
   // street furniture hugs the walls: dumpster with bags and boxes beside it; the centre lanes stay clear
+  const used: [boolean, number, number][] = []; // [left, y0, y1] of wall furniture, so later props find a free stretch
   for (let i = 0, y = 8 + r.int(0, 20); y < SEG - 40; i++) {
-    const left = (i + z.s) % 2 === 0; const k = r.int(0, 3);
+    const left = (i + z.s) % 2 === 0; const k = r.int(0, 3); used.push([left, y - 6, y + (k <= 1 ? 80 : k === 2 ? 60 : 50)]);
     if (k <= 1) { dumpster(p, left ? 98 : 306, y); bags(p, left ? 104 : 334, y + 34, r); y += 80; }
     else if (k === 2) { crate(p, left ? 98 : 330, y, 20, 20); crate(p, left ? 100 : 326, y + 22, 18, 18, '9'); y += 60; }
     else { const x = left ? 98 : 332; p.shRect(x, y, 18, 14, 6); p.obj(() => { p.r('0', x, y, 18, 14); p.r('n', x + 1, y + 1, 16, 12); for (let i2 = 3; i2 < 16; i2 += 4) p.r('2', x + i2, y + 2, 2, 10); }); y += 50; }
@@ -651,8 +776,54 @@ const alley: LayerDef = { speed: 1, opaque: true, paint(p, z) {
     p.obj(() => { const nx = 62, ny = ay + 10; for (const [dx, dy, w, h] of [[0, 0, 10, 1], [0, 0, 1, 34], [9, 0, 1, 34], [0, 33, 10, 1], [3, 6, 4, 4], [3, 16, 4, 1], [3, 22, 4, 6]]) p.glow('e', dx < 1 || dx > 8 || dy === 0 || dy === 33 ? 'd' : 'l', nx + dx, ny + dy, w, h); });
     p.pool(118, ay + 27, 34);
   }
-  p.pool(r.chance(0.5) ? 104 : 344, r.int(30, 220), 30);
+  // a back door with a caged wall lamp (the light pool has a source), a step and a doormat
+  const free = (left: boolean, y: number, h: number) => !used.some(([l, a, b]) => l === left && y + h > a && y < b);
+  for (let t = 0; t < 12; t++) { const left = r.chance(0.5), wx = left ? 104 : 344, wy = r.int(36, 214); if (!free(left, wy - 14, 30)) continue; backDoor(p, wx, wy, left); p.pool(wx + (left ? 6 : -6), wy + 4, 30); used.push([left, wy - 14, wy + 16]); break; }
+  // kerb weeds and the odd dandelion, in the gutter strips
+  for (let i = 0; i < 10; i++) { const left = r.chance(0.5), x = left ? r.int(97, 101) : r.int(346, 350), y = r.int(4, SEG - 4); p.r('k', x, y, 1, 2); p.r('k', x + 1, y - 1, 1, 3); if (r.chance(0.25)) p.r('f', x + 1, y - 2, 1, 1); }
+  for (let t = 0; t < 12 && z.s % 3 === 2; t++) { const left = r.chance(0.5), y = r.int(20, 210); if (!free(left, y - 4, 26)) continue; boxBed(p, left ? 112 : 318, y); used.push([left, y - 4, y + 22]); break; }
+  for (let t = 0; t < 12 && z.s % 4 === 1; t++) { const left = r.chance(0.5), y = r.int(10, 200); if (!free(left, y - 4, 38)) continue; bicycle(p, left ? 108 : 334, y); used.push([left, y - 4, y + 34]); break; }
+  // chalk doodles on the concrete: a sun, a fish, a heart (pale, 1px, low contrast)
+  if (r.chance(0.6)) chalkDoodle(p, r.int(150, 300), r.int(20, SEG - 30), r.int(0, 2));
 } };
+/** back door in the wall: steel door edge, concrete step, doormat, caged lamp (lit after dusk) and a pot of herbs */
+function backDoor(p: Painter, x: number, y: number, left: boolean) {
+  const sx = left ? x : x - 14;
+  p.shRect(sx, y - 10, 14, 22, 4);
+  p.obj(() => {
+    p.r('0', sx, y - 10, 14, 22); p.r('p', sx + 1, y - 9, 12, 20); p.r('o', sx + 1, y - 9, 12, 1); // step
+    p.r('0', sx + 2, y - 6, 10, 14); p.r('a', sx + 3, y - 5, 8, 12); for (let j = y - 4; j < y + 6; j += 2) p.r('b', sx + 3, j, 8, 1); // mat
+    p.r('7', sx + 5, y - 2, 4, 1); p.r('7', sx + 5, y + 1, 4, 1);
+    const lx = left ? x - 4 : x + 1; p.r('0', lx, y - 2, 4, 6); p.glow('q', 'f', lx + 1, y - 1, 2, 4, 1, 0); p.r('0', lx, y + 1, 4, 1);
+    const hx = left ? sx + 18 : sx - 6; p.disc('0', hx, y + 10, 4); p.disc('h', hx, y + 10, 3); p.disc('k', hx, y + 9, 2); p.r('j', hx - 1, y + 8, 1, 1); p.r('j', hx + 1, y + 9, 1, 1);
+  });
+}
+/** a cardboard box turned into a stray's bed: flaps open, a folded blanket and a little sign */
+function boxBed(p: Painter, x: number, y: number) {
+  p.shRect(x, y, 22, 18, 8);
+  p.obj(() => {
+    p.r('0', x - 1, y - 1, 24, 20); p.r('9', x, y, 22, 18); p.r('a', x + 2, y + 2, 18, 14);
+    p.r('0', x - 5, y + 1, 5, 14); p.r('8', x - 4, y + 2, 4, 12); p.r('0', x + 22, y + 1, 5, 14); p.r('8', x + 22, y + 2, 4, 12); // open flaps
+    p.r('e', x + 3, y + 5, 16, 9); p.r('d', x + 3, y + 5, 16, 2); for (let i = x + 5; i < x + 19; i += 4) p.r('c', i, y + 9, 2, 1);
+    p.r('7', x + 6, y + 14, 10, 3); p.r('a', x + 8, y + 15, 6, 1);
+  });
+}
+/** a bicycle chained against the wall: two wheels, frame, a basket on the front */
+function bicycle(p: Painter, x: number, y: number) {
+  p.shRect(x, y, 8, 30, 6);
+  p.obj(() => {
+    for (const wy of [y + 4, y + 26]) { p.r('0', x + 2, wy - 4, 4, 9); p.r('q', x + 3, wy - 3, 2, 7); }
+    p.r('0', x + 3, y + 7, 2, 17); p.r('m', x + 3, y + 8, 1, 15); p.r('0', x - 2, y + 7, 12, 2); p.r('p', x - 1, y + 7, 10, 1);
+    p.r('0', x + 1, y + 16, 6, 4); p.r('1', x + 2, y + 17, 4, 2); // saddle
+    p.r('0', x - 1, y - 2, 10, 6); p.r('9', x, y - 1, 8, 4); p.r('a', x + 1, y, 6, 1); p.r('c', x + 2, y + 1, 2, 1); p.r('f', x + 5, y + 1, 2, 1); // basket with flowers
+  });
+}
+/** pale chalk doodles (1px lines) */
+function chalkDoodle(p: Painter, x: number, y: number, kind: number) {
+  if (kind === 0) { p.ring('o', x, y, 5, 5, 1); for (let i = 0; i < 8; i++) { const a = i * 0.785; p.r('o', x + Math.round(Math.cos(a) * 8), y + Math.round(Math.sin(a) * 8), 1, 1); } }
+  else if (kind === 1) { p.ring('c', x, y, 7, 4, 1); p.r('c', x + 7, y - 3, 1, 7); p.r('c', x + 8, y - 4, 1, 2); p.r('c', x + 8, y + 3, 1, 2); p.r('c', x - 4, y - 1, 1, 1); }
+  else { for (const [dx, dy, w] of [[-4, -2, 3], [1, -2, 3], [-5, -1, 10], [-4, 0, 8], [-3, 1, 6], [-2, 2, 4], [-1, 3, 2]]) { p.r('c', x + dx, y + dy, 1, 1); p.r('c', x + dx + w - 1, y + dy, 1, 1); } }
+}
 const laundryFg: LayerDef = { speed: 1.45, paint(p, z) {
   const r = z.r;
   if (r.chance(0.3)) {
@@ -667,7 +838,7 @@ const cityBelow: LayerDef = { speed: 0.45, opaque: true, paint(p, z) {
   const r = z.r;
   p.r('1', 0, 0, SW, SEG);
   for (let by = 0; by < SEG; by += 64) for (let bx = -8 + (z.s % 2) * 20; bx < SW; bx += 56) {
-    p.r('v', bx + 6, by + 6, 44, 52); p.r('2', bx + 8, by + 8, 40, 48); p.r('3', bx + 8, by + 8, 40, 1); p.r('v', bx + 8 + r.int(8, 30), by + 8, 1, 48);
+    p.r('v', bx + 6, by + 6, 44, 52); p.r('q', bx + 8, by + 8, 40, 48); p.r('p', bx + 8, by + 8, 40, 1); p.r('v', bx + 8 + r.int(8, 30), by + 8, 1, 48);
     for (let i = 0; i < 5; i++) p.glow('1', r.pick(['f', 'g', '7']), bx + r.int(10, 44), by + r.int(10, 52), 1, 1, 0.6, r.next());
     if (r.chance(0.3)) p.r('k', bx + 12, by + 12, 16, 12);
   }
@@ -852,12 +1023,58 @@ function catTree(p: Painter, cx: number, cy: number) {
     p.r('c', cx - 10, cy + 6, 2, 8); p.disc('t', cx - 9, cy + 15, 2);
   });
 }
+/** emissive rect that keeps its colour at every time of day (sky seen through glass, a neon tube): drawn after the remap */
+function emit(p: Painter, k: string, x: number, y: number, w: number, h: number) { p.r(k, x, y, w, h); p.glows.push({ lit: KEY.indexOf(k), x, y, w, h, on: true }); }
+/** what the cafe windows show: the sky outside at this time of day [pane, reflection, accent] */
+const CAFE_SKY: Record<Tod, [string, string, string]> = { day: ['s', '6', '5'], dawn: ['c', '7', 't'], dusk: ['g', 'f', 'h'], night: ['1', '2', 'f'] };
+/** light pooling through the cafe windows per time of day (applied to the day colours of the floor) */
+const CAFE_SUN: Partial<Record<Tod, Ramp>> = {
+  // first sun: pale peach light across the honey planks
+  dawn: ramp('b:9 a:8 9:8 8:7 v:a 1:b 2:3 3:4 q:p p:o o:7 k:j e:d 7:7'),
+  dusk: ramp('0:1 1:b v:b b:a a:h 9:g q:a p:9 o:8 2:3 3:4 n:3 k:j e:d'),
+};
+/** soft wool toys on the floor: a yarn ball with a trailing thread, or a grey toy mouse with a pink tail */
+function floorToy(p: Painter, x: number, y: number, rng: Rng) {
+  p.obj(() => {
+    if (rng.chance(0.5)) { const [dk, sh, hi] = rng.pick(DYES); let tx = x + 3, ty = y + 2; for (let i = 0; i < 6; i++) { const nx = tx + rng.int(2, 4), ny = ty + rng.int(-2, 2); p.line(dk, tx, ty, nx, ny); tx = nx; ty = ny; } yarnBall(p, x, y, dk, sh, hi); }
+    else { p.r('0', x - 4, y - 2, 9, 5); p.r('p', x - 3, y - 1, 7, 3); p.r('o', x - 3, y - 1, 5, 1); p.r('c', x - 3, y - 3, 2, 1); p.r('0', x + 3, y - 1, 1, 1); p.r('c', x - 6, y, 2, 1); p.r('c', x - 8, y + 1, 2, 1); p.r('c', x - 9, y + 2, 1, 1); }
+  });
+}
+/** chalkboard A-frame by the counter: today's specials in chalk (cream lines, a pink fish doodle) */
+function chalkboard(p: Painter, x: number, y: number) {
+  p.shRect(x, y, 18, 24, 10);
+  p.obj(() => {
+    p.r('0', x, y, 18, 24); p.r('a', x + 1, y + 1, 16, 22); p.r('9', x + 1, y + 1, 16, 1); p.r('1', x + 3, y + 3, 12, 18);
+    p.r('7', x + 5, y + 5, 8, 1); p.r('o', x + 5, y + 8, 6, 1); p.r('o', x + 5, y + 11, 7, 1); p.r('o', x + 5, y + 14, 5, 1);
+    p.r('c', x + 8, y + 17, 4, 2); p.r('c', x + 12, y + 16, 1, 1); p.r('c', x + 12, y + 19, 1, 1);
+  });
+}
+/** a round braided rug: concentric rings in two calm tones and a fringe of tassels, so the floor under the tables reads as a cosy nook */
+function rug(p: Painter, cx: number, cy: number, rx: number, ry: number, keys = ['2', '3', 'v']) {
+  const [body, ring, edge] = keys;
+  p.ell('0', cx, cy, rx + 1, ry + 1); p.ell(edge, cx, cy, rx, ry); p.ell(body, cx, cy, rx - 3, ry - 3);
+  for (let k = 8; k < Math.min(rx, ry) - 4; k += 9) p.ring(ring, cx, cy, rx - 3 - k, ry - 3 - Math.round(k * ry / rx), 1);
+  for (let a = 0; a < 6.28; a += 0.21) { const x = Math.round(cx + Math.cos(a) * (rx + 2)), y = Math.round(cy + Math.sin(a) * (ry + 2)); p.r('7', x, y, 1, 1); }
+}
+/** the cats' play corner: a soft mat with a woven border, a quiet diamond weave and stitched paw prints */
+function playMat(p: Painter, x: number, y: number, w: number, h: number) {
+  p.r('0', x, y, w, h); p.r('2', x + 1, y + 1, w - 2, h - 2); p.frame('3', x + 3, y + 3, w - 6, h - 6); p.frame('v', x + 5, y + 5, w - 10, h - 10);
+  for (let j = y + 8; j < y + h - 8; j++) for (let i = x + 8; i < x + w - 8; i++) { const u = (i - x) % 24, v = (j - y) % 24; if (Math.abs(u - 12) + Math.abs(v - 12) === 11) p.r('v', i, j, 1, 1); }
+  for (let j = y + 20; j < y + h - 12; j += 48) for (let i = x + 20; i < x + w - 12; i += 48) { p.r('3', i, j + 2, 4, 3); p.r('3', i - 1, j, 1, 1); p.r('3', i + 1, j - 1, 1, 1); p.r('3', i + 3, j - 1, 1, 1); p.r('3', i + 5, j, 1, 1); }
+  for (let i = x + 2; i < x + w - 2; i += 6) { p.r('7', i, y - 1, 2, 1); p.r('7', i, y + h, 2, 1); } // tassels
+}
+/** a plump floor cushion with a button and a seam */
+function cushion(p: Painter, cx: number, cy: number, k: string) {
+  const sh = k === 'u' ? '2' : 'a', hi = k === 'u' ? 't' : 'g';
+  p.shEll(cx, cy, 9, 8, 4);
+  p.obj(() => { p.ell('0', cx, cy, 10, 9); p.ell(sh, cx, cy, 9, 8); p.ell(k, cx - 1, cy - 1, 8, 7); p.ell(hi, cx - 3, cy - 3, 3, 2); p.r(sh, cx - 7, cy, 14, 1); p.disc('0', cx, cy, 1.5); });
+}
 const cafe: LayerDef = { speed: 1, opaque: true, paint(p, z) {
-  const r = z.r;
-  // floor: dark walnut planks, one quiet seam tone
-  p.r('v', 0, 0, SW, SEG);
-  for (let x = 70; x < SW; x += 14) { p.r('1', x, 0, 1, SEG); const off = ((x * 37) % 96); for (let y = -off; y < SEG; y += 96) p.r('1', x, y, 14, 1); }
-  for (let i = 0; i < 60; i++) { const x = 72 + r.int(0, 25) * 14 + r.int(3, 9), y = r.int(0, SEG - 8); p.r('b', x, y, 1, r.int(4, 10)); }
+  const r = z.r; const tod = p.tod; const WX = SW - 54; // window wall (inside the camera's pan range)
+  // floor: warm walnut planks (staggered butt joints, sparse grain), one step lighter than the counter shadow
+  p.r('b', 0, 0, SW, SEG);
+  for (let x = 70; x < SW; x += 14) { p.r('v', x, 0, 1, SEG); const off = ((x * 37) % 96); for (let y = -off; y < SEG; y += 96) { p.r('v', x, y, 14, 1); p.r('a', x + 1, y + 1, 13, 1); } }
+  for (let i = 0; i < 70; i++) { const x = 72 + r.int(0, 25) * 14 + r.int(3, 10), y = r.int(0, SEG - 8); p.r(r.chance(0.7) ? 'a' : 'v', x, y, 1, r.int(3, 9)); }
   // counter on the left
   p.shRect(0, 0, 70, SEG, 18);
   p.obj(() => {
@@ -865,18 +1082,46 @@ const cafe: LayerDef = { speed: 1, opaque: true, paint(p, z) {
     for (let y = 0; y < SEG; y += 32) p.r('b', 4, y, 60, 1);
   });
   const ey = r.int(10, 130);
-  p.obj(() => { p.r('0', 10, ey, 40, 32); p.r('p', 11, ey + 1, 38, 30); p.r('o', 11, ey + 1, 38, 2); p.r('q', 14, ey + 8, 32, 14); p.r('0', 18, ey + 22, 6, 6); p.r('0', 34, ey + 22, 6, 6); });
+  p.obj(() => { p.r('0', 10, ey, 40, 32); p.r('p', 11, ey + 1, 38, 30); p.r('o', 11, ey + 1, 38, 2); p.r('q', 14, ey + 8, 32, 14); p.r('0', 18, ey + 22, 6, 6); p.r('0', 34, ey + 22, 6, 6); cup(p, 21, ey + 36); cup(p, 37, ey + 36, true); });
   p.glow('q', 'r', 44, ey + 4, 2, 2); p.glow('q', 'i', 40, ey + 4, 2, 2);
   p.obj(() => { const cy = (ey + 120) % 220 + 10; p.r('0', 8, cy, 52, 26); p.r('2', 9, cy + 1, 50, 24); p.r('n', 9, cy + 1, 50, 2); for (let i = 0; i < 6; i++) { p.disc('0', 16 + i * 7, cy + 14, 3); p.disc(i % 2 ? '8' : 'c', 16 + i * 7, cy + 14, 2); } });
+  // tip jar + a sleepy counter cat-shaped cookie jar
+  p.obj(() => { const jy = (ey + 70) % 230 + 8; p.disc('0', 20, jy, 5); p.disc('5', 20, jy, 4); p.disc('f', 20, jy + 1, 2); p.r('6', 18, jy - 2, 1, 1); p.disc('0', 44, jy + 2, 7); p.disc('7', 44, jy + 2, 6); p.r('0', 39, jy - 5, 3, 3); p.r('0', 47, jy - 5, 3, 3); p.r('7', 40, jy - 4, 1, 2); p.r('7', 48, jy - 4, 1, 2); p.r('0', 41, jy + 1, 2, 1); p.r('0', 46, jy + 1, 2, 1); p.r('c', 43, jy + 3, 2, 1); });
   for (let y = 24; y < SEG; y += 52) { const sy = y; p.shEll(84, sy, 6, 6, 10); p.obj(() => { p.disc('0', 84, sy, 7); p.disc('a', 84, sy, 6); p.disc('9', 83, sy - 1, 4); p.disc('a', 84, sy, 2); }); }
-  // windows on the right wall; low sun throws long beams across the floor at dawn / day
-  p.obj(() => { p.r('0', SW - 30, 0, 30, SEG); p.r('a', SW - 28, 0, 28, SEG); for (let y = 8; y < SEG; y += 64) { p.r('0', SW - 26, y, 22, 48); p.glow('2', 'g', SW - 24, y + 2, 18, 44, 1); p.r('1', SW - 15, y + 2, 1, 44); } });
-  if (p.tod !== 'night') { if (p.tod === 'dusk') p.sunRamp = DUSK_SUN; for (let y = 8 + (z.s % 2) * 64; y < SEG; y += 128) { const len = p.tod === 'day' ? 90 : 160; p.beam(SW - 30 - len, y + 20, len, 22, p.tod === 'day' ? 0.4 : p.tod === 'dawn' ? 0.9 : -0.9); } }
-  for (let y = 40; y < SEG; y += 128) { const px = SW - 46, py = y; p.shEll(px, py, 9, 9, 12); p.obj(() => { p.disc('0', px, py, 10); p.disc('a', px, py, 9); p.disc('b', px + 1, py + 1, 7); for (let i = 0; i < 6; i++) { const a = (i / 6) * 6.28; p.ell('0', px + Math.cos(a) * 7, py + Math.sin(a) * 7, 5, 3); p.ell('k', px + Math.cos(a) * 7, py + Math.sin(a) * 7, 4, 2); } p.disc('j', px - 1, py - 1, 2); }); }
+  if (z.s % 2 === 1) chalkboard(p, 96, r.int(40, 190));
+  else { // burlap coffee sacks by the counter, with a few spilled beans
+    const sy = r.int(30, 180); p.shRect(74, sy, 22, 34, 8);
+    p.obj(() => { for (const [dx, dy] of [[0, 0], [2, 17]]) { const x = 74 + dx, y = sy + dy; p.r('0', x, y, 20, 16); p.r('9', x + 1, y + 1, 18, 14); p.r('8', x + 1, y + 1, 18, 2); p.r('a', x + 1, y + 13, 18, 2); p.r('b', x + 6, y + 5, 8, 1); p.r('b', x + 6, y + 8, 8, 1); p.r('h', x + 8, y + 6, 4, 2); } });
+    for (let i = 0; i < 6; i++) { const bx = 100 + r.int(0, 14), by = sy + 30 + r.int(0, 10); p.r('0', bx, by, 2, 2); p.r('b', bx, by, 1, 1); }
+  }
+  // windows on the right wall show the sky outside (emissive, so LOCAL TIME reads at a glance); a cushioned perch under each
+  const [pane, refl, acc] = CAFE_SKY[tod];
+  p.obj(() => { p.r('0', WX, 0, SW - WX, SEG); p.r('a', WX + 2, 0, SW - WX - 2, SEG); p.r('9', WX + 2, 0, 1, SEG); p.r('b', WX + 30, 0, 1, SEG); });
+  for (let y = 8; y < SEG; y += 64) {
+    const wy = y;
+    p.obj(() => { p.r('0', WX + 4, wy, 22, 48); });
+    p.obj(() => {
+      emit(p, pane, WX + 6, wy + 2, 18, 44);
+      emit(p, refl, WX + 8, wy + 4, 1, 10); emit(p, refl, WX + 10, wy + 4, 1, 5);
+      if (tod === 'night') for (let i = 0; i < 3; i++) emit(p, acc, WX + 7 + ((wy * 7 + i * 5) % 16), wy + 6 + ((wy * 3 + i * 13) % 34), 1, 1);
+      else emit(p, acc, WX + 12, wy + 30, 8, 2);
+      p.lateBars.push([WX + 15, wy + 2, 1, 44], [WX + 6, wy + 23, 18, 1]);
+      // perch: a little shelf with a cushion
+      p.r('0', WX - 14, wy + 14, 12, 22); p.r('a', WX - 13, wy + 15, 10, 20); p.r('e', WX - 12, wy + 17, 8, 16); p.r('d', WX - 12, wy + 17, 8, 2);
+    });
+  }
+  // light through the windows: two panes per window (split by the transom) thrown across the planks; long and low at dawn / dusk
+  if (tod !== 'night') {
+    if (CAFE_SUN[tod]) p.sunRamp = CAFE_SUN[tod]!;
+    const len = tod === 'day' ? 70 : 150, skew = tod === 'day' ? 0.35 : tod === 'dawn' ? 0.9 : -0.9;
+    for (let y = 8; y < SEG; y += 64) { p.beam(WX - 14 - len, y + 2, len, 20, skew); p.beam(WX - 14 - len, y + 24, len, 20, skew); }
+  }
+  for (let y = 40; y < SEG; y += 128) { const px = WX - 26, py = y; p.shEll(px, py, 9, 9, 12); p.obj(() => { p.disc('0', px, py, 10); p.disc('a', px, py, 9); p.disc('b', px + 1, py + 1, 7); for (let i = 0; i < 6; i++) { const a = (i / 6) * 6.28; p.ell('0', px + Math.cos(a) * 7, py + Math.sin(a) * 7, 5, 3); p.ell('k', px + Math.cos(a) * 7, py + Math.sin(a) * 7, 4, 2); } p.disc('j', px - 1, py - 1, 2); }); }
   const k = (z.s + r.int(0, 2)) % 3;
-  if (k === 0) { p.ell('0', 230, 128, 92, 62); p.ell('v', 230, 128, 90, 60); p.ring('b', 230, 128, 84, 54, 1); p.ring('b', 230, 128, 78, 48, 1); cafeTable(p, 190, 110, r); cafeTable(p, 272, 150, r); catBed(p, 250, 80, 'e'); catBed(p, 150, 200); }
-  else if (k === 1) { for (const [tx, ty] of [[140, 50], [250, 60], [340, 150], [160, 160]]) cafeTable(p, tx + r.int(-8, 8), ty + r.int(-8, 8), r); catBed(p, 270, 210); p.pool(250, 60, 40); p.pool(160, 160, 40); }
-  else { p.r('0', 120, 40, 200, 180); p.r('v', 121, 41, 198, 178); p.frame('b', 124, 44, 192, 172); catTree(p, 180, 100); catBed(p, 270, 90, 'e'); catBed(p, 250, 180); }
+  if (k === 0) { rug(p, 230, 128, 92, 62); cafeTable(p, 190, 110, r); cafeTable(p, 272, 150, r); catBed(p, 250, 80, 'e'); catBed(p, 150, 200); }
+  else if (k === 1) { rug(p, 214, 196, 60, 34, ['v', 'e', '1']); for (const [tx, ty] of [[140, 50], [250, 60], [340, 150], [160, 160]]) cafeTable(p, tx + r.int(-8, 8), ty + r.int(-8, 8), r); catBed(p, 270, 210); p.pool(250, 60, 40); p.pool(160, 160, 40); }
+  else { playMat(p, 120, 40, 200, 180); catTree(p, 180, 100); catBed(p, 270, 90, 'e'); catBed(p, 250, 180); cushion(p, 150, 190, 'u'); cushion(p, 290, 140, 'h'); }
+  for (let i = 0; i < 2; i++) floorToy(p, r.int(110, 360), r.int(10, SEG - 10), r);
   p.pool(200, r.int(60, 200), 38);
 } };
 /** close-to-camera pendant lamps and a ceiling fan sweeping past (fg) */
@@ -924,6 +1169,10 @@ function buoy(p: Painter, x: number, y: number) {
 /** slow water far below the piers: two-tone ripple lattice + sparse glints (parallax: moves slower than the planks) */
 const water: LayerDef = { speed: 0.72, opaque: true, paint(p, z) {
   p.r('n', 0, 0, SW, SEG);
+  const r = z.r;
+  // deeper shapes under the surface: swaying kelp beds and the odd school of small fish (one tone darker, calm)
+  for (let i = 0; i < 2; i++) { const kx = r.chance(0.5) ? r.int(110, 170) : r.int(300, 400), ky = r.int(10, SEG - 60); for (let k = 0; k < 5; k++) { const sx = kx + k * 6 + r.int(-2, 2), len = r.int(24, 50); for (let j = 0; j < len; j++) p.r('1', sx + Math.round(Math.sin((j + k * 7) / 6) * 2), ky + j, 2, 1); } }
+  if (r.chance(0.6)) { const fx = r.int(140, 380), fy = r.int(20, SEG - 30); for (let k = 0; k < 6; k++) { const x = fx + (k % 3) * 9 + (k > 2 ? 4 : 0), y = fy + (k > 2 ? 7 : 0) + (k % 2) * 3; p.r('1', x, y, 4, 2); p.r('1', x + 4, y - 1, 1, 1); p.r('1', x + 4, y + 2, 1, 1); } }
   // half-density ripple marks, all one quiet tone; a few glints are animated in the tileset anim instead
   for (let y = 0; y < SEG; y += 12) {
     const w = z.wy(y); const off = Math.round(Math.sin(w / 37) * 10 + Math.sin(w / 13) * 3);
@@ -946,15 +1195,59 @@ const docks: LayerDef = { speed: 1, paint(p, z) {
   for (let x = bw + 8; x < bw + len; x += 40) { piling(p, x, fy - 2); piling(p, x, fy + 34); }
   fishCrate(p, bw + r.int(30, 60), fy + 8, r); fishCrate(p, bw + r.int(100, 140), fy + 8, r);
   if (r.chance(0.6)) { const cx = bw + r.int(160, len - 30); p.obj(() => { p.ring('0', cx, fy + 16, 9, 9, 1); p.ring('9', cx, fy + 16, 8, 8, 2); p.ring('a', cx, fy + 16, 5, 5, 1); p.ring('9', cx, fy + 16, 3, 3, 1); }); }
-  lamp(p, bw + len - 10, fy + 16, 46, [bw, fy, len, 32]);
+  lamp(p, bw + len - 18, fy + 14, 26); // a small pool that stays on the planks
   boat(p, bw + r.int(16, 60), fy + 46, 30, r.int(84, 110), r.pick(['p', 'a', 'q', 'n', 'b']), r, r.chance(0.5));
   if (r.chance(0.8)) boat(p, bw + r.int(150, 200), fy + 70, 26, r.int(60, 80), r.pick(['p', 'a', 'o']), r, true, true); // under way, with wake
   else if (r.chance(0.8)) boat(p, bw + r.int(120, 180), fy + 42, 34, r.int(90, 130), r.pick(['p', 'a', 'o']), r, false);
-  if (fy > 54 && len < 270) boat(p, bw + len + 12, 4, 22, 46, r.pick(['a', 'q', 'n']), r, true);
+  if (fy > 54 && len < 250) boat(p, bw + len + 12, 4, 22, 46, r.pick(['a', 'q', 'n']), r, true);
   for (let y = 20; y < SEG - 30; y += r.int(50, 80)) { const k = r.int(0, 2); if (k === 0) { fishCrate(p, 14, y, r); fishCrate(p, 16, y + 18, r); } else if (k === 1) { p.shEll(40, y + 10, 14, 10, 4); p.obj(() => { p.ell('0', 40, y + 10, 15, 11); p.ell('k', 40, y + 10, 14, 10); p.checker('1', 28, y + 2, 26, 18); }); } else { crate(p, 20, y, 24, 24); } }
-  for (let i = 0; i < 2; i++) buoy(p, r.int(bw + 40, SW - 14), r.int(fy + 50, SEG - 8));
-  const ly = r.int(40, 200); p.pool(50, ly, 40, [0, 0, bw, SEG]);
+  for (let i = 0; i < 2; i++) buoy(p, r.int(bw + 40, SW - 50), r.int(fy + 50, SEG - 8));
+  // tyre fenders hung along the finger pier
+  p.obj(() => { for (let x = bw + 24; x < bw + len - 8; x += 40) for (const yy of [fy - 3, fy + 31]) { p.r('0', x - 3, yy, 7, 5); p.r('q', x - 2, yy + 1, 5, 3); p.r('0', x - 1, yy + 2, 3, 1); } });
+  // a pair of ducks paddling
+  if (r.chance(0.5)) { const dx = r.int(340, 372), dy = r.int(fy + 50, SEG - 16); p.obj(() => { for (const [ox, oy] of [[0, 0], [12, 6]]) { const x = dx + ox, y = dy + oy; p.r('5', x - 4, y + 4, 10, 1); p.r('0', x - 1, y - 1, 8, 5); p.r('7', x, y, 6, 3); p.r('o', x + 1, y + 2, 4, 1); p.r('0', x + 5, y - 2, 3, 3); p.r('k', x + 5, y - 1, 2, 1); p.r('g', x + 8, y - 1, 1, 1); } }); }
+  // boardwalk life: a fishing bucket with a rod propped on the rail, a coil of rope, a bench
+  const by = r.int(10, 200);
+  p.obj(() => { p.disc('0', 80, by, 6); p.disc('n', 80, by, 5); p.disc('2', 80, by, 3); p.r('o', 79, by - 1, 3, 1); p.line('b', 84, by - 2, bw + 18, by - 20); p.line('o', bw + 18, by - 20, bw + 22, by - 8); p.r('r', bw + 21, by - 8, 2, 2); });
+  p.obj(() => { const cx = 30, cy = (by + 90) % 230 + 12; p.ring('0', cx, cy, 8, 7, 1); p.ring('9', cx, cy, 7, 6, 2); p.ring('a', cx, cy, 4, 3, 1); p.r('9', cx + 6, cy + 4, 8, 2); });
+  if (z.s % 2 === 0) bench(p, 60, (by + 160) % 220 + 10, true);
+  // the stone seawall along the right edge with mooring cleats and a stack of crates
+  const sx = SW - 44; p.shRect(sx, 0, 4, SEG, 10);
+  p.obj(() => { p.r('0', sx, 0, 44, SEG); for (let y = 0; y < SEG; y += 12) for (let x = sx + 1 + ((y / 12) % 2) * 8; x < SW; x += 16) { p.r('q', x, y + 1, 15, 11); p.r('p', x, y + 1, 15, 1); } p.r('p', sx + 1, 0, 2, SEG); p.r('o', sx + 1, 0, 1, SEG); });
+  every(z, 96, 30, y => { if (y > -6 && y < SEG + 6) { bollard(p, sx + 8, y); piling(p, sx - 4, y + 20); } });
+  crate(p, sx + 14, r.int(20, 120), 22, 22, 'a'); crate(p, sx + 16, r.int(150, 220), 20, 20, '9');
+  const ly = r.int(40, 200); lamp(p, 76, ly, 40, [0, 0, bw, SEG]); // boardwalk lamp post (its pool fits on the planks)
+  // harbour life on the open water (kept to the right half and low, the formation lane stays calm)
+  if (z.s % 3 === 2) rowboat(p, r.int(344, 362), r.int(fy + 60, SEG - 50));
+  else if (r.chance(0.6)) otter(p, r.int(350, 372), r.int(fy + 60, SEG - 20));
+  for (let i = 0; i < 2; i++) if (r.chance(0.6)) lobsterFloat(p, r.int(bw + 60, SW - 90), r.int(fy + 50, SEG - 10), r);
 } };
+/** a sea otter floating on its back, paws on its tummy holding a clam, with a ring of ripples */
+function otter(p: Painter, x: number, y: number) {
+  p.ring('5', x, y, 14, 7, 1); p.ring('4', x, y, 18, 9, 1);
+  p.obj(() => {
+    p.ell('0', x, y, 11, 5); p.ell('a', x, y, 10, 4); p.ell('9', x - 1, y - 1, 7, 2); // body
+    p.disc('0', x - 11, y, 4); p.disc('8', x - 11, y, 3); p.r('0', x - 12, y - 1, 1, 1); p.r('0', x - 12, y + 1, 1, 1); p.r('b', x - 14, y, 1, 1); // pale face
+    p.r('0', x - 3, y - 2, 5, 3); p.r('o', x - 2, y - 1, 3, 1); // clam
+    p.r('b', x + 9, y - 3, 3, 2); p.r('b', x + 9, y + 2, 3, 2); p.r('b', x + 11, y, 4, 1); // feet + tail
+  });
+}
+/** a pair of lobster-pot floats joined by a dotted rope */
+function lobsterFloat(p: Painter, x: number, y: number, r: Rng) {
+  const k = r.pick(['r', 'f', '7']); const x2 = x + r.int(12, 22), y2 = y + r.int(-6, 6);
+  for (let t = 0.15; t < 0.9; t += 0.12) p.r('9', Math.round(x + (x2 - x) * t), Math.round(y + (y2 - y) * t + 1), 1, 1);
+  for (const [fx, fy] of [[x, y], [x2, y2]]) { p.r('5', fx - 3, fy + 3, 7, 1); p.disc('0', fx, fy, 3); p.disc(k, fx, fy, 2); p.r('6', fx - 1, fy - 1, 1, 1); }
+}
+/** a little moored rowboat with its oars shipped */
+function rowboat(p: Painter, x: number, y: number) {
+  p.shRect(x + 2, y + 4, 12, 26, 4);
+  p.r('5', x - 2, y + 34, 20, 1); p.r('4', x + 1, y + 36, 14, 1);
+  p.obj(() => {
+    p.ell('0', x + 8, y + 17, 9, 18); p.ell('h', x + 8, y + 17, 8, 17); p.ell('a', x + 8, y + 18, 6, 14); p.ell('9', x + 8, y + 18, 5, 13);
+    p.r('b', x + 3, y + 12, 10, 2); p.r('b', x + 3, y + 22, 10, 2);
+    p.r('0', x - 4, y + 15, 24, 2); p.r('8', x - 3, y + 15, 22, 1); p.r('8', x - 6, y + 14, 3, 4); p.r('8', x + 19, y + 14, 3, 4);
+  });
+}
 /** gulls overhead: the bird plus its soft shadow far below on the water */
 const gullsFg: LayerDef = { speed: 1.7, paint(p, z) {
   const r = z.r;
@@ -1097,25 +1390,31 @@ function cloudBank(p: Painter, cx: number, cy: number, r: number, rng: Rng, keys
   lobe(keys[2], -1, -1, 9, false); // body shows through so lobes read separately
 }
 /**
- * Stratosphere backdrop (screen-fixed): banded altitude light with dithered
- * seams, darkest at the top behind the formation, warmest low on the horizon.
- * Bands are [colour, until-y]; each seam is a 16px ordered-dither blend.
+ * Stratosphere backdrop (screen-fixed): banded altitude light, darkest at the top
+ * behind the formation, warmest low on the horizon. Bands are [colour, until-y]. Every
+ * seam sits below the formation's lane (y > 200) and is a 24-row ordered-dither gradient
+ * (one Bayer level per 1.5 rows), so there is no hard edge and no scanline stripe.
+ * Day is one calm blue with thin haze streaks.
  */
 const SKY_BANDS: Record<Tod, [string, number][]> = {
-  day: [['2', 100], ['n', 360]],
-  dawn: [['2', 140], ['3', 296], ['4', 344], ['c', 360]],
-  dusk: [['v', 110], ['2', 200], ['e', 300], ['b', 360]],
-  night: [['0', 120], ['1', 250], ['v', 360]],
+  day: [['n', 360]],
+  dawn: [['2', 214], ['3', 290], ['4', 336], ['c', 360]],
+  dusk: [['v', 212], ['2', 258], ['e', 316], ['b', 360]],
+  night: [['0', 220], ['1', 300], ['v', 360]],
 };
+const SEAM_H = 24;
 function skyBackdrop(p: Painter, tod: Tod) {
   const bands = SKY_BANDS[tod]; const H = p.h;
   let y0 = 0;
   for (const [k, y1] of bands) { p.r(k, 0, y0, SW, y1 - y0); y0 = y1; }
   bands.forEach(([k, y1], i) => {
-    const next = bands[i + 1]; if (next) for (let j = 0; j < 24; j++) { p.r(k, 0, y1 - 12 + j, SW, 1); p.dith(next[0], 0, y1 - 12 + j, SW, 1, Math.round(((j + 1) / 25) * 16)); }
+    const next = bands[i + 1]; if (!next) return;
+    // each row of the seam: this colour, with the next one ordered-dithered in at a rising level
+    for (let j = 0; j < SEAM_H; j++) { const yy = y1 - SEAM_H / 2 + j; p.r(k, 0, yy, SW, 1); p.dith(next[0], 0, yy, SW, 1, Math.round(((j + 0.5) / SEAM_H) * 16)); }
   });
-  // day: pale haze streaks low down; night: a sprinkle of stars up high
   const r = new Rng(77);
+  // day: long thin haze streaks low down; night: a sprinkle of stars up high
+  if (tod === 'day') for (let i = 0; i < 9; i++) { const y = r.int(150, H - 10), x = r.int(-40, SW - 40), w = r.int(40, 120); p.r('3', x, y, w, 1); p.r('3', x + 10, y + 1, w - 24, 1); }
   if (tod === 'night') for (let i = 0; i < 70; i++) p.r(r.pick(['2', '3', '2', '4']), r.int(0, SW - 1), r.int(0, H * 0.7), 1, 1);
   if (tod === 'dusk') { const sx = 300, sy = H - 26; p.disc('h', sx, sy, 13); p.ell('a', sx + 2, sy + 4, 10, 6); p.r('9', sx - 6, sy - 11, 8, 1); p.r('v', sx - 20, sy - 2, 40, 2); p.r('v', sx - 14, sy + 5, 30, 1); }
 }
@@ -1204,36 +1503,145 @@ function scoopMarks(p: Painter, x: number, y: number, w: number, rng: Rng) {
   // the scooped spoil heap at the end of the stroke
   const hx = x + Math.round(w / 2 + len * 0.6), hy = y + len + 4; p.ell('q', hx, hy + 1, w * 0.6, 4); p.ell('o', hx, hy - 1, w * 0.55, 3); p.ell('p', hx, hy, w * 0.5, 3);
 }
-/** litter-moon regolith: flat dusty grey with large calm drifts of a second tone (hard-edged, no dither) */
+/** litter-moon regolith: dusty grey with darker mare patches, small wind-ripple dunes (lit crest over a shadow line) and sparse granules, all hard-edged */
 function regolith(p: Painter, z: Seg) {
   p.r('p', 0, 0, SW, SEG);
-  const ph = (z.seed % 100) / 17;
-  for (let y = 0; y < SEG; y++) {
-    const w = z.wy(y);
-    // two broad drifts per row, edges wobble slowly so the shapes stay large and calm
-    for (const [c, a] of [[110 + Math.sin(w / 83 + ph) * 50, 6 + Math.sin(w / 37) * 24 + Math.sin(w / 13) * 3], [330 + Math.sin(w / 61 + ph * 2) * 40, 2 + Math.sin(w / 41 + 1) * 22 + Math.sin(w / 11) * 3]] as [number, number][]) {
-      if (a > 4) p.r('q', Math.round(c - a), y, Math.round(a * 2), 1);
-    }
-  }
   const r = z.r;
-  for (let i = 0; i < 14; i++) { const x = r.int(4, SW - 6), y = r.int(2, SEG - 4); const s = r.int(2, 3); p.r('q', x, y + 1, s, s); p.r('o', x, y, s, s - 1); } // sparse 2-4px granules
+  // one small mare patch toward a side (a lumpy union of ellipses, kept inside the segment so no seam cuts it)
+  { const cx = r.chance(0.5) ? r.int(70, 130) : r.int(320, 370), cy = r.int(40, SEG - 40);
+    for (let k = 0; k < 4; k++) { const x = cx + r.int(-18, 18), y = cy + r.int(-8, 8); p.ell('q', x, y, r.int(10, 16), r.int(6, 9)); }
+    for (let k = 0; k < 3; k++) p.r('p', cx + r.int(-16, 16), cy + r.int(-8, 8), r.int(2, 4), 1); }
+  // a few low, broad mounds of the darker tone (small and rounded, never long slabs)
+  for (let i = 0; i < 3; i++) { const x = r.int(40, SW - 40), y = r.int(20, SEG - 20), rx = r.int(14, 24), ry = r.int(5, 8); p.ell('q', x + 2, y + 2, rx, ry); p.ell('p', x, y, rx - 2, ry - 2); p.r('o', x - rx + 6, y - ry + 2, rx, 1); }
+  // ripple fields: short curved crest lines in packs of 2-3
+  for (let i = 0; i < 5; i++) {
+    const x0 = r.int(50, SW - 90), y0 = r.int(4, SEG - 20), n = r.int(2, 3), len0 = r.int(20, 36);
+    for (let k = 0; k < n; k++) { const len = len0 - k * r.int(4, 9), xs = x0 + k * r.int(2, 6); for (let j = 0; j < len; j++) { const x = xs + j, y = y0 + k * 6 + Math.round(Math.sin(j / len * Math.PI) * -3); p.r('q', x, y + 1, 1, 1); if (j > 1 && j < len - 2) p.r('o', x, y, 1, 1); } }
+  }
+  for (let i = 0; i < 18; i++) { const x = r.int(4, SW - 6), y = r.int(2, SEG - 4); const s = r.int(1, 3); p.r('q', x, y + 1, s + 1, s); p.r('o', x, y, s, Math.max(1, s - 1)); } // sparse granules
+}
+/** a moon boulder: lumpy rock lit top-left, with a cast shadow */
+function boulder(p: Painter, x: number, y: number, rr: number) {
+  p.shEll(x, y, rr, rr * 0.8, Math.round(rr * 1.2));
+  p.obj(() => { p.ell('0', x, y, rr + 1, rr * 0.8 + 1); p.ell('q', x, y, rr, rr * 0.8); p.ell('p', x - 1, y - 1, rr - 1, rr * 0.8 - 1); p.ell('o', x - rr * 0.35, y - rr * 0.35, rr * 0.4, rr * 0.3); p.r('q', x + 1, y + 1, 2, 1); });
+}
+/** small crater with bright ejecta rays (a fresh one: the rays are thin 1px dashes) */
+function rayCrater(p: Painter, cx: number, cy: number, rr: number, rng: Rng) {
+  for (let i = 0; i < 9; i++) { const a = rng.range(0, 6.28), l0 = rr + 3, l1 = rr + rng.int(8, 18); for (let t = l0; t < l1; t += 2) p.r('o', cx + Math.cos(a) * t, cy + Math.sin(a) * t * 0.8, 1, 1); }
+  crater(p, cx, cy, rr, rng, false);
+}
+/** a trail of paw prints pressed into the litter (four toe beans + a pad, in shadow) */
+function pawTrail(p: Painter, x: number, y0: number, y1: number, drift: number) {
+  for (let y = y0, i = 0; y < y1; y += 13, i++) {
+    const x1 = Math.round(x + (y - y0) * drift) + (i % 2 ? 6 : -6);
+    p.r('q', x1 - 1, y + 2, 4, 3); p.r('q', x1 - 2, y, 1, 1); p.r('q', x1, y - 1, 1, 1); p.r('q', x1 + 2, y - 1, 1, 1); p.r('q', x1 + 3, y, 1, 1); p.r('o', x1 - 1, y + 5, 4, 1);
+  }
+}
+/** a half-buried toy: a jingle ball or a mouse tail poking out of the litter */
+function buriedToy(p: Painter, x: number, y: number, kind: number) {
+  p.shEll(x, y, 4, 3, 4);
+  p.obj(() => {
+    if (kind === 0) { p.ell('q', x, y + 2, 6, 2); p.disc('0', x, y, 4); p.disc('d', x, y, 3); p.r('c', x - 2, y - 2, 2, 1); p.r('e', x - 3, y, 6, 1); p.r('0', x, y + 1, 1, 1); }
+    else { p.ell('q', x, y + 1, 6, 2); p.ell('0', x, y, 5, 3); p.ell('o', x, y - 1, 4, 2); p.r('c', x + 3, y - 3, 2, 1); p.r('0', x + 4, y - 1, 1, 1); p.r('c', x - 5, y, 1, 1); p.r('c', x - 7, y + 1, 2, 1); p.r('c', x - 9, y, 2, 1); }
+  });
+}
+/** the Robo-Scoop rover: a round litter-robot with treads, a sensor dome and a little scoop arm (lights on after dark) */
+function rover(p: Painter, x: number, y: number) {
+  p.shEll(x, y, 12, 10, 8);
+  for (let j = 14; j < 70; j += 6) { p.r('q', x - 13, y + j, 5, 2); p.r('q', x + 9, y + j, 5, 2); } // tread marks behind it
+  p.obj(() => {
+    p.r('0', x - 14, y - 9, 6, 20); p.r('0', x + 8, y - 9, 6, 20); for (let j = -8; j < 10; j += 3) { p.r('q', x - 13, y + j, 4, 2); p.r('q', x + 9, y + j, 4, 2); }
+    p.disc('0', x, y, 11); p.disc('7', x, y, 10); p.disc('o', x + 1, y + 1, 8); p.disc('7', x - 1, y - 1, 6); p.disc('0', x, y, 4); p.disc('m', x, y, 3); p.r('s', x - 1, y - 2, 1, 1);
+    p.r('0', x - 4, y - 14, 9, 5); p.r('p', x - 3, y - 13, 7, 3); for (let i = -2; i < 4; i += 2) p.r('q', x + i, y - 13, 1, 3);
+    p.glow('q', 'l', x - 7, y - 6, 2, 2, 1.4, 0); p.glow('q', 'r', x + 6, y - 6, 2, 2, 1.4, 0);
+  });
+}
+/** x of the left crater ridge's inner foot at row y (world-spaced so it runs on across segments) */
+const ridgeX = (z: Seg, y: number) => { const w = z.wy(y); return 34 + Math.round(Math.sin(w / 83) * 6 + Math.sin(w / 29) * 2); };
+/** x where the moon's surface ends on the right (the limb), row y */
+const limbX = (z: Seg, y: number) => { const w = z.wy(y); return 410 + Math.round(Math.sin(w / 97) * 5 + Math.sin(w / 23) * 2); };
+/**
+ * Left edge: the rim of the Great Litter-Box Crater. Seen from above: the outer slope in the
+ * sun, a bright crest, the steep inner slope in shadow, boulders and litter clumps on top.
+ */
+function craterRidge(p: Painter, z: Seg) {
+  p.shRect(0, 0, 30, SEG, 10);
+  p.obj(() => {
+    for (let y = 0; y < SEG; y++) { const x = ridgeX(z, y); p.r('o', 0, y, x - 14, 1); p.r('o', x - 16, y, 4, 1); p.r('7', x - 15, y, 1, 1); p.r('q', x - 12, y, 9, 1); p.r('v', x - 3, y, 3, 1); }
+    // terraces on the outer slope: short lit / shaded ledges
+    every(z, 40, 7, y => { if (y < -4 || y > SEG + 4) return; const x = ridgeX(z, y) - 22; p.r('p', x - 10, y, 12, 1); p.r('q', x - 10, y + 1, 10, 1); });
+    // landslide scars on the inner slope
+    every(z, 70, 30, y => { if (y < -12 || y > SEG + 12) return; const x = ridgeX(z, y); for (let j = 0; j < 8; j++) p.r('p', x - 10 + (j >> 1), y + j, 2, 1); });
+  });
+  every(z, 110, 50, (y, k) => { if (y < 8 || y > SEG - 8) return; const x = ridgeX(z, y); boulder(p, x - 18, y, 3 + (k % 3)); clump(p, x + 6, y + 14, 3, new Rng(k * 7 + 1)); });
+}
+/**
+ * Right edge: the litter moon is tiny, so its limb is in view. The surface ends in a jagged
+ * horizon, then black space, a few stars, and now and then the Earth rising (Maya is down there).
+ */
+function moonLimb(p: Painter, z: Seg) {
+  const r = z.r;
+  p.obj(() => {
+    for (let y = 0; y < SEG; y++) { const x = limbX(z, y); p.r('0', x, y, SW - x, 1); p.r('o', x - 1, y, 1, 1); p.r('q', x - 4, y, 3, 1); }
+    // horizon peaks: low bumps on the limb, lit on their sunward side
+    every(z, 36, 11, y => { if (y < -6 || y > SEG + 6) return; const x = limbX(z, y); for (let j = -5; j <= 5; j++) { const h = 4 - Math.abs(j) * 0.7; if (h > 0) { p.r('q', x, y + j, Math.ceil(h), 1); p.r('o', x + Math.ceil(h), y + j, 1, 1); } } });
+    for (let i = 0; i < 16; i++) { const y = r.int(0, SEG - 1), x = r.int(limbX(z, y) + 4, SW - 1); p.r(r.pick(['4', '5', '5', '6']), x, y, 1, 1); }
+    // the Earth, rising beyond the limb (clipped by the horizon row by row)
+    every(z, 900, 300, y => {
+      if (y < -40 || y > SEG + 40) return;
+      const ex = 438, R = 24;
+      const disc = (k: string, cx: number, cy: number, rr: number, ry = rr) => spans(cx, cy, rr, ry, (sx, sy, w) => { const x0 = Math.max(sx, limbX(z, sy) + 1); if (sx + w > x0) p.r(k, x0, sy, sx + w - x0, 1); });
+      disc('0', ex, y, R + 1); disc('n', ex, y, R); disc('m', ex - 4, y - 4, R - 7);
+      disc('j', ex - 9, y - 6, 7, 5); disc('k', ex - 7, y - 4, 4, 3); disc('j', ex + 4, y + 8, 6, 4); disc('8', ex - 2, y + 9, 3, 2);
+      disc('6', ex - 12, y + 4, 5, 1); disc('6', ex + 2, y - 12, 7, 1); disc('5', ex - 4, y + 15, 6, 1);
+      disc('2', ex + 14, y + 6, 9, 11); // night side
+    });
+  });
+}
+/** Pom's lunar lander: gold-foil descent stage, four splayed legs on round pads, a grey ascent cabin with a lit porthole and a ladder */
+function lander(p: Painter, x: number, y: number) {
+  p.shRect(x - 13, y - 13, 26, 26, 22);
+  for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) p.shEll(x + dx * 21, y + dy * 21, 4, 3, 2);
+  p.obj(() => {
+    for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      for (let t = 10; t < 21; t++) { p.r('0', x + dx * t - 1, y + dy * t - 1, 3, 3); }
+      for (let t = 10; t < 21; t++) p.r('o', x + dx * t, y + dy * t, 1, 1);
+      p.disc('0', x + dx * 21, y + dy * 21, 4); p.disc('p', x + dx * 21, y + dy * 21, 3); p.r('o', x + dx * 21 - 2, y + dy * 21 - 2, 2, 1);
+    }
+    p.r('0', x - 14, y - 14, 28, 28); p.r('g', x - 13, y - 13, 26, 26); p.r('f', x - 13, y - 13, 26, 2); p.r('f', x - 13, y - 13, 2, 26); p.r('h', x - 13, y + 11, 26, 2); p.r('h', x + 11, y - 13, 2, 26);
+    for (let i = -9; i < 11; i += 5) { p.r('h', x + i, y - 11, 1, 22); }
+    p.disc('0', x, y - 1, 10); p.disc('p', x, y - 1, 9); p.disc('o', x - 2, y - 3, 6); p.disc('p', x + 1, y, 4);
+    p.disc('0', x - 2, y - 3, 3); p.glow('m', 'f', x - 3, y - 4, 2, 2, 1.4, 0);
+    p.r('0', x - 1, y + 13, 3, 8); for (let j = y + 14; j < y + 21; j += 2) p.r('o', x - 1, j, 3, 1); // ladder down to the surface
+    // a POM-1 decal: a cream bone on the foil
+    p.r('7', x + 4, y + 6, 6, 2); p.r('7', x + 3, y + 5, 2, 1); p.r('7', x + 3, y + 8, 2, 1); p.r('7', x + 9, y + 5, 2, 1); p.r('7', x + 9, y + 8, 2, 1);
+  });
+}
+/** Pom's flag: a cream pennant with a brown paw print, on a thin pole, with a little shadow */
+function pomFlag(p: Painter, fx: number, fy: number) {
+  p.shRect(fx, fy, 2, 2, 24);
+  p.obj(() => { p.r('0', fx - 1, fy - 1, 3, 3); p.r('o', fx, fy, 1, 1); p.r('0', fx + 1, fy - 1, 16, 11); p.r('7', fx + 2, fy, 14, 9); p.r('8', fx + 2, fy + 7, 14, 2); p.r('a', fx + 7, fy + 3, 5, 4); p.r('a', fx + 6, fy + 1, 1, 1); p.r('a', fx + 8, fy, 1, 1); p.r('a', fx + 10, fy, 1, 1); p.r('a', fx + 12, fy + 1, 1, 1); });
 }
 const moon: LayerDef = { speed: 1, opaque: true, paint(p, z) {
   const r = z.r;
   regolith(p, z);
-  for (let i = 0; i < 3; i++) crater(p, r.int(60, SW - 60), r.int(10, SEG - 10), r.int(5, 9), r, false);
-  crater(p, r.int(70, SW - 70), r.int(30, SEG - 30), r.int(14, 20), r, true);
-  if (r.chance(0.6)) crater(p, r.int(80, SW - 80), r.int(50, SEG - 50), r.int(26, 36), r, true);
+  for (let i = 0; i < 3; i++) crater(p, r.int(60, SW - 60), r.int(10, SEG - 10), r.int(4, 8), r, false);
+  if (r.chance(0.7)) rayCrater(p, r.chance(0.5) ? r.int(70, 120) : r.int(320, 370), r.int(30, SEG - 30), r.int(5, 8), r);
+  const kind = z.s % 4; // 0 litter crater, 1 lander, 2 rover, 3 flag + boulders
+  crater(p, r.int(150, SW - 150), r.int(30, SEG - 30), r.int(12, 18), r, true);
+  if (kind === 0) crater(p, r.chance(0.5) ? r.int(84, 120) : r.int(320, 356), r.int(50, SEG - 50), r.int(26, 32), r, true);
   if (z.s % 2 === 0) scoopMarks(p, r.int(90, 300), r.int(10, 120), r.int(26, 40), r);
   for (let i = 0; i < 3; i++) clump(p, r.int(60, SW - 60), r.int(10, SEG - 10), r.int(3, 5), r);
-  for (let y = 0; y < SEG; y += 18) { const x = 300 + Math.round(Math.sin(z.wy(y) / 90) * 60) + ((y / 18) % 2 ? 6 : -6); p.r('q', x, y, 4, 3); p.r('q', x - 1, y - 3, 1, 1); p.r('q', x + 1, y - 4, 2, 1); p.r('q', x + 4, y - 3, 1, 1); }
-  // the giant litter-box wall along both edges: thick plastic rim with a lit top and a shadow on the litter
-  for (const [x0, dir] of [[0, 1], [SW - 44, -1]] as [number, number][]) {
-    p.shRect(x0, 0, 44, SEG, 16);
-    p.obj(() => { p.r('0', x0, 0, 44, SEG); p.r('2', x0 + 1, 0, 42, SEG); p.r('3', dir > 0 ? x0 + 26 : x0 + 12, 0, 6, SEG); p.r('4', dir > 0 ? x0 + 27 : x0 + 13, 0, 2, SEG); p.r('1', dir > 0 ? x0 + 39 : x0 + 1, 0, 4, SEG); p.r('1', dir > 0 ? x0 + 2 : x0 + 38, 0, 4, SEG); for (let y = 10; y < SEG; y += 64) p.r('1', x0 + 2, y, 40, 1); });
-  }
-  // a planted flag (Pom's), now and then
-  if (z.s % 4 === 2) { const fx = r.int(80, 360), fy = r.int(60, 200); p.shRect(fx, fy, 2, 2, 24); p.obj(() => { p.r('0', fx - 1, fy - 1, 3, 3); p.r('o', fx, fy, 1, 1); p.r('0', fx + 1, fy - 1, 16, 11); p.r('7', fx + 2, fy, 14, 9); p.r('a', fx + 6, fy + 2, 6, 5); p.r('9', fx + 7, fy + 3, 4, 3); }); }
+  // a paw-print trail wandering up the tray (Pom was here first)
+  pawTrail(p, r.int(250, 330), 0, SEG, r.range(-0.15, 0.15));
+  if (r.chance(0.6)) buriedToy(p, r.int(70, 380), r.int(20, SEG - 20), r.int(0, 1));
+  const left = r.chance(0.5); const ex = left ? r.int(72, 96) : r.int(350, 374), ey = r.int(60, 190);
+  if (kind === 1) { lander(p, ex, ey); pomFlag(p, ex + (left ? 30 : -46), ey + 30); }
+  else if (kind === 2) rover(p, ex, r.int(30, 170));
+  else if (kind === 3) { pomFlag(p, ex, ey); boulder(p, ex + 24, ey + 20, 5); boulder(p, ex - 14, ey + 36, 3); }
+  for (let i = 0; i < 2; i++) boulder(p, r.chance(0.5) ? r.int(50, 100) : r.int(340, 395), r.int(12, SEG - 12), r.int(2, 4));
+  // edges: the Great Litter-Box Crater's rim on the left, the moon's limb (space, and the Earth now and then) on the right
+  craterRidge(p, z); moonLimb(p, z);
 } };
 /** fg: the shadow of an orbiting probe sweeping over the regolith + a few dust motes */
 const moonFg: LayerDef = { speed: 1.6, paint(p, z) {
@@ -1460,17 +1868,32 @@ const navLights = (xs: number[], period: number, keys: string[]) => (px: Px, scr
 };
 const both = (...fs: ((px: Px, scroll: number, t: number, seed: number, tod: Tod) => void)[]) => (px: Px, scroll: number, t: number, seed: number, tod: Tod) => { for (const f of fs) f(px, scroll, t, seed, tod); };
 
+/** rooftops: at dawn the roof decks catch the pink sunrise (rose-grey, never the periwinkle of night) */
+const ROOF_RAMPS: Partial<Record<Tod, Ramp>> = { dawn: ramp('q:qv/4 p:pe/4', TOD_RAMP.dawn) };
+/** docks: the dusk harbour mirrors the sunset (plum water, magenta ripple crests, orange glints) so it never reads as night */
+const DOCK_RAMPS: Partial<Record<Tod, Ramp>> = { dusk: lightRamp(LIGHT.dusk, '', 'k:kb/4 j:k i:j n:v 2:e m:d s:c') };
+/** the litter moon: regolith stays grey at every hour, only light value and temperature change */
+const MOON_RAMPS: Partial<Record<Tod, Ramp>> = {
+  // harsh sunlight: the litter sits a step below mid-grey so grey cats keep their contrast
+  day: ramp('p:q o:p q:v v:1 8:9 7:8'),
+  // sunrise over the tray: cool lavender-grey dust, pink-lit crests and clumps
+  dawn: ramp('p:3q/8 o:4 q:2q/8 v:2 1:1 8:c 7:c 9:a 6:7 5:c'),
+  // low amber sun: warm grey dust (grey dithered with umber, never desert orange), plum shadows, amber crests
+  dusk: ramp('p:qb/4 o:p9/4 q:v v:1 8:g 9:h 7:8 5:t 4:u 3:2 2:v 1:0'),
+  // earthshine: navy dust, lights on
+  night: ramp('o:3 p:2 q:1 v:0 9:a 8:9 7:8 6:5 5:4 4:3 3:2 2:1'),
+};
 export const TILESETS: Record<string, Tileset> = {
   backyard: { id: 'backyard', speed: 0.4, base: 'k', main: backyard, fg: yardFg(['1', 'k', 'j'], 0.6, 0), anim: both(flyers('birds', 460), flyers('leaves', 610)) },
   street: { id: 'street', speed: 0.6, base: 'v', main: street, fg: yardFg(['1', 'k', 'j'], 0.7, 0.12), anim: both(steamAnim(188, 300, 120), flyers('birds', 540)) },
   park: { id: 'park', speed: 0.45, base: 'k', main: park, fg: yardFg(['1', 'k', 'j'], 0.5, 0), anim: both(flyers('leaves', 430), flyers('birds', 700)) },
   alley: { id: 'alley', speed: 0.5, base: 'v', main: alley, fg: laundryFg, anim: both(steamAnim(262, 280, 60), flyers('steam', 380)) },
-  rooftops: { id: 'rooftops', speed: 0.55, base: '1', far: cityBelow, main: rooftops, fg: pigeonsFg, anim: flyers('birds', 420) },
-  cafe: { id: 'cafe', speed: 0.4, base: 'v', indoor: true, main: cafe, fg: pendantsFg },
-  docks: { id: 'docks', speed: 0.5, base: 'n', ramps: { dusk: ramp('n:v 2:1 m:e', TOD_RAMP.dusk) }, far: water, main: docks, fg: gullsFg, anim: flyers('birds', 500),
+  rooftops: { id: 'rooftops', speed: 0.55, base: '1', ramps: ROOF_RAMPS, far: cityBelow, main: rooftops, fg: pigeonsFg, anim: flyers('birds', 420) },
+  cafe: { id: 'cafe', speed: 0.4, base: 'b', indoor: true, main: cafe, fg: pendantsFg },
+  docks: { id: 'docks', speed: 0.5, base: 'n', ramps: DOCK_RAMPS, far: water, main: docks, fg: gullsFg, anim: flyers('birds', 500),
     fxAfter: 'far', fx: (ctx, scroll, t, _s, tod) => {
       // sparse 2-3px wave glints drifting at their own parallax speed (slower than the planks, faster than the swell lattice)
-      const [k0, k1] = tod === 'night' ? ['3', '4'] : tod === 'dusk' ? ['d', 'c'] : tod === 'dawn' ? ['4', 'c'] : ['m', '4'];
+      const [k0, k1] = tod === 'night' ? ['3', '4'] : tod === 'dusk' ? ['g', 'f'] : tod === 'dawn' ? ['4', 'c'] : ['m', '4'];
       for (let i = 0; i < 26; i++) {
         const ph = (t / 90 + i * 0.37) % 1; if (ph > 0.7) continue;
         const x = 110 + ((i * 97 + Math.floor(t / 6) * (i % 3 === 0 ? 1 : 0)) % 334), y = Math.floor((i * 53 + scroll * 0.82) % 380) - 10;
@@ -1481,7 +1904,7 @@ export const TILESETS: Record<string, Tileset> = {
   factory: { id: 'factory', speed: 0.6, base: '1', far: factoryFar, main: factory, fg: girdersFg, fx: factoryFx, rim: false, anim: flyers('steam', 300) },
   sky: { id: 'sky', speed: 0.8, base: 'n', backdrop: skyBackdrop, rim: false, far: skyFar, main: skyMain, fg: wispsFg, ramps: SKY_RAMPS, anim: both(flyers('wisps', 200), flyers('birds', 650)) },
   nebula: { id: 'nebula', speed: 0.7, space: true, base: '0', far: starFar('0', 80), main: nebulaMain, fg: streaksFg, anim: both(twinkle(['4', 't', 'l']), flyers('debris', 480)) },
-  moon: { id: 'moon', speed: 0.35, space: true, base: 'q', ramps: { dusk: ramp('o:8 5:c 4:t 6:7 9:a 8:9 7:8 p:q'), night: ramp('5:4 6:5 4:3 3:2 8:9 7:8') }, main: moon, fg: moonFg, anim: flyers('debris', 560) },
+  moon: { id: 'moon', speed: 0.35, space: true, base: 'p', ramps: MOON_RAMPS, main: moon, fg: moonFg, anim: flyers('debris', 560) },
   station: { id: 'station', speed: 0.5, space: true, base: '0', far: starFar('0', 90), main: station, anim: both(twinkle(['4', 'l']), earLights, flyers('debris', 600)) },
   mothership: { id: 'mothership', speed: 0.7, space: true, base: '0', far: motherFar, main: mothership, anim: both(navLights([74, 374], 96, ['r', 'l', 'd']), flyers('debris', 450)) },
 };

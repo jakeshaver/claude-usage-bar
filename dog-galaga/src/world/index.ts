@@ -290,7 +290,8 @@ function titleCard(ctx: CanvasRenderingContext2D, name: string, sub: string, idx
     ctx.fillRect(x1 - 14, y0, 14, 2); ctx.fillRect(x1 - 2, y0, 2, 8);
     ctx.fillRect(x0, y1 - 2, 14, 2); ctx.fillRect(x0, y1 - 8, 2, 8);
     ctx.fillStyle = TEAL; for (let x = x0 + ch + 6; x < x1 - 20; x += 8) ctx.fillRect(x, y0 + 2, 1, (x / 8) % 4 ? 1 : 3);
-  } else { ctx.fillStyle = CYAN; ctx.fillRect(x0, cy, x1 - x0, 1); ctx.fillStyle = INK; ctx.fillRect(x0, cy + 1, x1 - x0, 1); }
+  } else if (e < 30) { ctx.fillStyle = CYAN; ctx.fillRect(x0, cy, x1 - x0, 1); ctx.fillStyle = INK; ctx.fillRect(x0, cy + 1, x1 - x0, 1); }
+  // (closing: the panel folds shut and is simply gone; no stray 1px scan line lingers across the playfield)
   if (hh < 30) return;
   const typed = (str: string, start: number, speed = 1.5) => str.slice(0, Math.max(0, Math.floor((e - start) * speed)));
   const label = `SECTOR ${String(idx).padStart(2, '0')}`;
