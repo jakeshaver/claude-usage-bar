@@ -264,9 +264,10 @@ export function pickupBadge(ctx: Ctx, x: number, y: number, t: number) {
     ctx.fillRect(X - R + 1, Y - R + 1, 1, 1); ctx.fillRect(X + R - 1, Y - R + 1, 1, 1); ctx.fillRect(X - R + 1, Y + R - 1, 1, 1); ctx.fillRect(X + R - 1, Y + R - 1, 1, 1);
   };
   frame(11, '0'); frame(10, (t >> 3) & 1 ? 'f' : '6'); frame(9, '0');
-  const k = (t >> 4) & 3; const sx = X + (k === 1 || k === 2 ? 12 : -12), sy = Y + (k >= 2 ? 12 : -12);
-  ctx.fillStyle = col('0'); ctx.fillRect(sx - 3, sy - 1, 7, 3); ctx.fillRect(sx - 1, sy - 3, 3, 7);
-  ctx.fillStyle = col('6'); ctx.fillRect(sx - 2, sy, 5, 1); ctx.fillRect(sx, sy - 2, 1, 5);
+  // one small glint hops corner to corner on every other beat (a quiet sparkle, not a second outline)
+  const k = (t >> 4) & 3; if ((t >> 3) & 1) return;
+  const sx = X + (k === 1 || k === 2 ? 11 : -11), sy = Y + (k >= 2 ? 11 : -11);
+  ctx.fillStyle = col('6'); ctx.fillRect(sx - 1, sy, 3, 1); ctx.fillRect(sx, sy - 1, 1, 3);
 }
 
 /**

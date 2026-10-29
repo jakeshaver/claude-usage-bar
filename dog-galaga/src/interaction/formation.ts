@@ -20,12 +20,12 @@ export function shapeRows(shape: Shape, R: number): { us: number[]; dy?: (u: num
   switch (shape) {
     case 'galaga': // 4 bosses on top, then butterflies, then bees: the arcade's tapered block
       return pick([[4, 6, 8], [4, 6, 8, 8], [4, 6, 8, 8, 8]]).map(n => ({ us: line(n) }));
-    case 'chevron': // a V of wings drooping outward, the point at the top centre
-      return pick([[4, 6, 8], [2, 4, 6, 8], [2, 4, 6, 8, 8]]).map(n => ({ us: line(n), dy: (u: number) => Math.round(Math.abs(u) * 5) }));
+    case 'chevron': // a wedge with its point at the top centre (rows stay flat: a crisp Galaga grid, never a staircase)
+      return pick([[4, 6, 8], [2, 4, 6, 8], [2, 4, 6, 8, 8]]).map(n => ({ us: line(n) }));
     case 'wings': { // two wing blocks with an open lane down the middle and the leaders riding the gap
       const wing = [-3.5, -2.5, -1.5, 1.5, 2.5, 3.5];
       const rows: { us: number[]; dy?: (u: number) => number }[] = [{ us: [-0.5, 0.5] }];
-      for (let r = 1; r < R; r++) rows.push({ us: r === 1 ? [-2.5, -1.5, 1.5, 2.5] : wing, dy: (u: number) => -Math.round((Math.abs(u) - 1.5) * 4) });
+      for (let r = 1; r < R; r++) rows.push({ us: r === 1 ? [-2.5, -1.5, 1.5, 2.5] : wing });
       return rows;
     }
     case 'diamond':

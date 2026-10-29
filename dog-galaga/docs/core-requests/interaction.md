@@ -127,3 +127,16 @@
 - R4-7: declined; nap/intro pacing is a world design call (the defeat hold was lengthened instead, see effects).
 - Integrator seam fixes in interaction: entry streams now never start two cats in the same lane within one stream step (stacked cats at stream joins), boss bullets spawn at the sprite's edge (~28 px from centre) instead of on top of the boss, and a boss defeat clears its GRUMPY toast and floats the bounty.
 - Formation slots measured headless across all 100 waves: settled homes are never closer than 31 px (no overlap); the remaining momentary overlaps are designed stream crossings (split/swirl), left as is.
+
+## Polish 1
+
+- **#8 (1px light line near y=140 in park-night, cafe-night, moon): not interaction.** Interaction draws no
+  full-width horizontal lines at all: the boss charge telegraph is a vertical lane (dither + two vertical dashed rails +
+  chevrons, only during a charge tell), sweeps/fans are short diagonal dashes from the boss, and the staged dive path
+  is showcase-only. Autopilot shots of park/cafe/moon at night (advance 600..1500) showed no line from this module.
+  Suggest the world owner check the scrolling segment seam (448x256 segments, far/main/fg layers) and the area
+  transition dissolve's teal scan edge (`world/index.ts` `dissolve`, `fillRect(0, edge - 1, W, 2)`).
+- **#10 (busy screens), parts outside interaction:** please have effects keep the boop float text clear of the
+  memories carrier crown/rim (memories draws the gold rim, crown and polaroid; interaction now leaves the TOD rim off
+  memory carriers and on bright floors, and no longer stacks two pickup badges on one spot). Effects' dotted heart
+  ring around a combo number is a further stacked treatment worth thinning.

@@ -30,11 +30,11 @@ export interface Pickup { kind: string; x: number; y: number; vy: number; t: num
 const WAVE_LIMIT = 75 * 60;  // cats lose interest after 75s, so waves can never stall
 const MAX_TURDS = 4;
 // Formation grid (Galaga-like readability): at most 8 columns x 5 rows, with clear lanes between cats.
-const FORM_TOP = 40;
-const STREAM_STEP = 16;     // ticks between cats in one entry stream (>= 40px along the path: 32px sprites never overlap)
+const FORM_TOP = 36;
+const STREAM_STEP = 13;     // ticks between cats in one entry stream (13 x 3.2 >= 41px along the path: 32px sprites never overlap)
 const BEAM_TICKS = 84;      // capturer's tractor-beam moment
 const tp: TrackPos = { x: 0, y: 0, hx: 0, hy: 1 };
-const PUP_LIFT = 22;        // the formation sits this much lower when a captive pup rides above its holder
+const PUP_LIFT = 18;        // the formation sits this much lower when a captive pup rides above its holder
 const HURRY_LEAVE = 9 * 60; // once only ~20% of a wave is left, stragglers dive hard, then fly off after 9s
 /** Stages with no ground below the action (sky and space): nothing to cast a shadow on. */
 const AIRBORNE = new Set(['sky', 'moon', 'nebula', 'station', 'mothership']);
@@ -42,6 +42,8 @@ const AIRBORNE = new Set(['sky', 'moon', 'nebula', 'station', 'mothership']);
 const TOD_TINT: Record<string, Record<string, string> | undefined> = { night: { '6': 's' }, dusk: { '6': '7' }, dawn: { '6': '7' } };
 /** Light rim around every cat on dark stages, so black / navy cats never melt into night floors. */
 const TOD_RIM: Record<string, string | undefined> = { night: '5', dusk: '7' };
+/** Floors light enough that cats read without the rim (fewer stacked outlines on a busy screen). */
+const BRIGHT_FLOOR = new Set(['moon']);
 
 /** Interaction: turds, cats, formations, dives, damage, bosses, pickups. */
 class Interaction implements Module {
@@ -53,7 +55,7 @@ class Interaction implements Module {
   wave: WaveDef | null = null; waveT = 0; active = false; mode: 'none' | 'wave' | 'boss' | 'bonus' = 'none';
   bonus: { def: BonusDef; hits: number; total: number } | null = null;
   sway = 0; nextId = 1; pupHolder = -1; rowSp = ROW_SP; colSp = COL_SP; shape: Shape = 'galaga';
-  T: Tuning = { d: 0, spitSpeed: 1.5, spitCap: 3, bossSpitCap: 14, fireEvery: 90, diveEvery: 180, diveGroups: 1, diveSpeed: 2.7, entrySpeed: 2.7, diveShots: 1, tell: 22, aimSlop: 50 };
+  T: Tuning = { d: 0, spitSpeed: 1.5, spitCap: 3, bossSpitCap: 14, fireEvery: 90, diveEvery: 180, diveGroups: 1, maxDivers: 3, diveSpeed: 2.7, entrySpeed: 2.7, diveShots: 1, tell: 22, aimSlop: 50 };
   fireT = 0; diveT = 0; breathMix = 0; entryDone = false; clearHold = 0; total = 0; formTop = FORM_TOP; hurry = 0;
 
   // showcase staging (?showcase=interaction&stage=lineup|capturer|rescue|splitter|tank|dive|tell|boss|bullets|play)
@@ -77,7 +79,7 @@ class Interaction implements Module {
   /** True when the stage has a floor to cast shadows on. */
   grounded() { return !AIRBORNE.has(this.g.state.areaId); }
   /** Rim colour for combat sprites at this time of day (undefined: no rim needed in daylight). */
-  rimKey() { return TOD_RIM[this.g.state.tod]; }
+  rimKey() { return BRIGHT_FLOOR.has(this.g.state.areaId) ? undefined : TOD_RIM[this.g.state.tod]; }
   tint() { return TOD_TINT[this.g.state.tod]; }
 
   private mkCat(def: EnemyDef, x: number, y: number, st: CatState, extra: Partial<Cat> = {}): Cat {
@@ -167,6 +169,8 @@ class Interaction implements Module {
 
   spawnPickup(kind: string, x: number, y: number) {
     const pup = kind === 'pup';
+    // never stack two pickups on one spot (two framed badges on top of each other read as clutter): step aside
+    for (let n = 0; n < 4 && this.pickups.some(k => Math.abs(k.x - x) < 24 && Math.abs(k.y - y) < 24); n++) x += x < WORLD_W / 2 ? 26 : -26;
     this.pickups.push({ kind, x, y, vy: pup ? -0.9 : 0.7, t: 0, vx: 0 });
   }
 
@@ -199,7 +203,7 @@ class Interaction implements Module {
     const sw = Math.sin(this.sway / 80) * 14 * (1 - bm);
     const br = (1 - Math.cos(this.sway / 40)) * 0.5 * bm;   // 0..1
     const top = this.formTop;
-    return [WORLD_W / 2 + (c.slot[0] - WORLD_W / 2) * (1 + br * 0.12) + sw, top - 4 + (c.slot[1] - top + 4) * (1 + br * 0.16)];
+    return [WORLD_W / 2 + (c.slot[0] - WORLD_W / 2) * (1 + br * 0.1) + sw, top - 4 + (c.slot[1] - top + 4) * (1 + br * 0.1)];
   }
 
   private boop(c: Cat, viaTurd = true) {
@@ -211,7 +215,10 @@ class Interaction implements Module {
     g.mods.audio?.sfx('meow');
     if (c.pup) { const [px, py] = this.pupPos(c); this.spawnPickup('pup', px, py); g.mods.effects?.burst(px, py, 'sparkle'); }
     if (this.wave?.pickup && g.rng.chance(0.06)) this.spawnPickup(this.wave.pickup, c.x, c.y);
-    if (c.def.behavior === 'splitter') for (const s of [-1, 1]) this.spawnKitten(c.x + s * 6, c.y, s * 1.5, -1.6, c.slot);
+    if (c.def.behavior === 'splitter') { // a pair of kittens, but never a tumbling swarm: at most 4 in the air
+      const room = 4 - this.cats.filter(o => o.st === 'kdive' && !o.dead).length;
+      for (const s of room >= 2 ? [-1, 1] : room === 1 ? [c.x < WORLD_W / 2 ? 1 : -1] : []) this.spawnKitten(c.x + s * 6, c.y, s * 1.5, -1.6, c.slot);
+    }
     if (this.bonus) this.bonus.hits++;
     c.dead = true;
     g.bus.emit('cat:boop', { breed: c.def.id, x: c.x, y: c.y, points: pts, glow: !!c.glow, bonus: this.mode === 'bonus', group: this.mode === 'bonus' ? c.bgroup : undefined });
@@ -265,8 +272,11 @@ class Interaction implements Module {
     if (this.mode === 'wave' && w && !timedOut) {
       const inForm = this.cats.filter(c => c.st === 'form');
       if (this.entryDone && --this.diveT <= 0) {
-        const groups = new Set(this.cats.filter(c => c.st === 'dive').map(c => c.group)).size;
-        if ((this.hurry || groups < T.diveGroups) && inForm.length) this.launchDive(inForm);
+        // Galaga rhythm: the grid stays put and only a few cats are ever out of it (divers plus cats still flying home)
+        const out = this.cats.filter(c => c.st === 'dive' || c.st === 'return');
+        const groups = new Set(out.filter(c => c.st === 'dive').map(c => c.group)).size;
+        const room = T.maxDivers + (this.hurry ? 1 : 0) - out.length;
+        if ((this.hurry || groups < T.diveGroups) && room > 0 && inForm.length) this.launchDive(inForm, undefined, room);
         const left = inForm.length / Math.max(1, this.total);
         this.diveT = this.hurry ? Math.round(g.rng.range(34, 52)) : Math.round(T.diveEvery * g.rng.range(0.7, 1.3) * (0.45 + 0.55 * left));
       }
@@ -304,7 +314,9 @@ class Interaction implements Module {
             if (c.st === 'enter') c.st = 'home';
             else if (c.st === 'flyby') { c.st = 'leave'; c.dead = true; }
             else { // dive done: wrap to the top if it flew off the bottom, then glide home
-              if (c.y > H) { c.x = this.liveSlot(c)[0]; c.y = -28; }
+              // every dive ends off screen: re-enter straight above the cat's own column and drop into the slot,
+              // so a returning cat never cuts diagonally through the grid
+              if (c.y > H || c.y < 0 || c.x < -16 || c.x > WORLD_W + 16) { c.x = this.liveSlot(c)[0]; c.y = -28; }
               c.st = timedOut || (hurryOut && !special(c)) ? 'leave' : 'return'; c.speed = 2.4;
             }
           }
@@ -425,7 +437,7 @@ class Interaction implements Module {
   }
 
   /** Peel a leader (plus escorts for capturers and tanks, sometimes a wingmate) out of the formation. */
-  private launchDive(inForm: Cat[], forced?: Cat) {
+  private launchDive(inForm: Cat[], forced?: Cat, room = 3) {
     const g = this.g; const r = g.rng; const T = this.T; const P = g.mods.player; const px = P?.x ?? WORLD_W / 2;
     let tot = 0;
     const wt = inForm.map(c => { const b = c.def.behavior; const v = b === 'diver' || b === 'zigzag' ? 2 : b === 'capturer' ? 1.6 : 1; tot += v; return v; });
@@ -436,7 +448,7 @@ class Interaction implements Module {
     const maxEsc = b === 'capturer' || b === 'tank' ? 2 : (b === 'basic' || b === 'splitter') && r.chance(0.4) ? 1 : 0;
     const sp = this.colSp;
     const esc = inForm.filter(o => o !== leader && o.slot[1] > leader.slot[1] && o.slot[1] - leader.slot[1] < this.rowSp + 4 && Math.abs(o.slot[0] - leader.slot[0]) < sp * 1.2)
-      .sort((a, c) => Math.abs(a.slot[0] - leader.slot[0]) - Math.abs(c.slot[0] - leader.slot[0])).slice(0, maxEsc);
+      .sort((a, c) => Math.abs(a.slot[0] - leader.slot[0]) - Math.abs(c.slot[0] - leader.slot[0])).slice(0, Math.max(0, Math.min(maxEsc, room - 1)));
     const path = divePath(leader.x, leader.y, px + r.range(-T.aimSlop, T.aimSlop), b === 'splitter' ? 'basic' : b, r.range(-1, 1), H);
     const speed = T.diveSpeed * (b === 'diver' ? 1.15 : b === 'tank' ? 0.8 : b === 'capturer' ? 0.9 : 1);
     for (const c of [leader, ...esc]) {
