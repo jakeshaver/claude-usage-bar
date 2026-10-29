@@ -1,30 +1,38 @@
 import type { Game, Module } from '../core/game';
-import { WORLD_W, PF_W, PF_X, H } from '../core/game';
+import { WORLD_W, PF_W, PF_X, W, H } from '../core/game';
 import { drawSprite } from '../art/sprite';
-import { autopilotInput } from './autopilot';
-import { pxRing } from '../core/pixel';
+import { text } from '../art/font';
 import { col } from '../core/palette';
-import { shadowOval, ghostSprite, zGlyph, hitDot, dot, flame, tootPuff } from './draw';
-import { POM_NOZZLES, PUP_NOZZLE } from './pom-art';
+import { autopilotInput } from './autopilot';
+import { shadowOval, hitDot, dot, flame, tootPuff, ribbon, scarfTail, shieldRing, drawNapPose } from './draw';
+import { POM_NOZZLES, POM_KNOT, PUP_NOZZLES } from './pom-art';
+import { galleryModule } from './gallery';
 import './sprites';
 
 export const MIN_Y = 200, MAX_Y = 336;
 
 const HIST = 16;            // ticks of position history kept for the wingpup's lag
 const PUP_LAG = 9;          // the pup flies where Pom was this many ticks ago
+const PUP_DX = 25;          // pup's sideways offset from Pom (side swaps on a sustained bank)
+const TRAIL = 8;            // ticks of nozzle history behind each exhaust ribbon
 const NAP_CURL = 22;        // ticks of the "spin and flop" before Pom curls up
 const WAKE_STRETCH = 9, WAKE_DROP = 6, WAKE_FLY = 16;   // wake-up: stretch + yawn, drop off-screen, fly back in
 const WAKE = WAKE_STRETCH + WAKE_DROP + WAKE_FLY;
 const START_X = WORLD_W / 2, START_Y = 316, BELOW = H + 26;
 const ease = (k: number) => 1 - Math.pow(1 - k, 3);
-const cam0 = (x: number) => Math.max(0, Math.min(WORLD_W - PF_W, x - PF_W / 2));
+const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+const cam0 = (x: number) => clamp(x - PF_W / 2, 0, WORLD_W - PF_W);
 
-interface Spark { x: number; y: number; vx: number; vy: number; t: number; life: number; kind: number; h?: number }
+interface Spark { x: number; y: number; vx: number; vy: number; t: number; life: number }
+interface Drag { id: number; fx: number; fy: number; px: number; py: number; cx: number; cy: number; t0: number; moved: number }
 
 /** Cheap deterministic hash noise in [0,1) (no Math.random in src/). */
 const noise = (n: number) => { let h = (n * 374761393) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296; };
 
-/** Player: Captain Pom. Accelerating flight with banking, small forgiving hitbox, lagging wingpup, smooth camera. */
+/** Player: Captain Pom. Accelerating flight with banking, small forgiving hitbox, lagging wingpup, smooth camera.
+ *  Keyboard and d-pad are digital; a gamepad stick is analog (deflection sets the target speed); touch is
+ *  relative drag-to-move on the playfield (Pom follows the finger's offset) with auto-fire while dragging and
+ *  a quick tap toggling auto-fire on/off. */
 class Player implements Module {
   id = 'player';
   api = this;
@@ -35,16 +43,27 @@ class Player implements Module {
   buddy = false;            // rescued puppy wingman (double shot) until hit
   powers: Record<string, number> = {}; // double/spread/shield/speed -> ticks left
   camera = { x: (WORLD_W - PF_W) / 2 };
-  camF = (WORLD_W - PF_W) / 2;
+  camF = (WORLD_W - PF_W) / 2; camV = 0;
   hx: number[] = []; hy: number[] = [];   // position history (newest last)
-  pupX = WORLD_W / 2 + 20; pupY = 320; hadBuddy = false;
+  trX: number[] = []; trY: number[] = []; // Pom positions for the exhaust ribbons (newest last)
+  puX: number[] = []; puY: number[] = []; // pup positions for its ribbon
+  pupX = WORLD_W / 2 + PUP_DX; pupY = 320; hadBuddy = false;
+  pupSide = 1; pupOff = PUP_DX; bankHold = 0;
   sparks: Spark[] = [];
   napT = -1;                // ticks into the current nap (-1: awake)
   near = 0;                 // ticks the hitbox marker stays visible (threat close by)
   wakeT = 0;                // ticks left of the wake-up sequence after a nap (no control meanwhile)
   wx0 = 0; wy0 = 0;         // where she napped
+  drag: Drag | null = null; autoFire = false; touchSeen = false;
   g!: Game;
-  init(g: Game) { this.g = g; }
+  init(g: Game) {
+    this.g = g;
+    if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+      this.attachTouch(g);
+      const q = new URLSearchParams(location.search);
+      if (q.get('showcase') === 'player' && q.get('filter') === 'gallery') g.register(galleryModule());
+    }
+  }
   pos() { return { x: this.x, y: this.y }; }
   hitbox() { return { x: this.x - 5, y: this.y - 4, w: 10, h: 10 }; }
   setInvuln(t: number) { if (t > this.invuln) { this.invuln = t; this.invulnMax = t; } }
@@ -52,18 +71,22 @@ class Player implements Module {
     const napped = this.napT >= 0;
     this.wx0 = this.x; this.wy0 = this.y;
     this.x = START_X; this.y = START_Y; this.vx = this.vy = 0; this.setInvuln(120); this.cooldown = 10;
-    this.bank = 0; this.hx.length = this.hy.length = 0; this.pupX = this.x + 20; this.pupY = this.y + 4; this.sparks.length = 0;
+    this.bank = 0; this.hx.length = this.hy.length = 0; this.sparks.length = 0; this.clearTrails();
+    this.pupSide = 1; this.pupOff = PUP_DX; this.bankHold = 0; this.pupX = this.x + PUP_DX; this.pupY = this.y + 4;
+    this.drag = null;
     if (napped) { this.wakeT = WAKE; this.x = this.wx0; this.y = this.wy0; this.setInvuln(120 + WAKE); }
-    else { this.wakeT = 0; this.camF = cam0(this.x); this.camera.x = this.camF; }
+    else { this.wakeT = 0; this.camF = cam0(this.x); this.camera.x = this.camF; this.camV = 0; }
   }
+  clearTrails() { this.trX.length = this.trY.length = this.puX.length = this.puY.length = 0; }
   /** Wake-up after a nap: stretch + yawn where she slept, drop below the screen, then fly back in with an eased camera. */
   stepWake() {
     const k = WAKE - this.wakeT; this.wakeT--;
     if (k < WAKE_STRETCH) { this.x = this.wx0; this.y = this.wy0; }
     else if (k < WAKE_STRETCH + WAKE_DROP) { const q = (k - WAKE_STRETCH + 1) / WAKE_DROP; this.x = this.wx0; this.y = this.wy0 + (BELOW - this.wy0) * q * q; }
     else { const q = ease((k - WAKE_STRETCH - WAKE_DROP + 1) / WAKE_FLY); this.x = START_X; this.y = BELOW + (START_Y - BELOW) * q; this.vy = -1.5; }
+    if (k === WAKE_STRETCH + WAKE_DROP) this.clearTrails();      // she teleports below the screen: no ribbon across it
     if (this.wakeT <= 0) { this.x = START_X; this.y = START_Y; this.vy = 0; }
-    this.pupX = this.x + 20; this.pupY = this.y + 4; this.hx.length = this.hy.length = 0;
+    this.pupX = this.x + PUP_DX; this.pupY = this.y + 4; this.hx.length = this.hy.length = 0;
   }
   power(kind: string, ticks: number) { this.powers[kind] = Math.max(this.powers[kind] ?? 0, ticks); }
 
@@ -82,12 +105,60 @@ class Player implements Module {
     return true;
   }
 
+  // ---- input ----
+  /** Relative drag-to-move on the playfield: the finger's offset from where it touched down moves Pom by the
+   *  same offset (x1.3) from where she was. A quick tap (no drag) toggles auto-fire. */
+  attachTouch(g: Game) {
+    const toInternal = (t: { clientX: number; clientY: number }) => {
+      const c = document.getElementById('game'); if (!c) return null;
+      const r = c.getBoundingClientRect(); if (!r.width || !r.height) return null;
+      return { x: (t.clientX - r.left) / r.width * W, y: (t.clientY - r.top) / r.height * H };
+    };
+    const live = () => (g.state.scene === 'play' || g.state.scene === 'bonus') && !g.paused && (g.mods.ui?.menuOpen ?? 'none') === 'none';
+    addEventListener('touchstart', (e: TouchEvent) => {
+      for (const t of Array.from(e.changedTouches)) {
+        const p = toInternal(t); if (!p) continue;
+        this.touchSeen = true;
+        if (this.drag || !live() || p.x < PF_X || p.x >= PF_X + PF_W) continue;
+        this.drag = { id: t.identifier, fx: p.x, fy: p.y, px: this.x, py: this.y, cx: p.x, cy: p.y, t0: performance.now(), moved: 0 };
+      }
+    }, { passive: true });
+    addEventListener('touchmove', (e: TouchEvent) => {
+      const d = this.drag; if (!d) return;
+      for (const t of Array.from(e.changedTouches)) if (t.identifier === d.id) {
+        const p = toInternal(t); if (!p) continue;
+        d.cx = p.x; d.cy = p.y; d.moved = Math.max(d.moved, Math.hypot(p.x - d.fx, p.y - d.fy));
+      }
+    }, { passive: true });
+    const end = (e: TouchEvent) => {
+      const d = this.drag; if (!d) return;
+      for (const t of Array.from(e.changedTouches)) if (t.identifier === d.id) {
+        if (performance.now() - d.t0 < 230 && d.moved < 5) this.autoFire = !this.autoFire;
+        this.drag = null;
+      }
+    };
+    addEventListener('touchend', end, { passive: true });
+    addEventListener('touchcancel', end, { passive: true });
+  }
+  /** First connected gamepad's left stick, radial dead zone 0.2, magnitude remapped to 0..1; null when centred. */
+  padAxis(): { x: number; y: number } | null {
+    if (typeof navigator === 'undefined' || !navigator.getGamepads) return null;
+    for (const p of navigator.getGamepads()) {
+      if (!p) continue;
+      const ax = p.axes[0] ?? 0, ay = p.axes[1] ?? 0, m = Math.hypot(ax, ay);
+      if (m < 0.2) continue;
+      const k = Math.min(1, (m - 0.2) / 0.75) / m;
+      return { x: ax * k, y: ay * k };
+    }
+    return null;
+  }
+
   update(g: Game) {
     const sc = g.state.scene;
-    if (sc !== 'play' && sc !== 'bonus') return;
+    if (sc !== 'play' && sc !== 'bonus') { this.drag = null; return; }
     if (g.paused) return;
     this.stepSparks();
-    if (g.mods.world?.phase === 'nap') { this.napT++; this.anim++; this.vx = this.vy = 0; this.followCamera(); return; }
+    if (g.mods.world?.phase === 'nap') { this.napT++; this.anim++; this.vx = this.vy = 0; this.drag = null; this.followCamera(); return; }
     this.napT = -1;
     if (this.wakeT > 0) {
       this.anim++; if (this.invuln > 0) this.invuln--;
@@ -99,15 +170,32 @@ class Player implements Module {
     let ax = 0, ay = 0;
     if (held('left')) ax -= 1; if (held('right')) ax += 1;
     if (held('up')) ay -= 1; if (held('down')) ay += 1;
-    // reversing direction bites harder than speeding up: snappy dodges without a twitchy top speed
-    const ix = ax * (ax * this.vx < 0 ? acc * 1.7 : acc), iy = ay * (ay * this.vy < 0 ? acc * 1.7 : acc);
-    this.vx = ax ? Math.max(-sp, Math.min(sp, this.vx + ix)) : this.vx * fr;
-    this.vy = ay ? Math.max(-sp, Math.min(sp, this.vy + iy)) : this.vy * fr;
+    let fire = held('fire');
+    if (!inp) {
+      const pad = this.padAxis();
+      if (pad) { if (Math.abs(pad.x) > 0.02) ax = pad.x; if (Math.abs(pad.y) > 0.02) ay = pad.y; }
+      const d = this.drag;
+      if (d) {
+        const tx = clamp(d.px + (d.cx - d.fx) * 1.3, 14, WORLD_W - 14), ty = clamp(d.py + (d.cy - d.fy) * 1.3, MIN_Y, MAX_Y);
+        ax = clamp((tx - this.x) / 10, -1, 1); ay = clamp((ty - this.y) / 10, -1, 1);
+        if (Math.abs(tx - this.x) < 0.6) ax = 0; if (Math.abs(ty - this.y) < 0.6) ay = 0;
+        fire = true;
+      }
+      if (this.autoFire && this.touchSeen) fire = true;
+    }
+    // the stick sets a target velocity (analog = fine steering); reversing bites harder than speeding up,
+    // so dodges are snappy without a twitchy top speed
+    const steer = (v: number, a: number) => {
+      if (!a) return v * fr;
+      const tv = a * sp, k = tv * v < 0 ? acc * 1.7 : acc;
+      return v + clamp(tv - v, -k, k);
+    };
+    this.vx = steer(this.vx, ax); this.vy = steer(this.vy, ay);
     if (Math.abs(this.vx) < 0.05) this.vx = 0; if (Math.abs(this.vy) < 0.05) this.vy = 0;
-    this.x = Math.max(14, Math.min(WORLD_W - 14, this.x + this.vx));
-    this.y = Math.max(MIN_Y, Math.min(MAX_Y, this.y + this.vy));
+    this.x = clamp(this.x + this.vx, 14, WORLD_W - 14);
+    this.y = clamp(this.y + this.vy, MIN_Y, MAX_Y);
     // banking eases toward the stick so the lean frames do not flicker on taps
-    const bt = Math.max(-1, Math.min(1, this.vx / 2.2));
+    const bt = clamp(this.vx / 2.2, -1, 1);
     this.bank += (bt - this.bank) * 0.22; if (Math.abs(this.bank) < 0.01) this.bank = 0;
     if (this.invuln > 0) this.invuln--;
     for (const k in this.powers) if (this.powers[k] > 0) this.powers[k]--;
@@ -115,7 +203,7 @@ class Player implements Module {
     if (this.kick > 0) this.kick--;
     this.anim++;
     this.trackHistory();
-    if (held('fire') && this.cooldown <= 0) {
+    if (fire && this.cooldown <= 0) {
       const fired = g.mods.interaction?.fireTurds(this.x, this.y - 14, this.shotPattern());
       if (fired) { this.cooldown = this.powers.spread > 0 ? 14 : 11; this.kick = 4; g.state.stats.shots++; g.mods.audio?.sfx('plop'); }
     }
@@ -128,21 +216,39 @@ class Player implements Module {
     this.followCamera();
   }
 
-  /** Smooth horizontal follow with a little look-ahead, clamped to the 448px world, settling exactly (no sub-pixel creep). */
-  followCamera(rate = 0.1) {
+  /** Horizontal follow with a little look-ahead, clamped to the 448px world. A critically damped spring
+   *  (no overshoot) with a minimum settle speed once Pom has stopped, and an exact snap as soon as the rounded
+   *  camera equals the rounded target: no sub-pixel crawl of the background after she stops. */
+  followCamera(rate?: number) {
     const target = cam0(this.wakeT > 0 ? START_X : this.x + this.vx * 9);
     const d = target - this.camF;
-    this.camF = Math.abs(d) < 0.2 ? target : this.camF + d * rate;
+    if (rate !== undefined) {
+      this.camV = 0;
+      this.camF = Math.abs(d) < 0.5 ? target : this.camF + d * rate;
+    } else {
+      const k = 0.03, c = 2 * Math.sqrt(k);
+      this.camV += d * k - this.camV * c;
+      let step = this.camV;
+      if (this.vx === 0 && Math.abs(step) < 0.4) step = Math.sign(d) * Math.min(Math.abs(d), 0.4);
+      this.camF += step;
+      if (Math.round(this.camF) === Math.round(target) && Math.abs(this.vx) < 0.3) { this.camF = target; this.camV = 0; }
+    }
     this.camera.x = this.camF;
   }
 
   trackHistory() {
     this.hx.push(this.x); this.hy.push(this.y);
     if (this.hx.length > HIST) { this.hx.shift(); this.hy.shift(); }
-    if (this.buddy && !this.hadBuddy) { this.pupX = this.x + 20; this.pupY = this.y + 4; }
+    // the pup trails on the side opposite a sustained bank, so its lag reads as following
+    const b = this.bank;
+    this.bankHold = b > 0.6 ? Math.max(0, this.bankHold) + 1 : b < -0.6 ? Math.min(0, this.bankHold) - 1 : this.bankHold - Math.sign(this.bankHold);
+    if (this.bankHold > 20) this.pupSide = -1; else if (this.bankHold < -20) this.pupSide = 1;
+    this.pupOff += (this.pupSide * PUP_DX - this.pupOff) * 0.08;
+    if (this.buddy && !this.hadBuddy) { this.pupX = this.x + this.pupOff; this.pupY = this.y + 4; }
     this.hadBuddy = this.buddy;
     const i = Math.max(0, this.hx.length - 1 - PUP_LAG);
-    const tx = (this.hx[i] ?? this.x) + 20, ty = (this.hy[i] ?? this.y) + 4;
+    const swing = 1 - Math.min(1, Math.abs(this.pupOff) / PUP_DX);   // dips below her while it crosses over
+    const tx = (this.hx[i] ?? this.x) + this.pupOff, ty = (this.hy[i] ?? this.y) + 4 + swing * 14;
     this.pupX += (tx - this.pupX) * 0.35; this.pupY += (ty - this.pupY) * 0.35;
   }
 
@@ -154,30 +260,35 @@ class Player implements Module {
   }
   /** Flame length for this tick: longer when thrusting up the screen, shorter when backing off; 3-step flicker. */
   flameLen(w: number) {
-    const base = this.vy < -0.5 ? 8 : this.vy > 0.5 ? 4 : 6;
+    const base = this.vy < -0.5 ? 7 : this.vy > 0.5 ? 3 : 5;
     return Math.max(2, base + [0, 1, -1][(this.anim >> 1) % 3] - (w <= 2 ? 2 : 0));
   }
-  lastY = 316;
   emitTrail() {
     const n = this.anim;
-    // segment height covers the gap opened by this tick's motion, so a fast climb still leaves a solid streak
-    const gap = Math.max(0, this.lastY - this.y); this.lastY = this.y;
-    if (this.sparks.length < 64 && this.wakeT <= WAKE - WAKE_STRETCH) {
-      for (const [ox, oy, w] of POM_NOZZLES[this.frameName()] ?? []) {
-        if (w <= 2) continue;              // tucked far pod: flame only, no streak
-        this.sparks.push({ x: this.x + ox - 1, y: this.y + oy + this.flameLen(w), vx: -this.vx * 0.15, vy: 1.6 + Math.max(0, -this.vy) * 0.4,
-          t: 0, life: 11 + (this.vy < -0.5 ? 4 : 0), kind: 0, h: Math.min(8, 2 + Math.ceil(gap + Math.max(0, -this.vy) * 0.4)) });
-      }
-      // boosting (speed power-up): a few loose stars kick out of the streak
-      if (this.powers.speed > 0 && n % 4 === 0) {
-        const r = noise(n), [ox, oy] = (POM_NOZZLES[this.frameName()] ?? [[0, 0]])[n & 1] ?? [0, 0];
-        this.sparks.push({ x: this.x + ox + (r - 0.5) * 6, y: this.y + oy + 6, vx: (r - 0.5) * 0.8, vy: 1.4, t: 0, life: 12, kind: 1 });
-      }
+    this.trX.push(this.x); this.trY.push(this.y);
+    if (this.trX.length > TRAIL) { this.trX.shift(); this.trY.shift(); }
+    if (this.buddy) { this.puX.push(this.pupX); this.puY.push(this.pupY); if (this.puX.length > 5) { this.puX.shift(); this.puY.shift(); } }
+    else this.puX.length = this.puY.length = 0;
+    // boosting (speed power-up): a few loose stars kick out of the exhaust
+    if (this.powers.speed > 0 && n % 4 === 0 && this.sparks.length < 24) {
+      const r = noise(n), [ox, oy] = (POM_NOZZLES[this.frameName()] ?? [[0, 0]])[n & 1] ?? [0, 0];
+      this.sparks.push({ x: this.x + ox + (r - 0.5) * 6, y: this.y + oy + 10, vx: (r - 0.5) * 0.8, vy: 1.4, t: 0, life: 12 });
     }
-    if (this.buddy && this.sparks.length < 64) {
-      const pn = PUP_NOZZLE[this.pupName()];
-      if (pn) this.sparks.push({ x: this.pupX + pn[0] - 1, y: this.pupY + pn[1] + 3, vx: 0, vy: 1.5, t: 0, life: 6, kind: 2 });
+  }
+  /** Ribbon points for one nozzle: starts exactly at the flame tip, then follows where that nozzle was on
+   *  earlier ticks (so lateral motion leaves a continuous diagonal), drifting down 1.2px per tick;
+   *  capped at 7px past the tip when idle, longer when climbing. */
+  ribbonPts(xs: number[], ys: number[], sx: number, sy: number, cap: number): [number, number][] {
+    const n = xs.length; if (!n) return [];
+    const nowX = xs[n - 1], nowY = ys[n - 1];
+    const pts: [number, number][] = [[sx, sy]];
+    for (let i = 1; i < n; i++) {
+      const hx = xs[n - 1 - i], hy = ys[n - 1 - i];
+      const px = sx + (hx - nowX) * 0.55, py = Math.max(pts[i - 1][1] + 0.6, sy + (hy - nowY) + i * 1.2);
+      if (py - sy > cap) { const k = (cap - (pts[i - 1][1] - sy)) / Math.max(0.01, py - pts[i - 1][1]); pts.push([pts[i - 1][0] + (px - pts[i - 1][0]) * k, sy + cap]); break; }
+      pts.push([px, py]);
     }
+    return pts;
   }
   pupName() { return this.bank < -0.5 ? 'pom_pup_l' : this.bank > 0.5 ? 'pom_pup_r' : 'pom_pup'; }
   stepSparks() {
@@ -191,7 +302,7 @@ class Player implements Module {
     const base = this.powers.double > 0 ? [{ dx: -5, vx: 0 }, { dx: 5, vx: 0 }] : [{ dx: 0, vx: 0 }];
     p.push(...base);
     if (this.powers.spread > 0) p.push({ dx: -4, vx: -1.3 }, { dx: 4, vx: 1.3 });
-    if (this.buddy) p.push({ dx: Math.round(Math.max(8, Math.min(30, this.pupX - this.x))), vx: 0 });
+    if (this.buddy) { const d = clamp(this.pupX - this.x, -30, 30); p.push({ dx: Math.round(Math.abs(d) < 8 ? (d < 0 ? -8 : 8) : d), vx: 0 }); }
     return p;
   }
 
@@ -204,80 +315,99 @@ class Player implements Module {
     const sx = (wx: number) => Math.round(wx - cam) + camR;
     const t = this.anim;
     const tod = g.state.tod, lit = tod === 'dusk' || tod === 'night' ? '@' + tod : '';
-    // jet streaks: 2px wide, fading yellow > orange > burnt > plum
     if (this.sparks.length) r.push(2, this.y - 40, (ctx: CanvasRenderingContext2D) => {
-      for (const s of this.sparks) {
-        const k = s.t / s.life, x = Math.round(s.x - cam) + camR;
-        if (s.kind === 1) { if (k < 0.8) dot(ctx, x, s.y, (s.t >> 2) & 1 ? '6' : 'f', k < 0.4); continue; }
-        if (s.kind === 2) { ctx.fillStyle = col(k < 0.5 ? 'g' : 'h'); ctx.fillRect(x, Math.round(s.y), 1, 2); continue; }
-        ctx.fillStyle = col(k < 0.25 ? 'f' : k < 0.5 ? 'g' : k < 0.75 ? 'h' : 'v');
-        ctx.fillRect(x, Math.round(s.y), k < 0.6 ? 2 : 1, k < 0.75 ? s.h ?? 2 : 2);
-      }
+      for (const s of this.sparks) { const k = s.t / s.life; if (k < 0.8) dot(ctx, sx(s.x), s.y, (s.t >> 2) & 1 ? '6' : 'f', k < 0.4); }
     });
-    if (g.mods.world?.phase === 'nap' && this.napT >= 0) return this.renderNap(r, ground, sx);
+    if (g.mods.world?.phase === 'nap' && this.napT >= 0) return this.renderNap(r, ground, sx, tod);
     const blink = this.invuln > 0 && !g.paused && this.wakeT <= 0;   // solid while paused and during the wake-up
     const whiteFlash = blink && this.invulnMax - this.invuln < 10 && (this.invuln >> 1) % 2 === 0;
-    const ghost = blink && !whiteFlash && (this.invuln >> 2) % 2 === 0;
+    // Galaga-clean blink: 4 ticks visible, 4 ticks gone
+    const hidden = blink && !whiteFlash && this.invulnMax - this.invuln >= 10 && ((this.invuln >> 2) & 1) === 1;
     const bob = Math.round(Math.sin(t / 10) * 1.2);
     const px = sx(this.x), py = Math.round(this.y) + bob + (this.kick > 2 ? 1 : 0);
     const base = this.frameName(), name = base + lit;
     const frame = this.kick > 2 && base !== 'pom_stretch' ? 1 : 0;   // tail pompom squashes on a toot
     const nozzles = this.wakeT > WAKE - WAKE_STRETCH ? [] : POM_NOZZLES[base] ?? [];
-    // shadow: fixed light from the upper left, well below and right of her, breathing with the bob
-    if (ground) r.push(1, this.y, (ctx: CanvasRenderingContext2D) => shadowOval(ctx, px + 13, Math.round(this.y) + 27 - bob, 16 + bob, 4));
+    if (ground && !hidden) {
+      // shadow: light from the upper left; longer at dusk, faint and small at night, none in the sky/space
+      const night = tod === 'night', dusk = tod === 'dusk';
+      r.push(1, this.y, (ctx: CanvasRenderingContext2D) => shadowOval(ctx, px + (dusk ? 9 : night ? 4 : 6), Math.round(this.y) + 19 - bob, (dusk ? 22 : night ? 14 : 20) + bob, night ? 3 : 5, 'v', night));
+    }
+    if (hidden) { this.renderPup(r, ground, sx, lit, tod, t); return; }
     r.push(2, this.y, (ctx: CanvasRenderingContext2D) => {
-      if (whiteFlash) drawSprite(ctx, name, px, py, { frame, flash: true });
-      else if (ghost) ghostSprite(ctx, name, frame, px, py);
-      else drawSprite(ctx, name, px, py, { frame });
+      // exhaust ribbons from the outer pods (tucked far pods only show a flame)
+      // exhaust ribbons (the tucked far pod leaves a thinner 1px one)
+      if (!whiteFlash) for (const [ox, oy, w] of nozzles) {
+        const len = this.flameLen(w), cap = (this.vy < -0.5 ? 13 : this.vy > 0.5 ? 4 : 7) - (w <= 2 ? 2 : 0);
+        ribbon(ctx, this.ribbonPts(this.trX, this.trY, px + ox, py + oy + 1 + len, cap), w <= 2 ? 1 : 2, t);
+      }
+      drawSprite(ctx, name, px, py, { frame, flash: whiteFlash });
+      // scarf tail: streams longer and flatter when she flies left or climbs, flutters short when she goes right
+      const kn = POM_KNOT[base];
+      if (kn && !whiteFlash) {
+        const len = Math.round(clamp(10 - this.vx * 1.2 + Math.max(0, -this.vy) * 0.6, 7, 13));
+        scarfTail(ctx, px + kn[0] + 1, py + kn[1] - 1, 1, t, len, this.vx > 0.5 ? 2 : 1.3);
+      }
       if (!whiteFlash) for (const [ox, oy, w] of nozzles) flame(ctx, px + ox - w / 2, py + oy + 1, w, this.flameLen(w));
-      if (tod === 'night' && !ghost && !whiteFlash) {
+      if (tod === 'night' && !whiteFlash) {
         // warm pod glow spilling onto her flanks
         ctx.fillStyle = col('g');
-        for (const [ox, oy, w] of nozzles) if (w > 2) { const ix = ox < 0 ? px + ox + w / 2 + 1 : px + ox - w / 2 - 2; ctx.fillRect(ix, py + oy - 2, 1, 2); ctx.fillRect(ix + (ox < 0 ? 1 : -1), py + oy - 1, 1, 1); }
+        for (const [ox, oy, w] of nozzles) if (w > 2) { const ix = ox < 0 ? px + ox + w / 2 + 1 : px + ox - w / 2 - 2; ctx.fillRect(ix, py + oy - 2, 1, 2); }
       }
-      if (this.kick > 0) tootPuff(ctx, px, py - 17, this.kick > 2 ? 0 : 1);
+      if (this.kick > 0) tootPuff(ctx, px, py - 18, this.kick > 2 ? 0 : 1);
       const sh = this.powers.shield ?? 0;
       if (sh > 0 && !(sh < 180 && (t >> 3) % 2)) {
-        const rr = 19 + ((t >> 4) % 4 === 0 ? 1 : 0);
-        pxRing(ctx, px, py, rr, (t >> 2) % 2 ? 'l' : 'm');
-        pxRing(ctx, px, py, rr - 1, 's', 5, t / 18);
-        ctx.fillStyle = col('6');  // glint, upper left
-        ctx.fillRect(px - 12, py - 14, 3, 1); ctx.fillRect(px - 14, py - 12, 1, 2); ctx.fillRect(px - 11, py - 12, 1, 1);
+        const rr = 20 + (Math.sin(t / 22) > 0.2 ? 1 : 0);      // gentle 1px breathing
+        shieldRing(ctx, px, py + 1, rr, 'm', 's');
       }
     });
-    if (this.buddy) {
-      const pbob = Math.round(Math.sin(t / 8 + 1.3) * 1.6);
-      const ppx = sx(this.pupX), ppy = Math.round(this.pupY) + pbob;
-      const pn = this.pupName(), noz = PUP_NOZZLE[pn];
-      if (ground) r.push(1, this.pupY + 1, (ctx: CanvasRenderingContext2D) => shadowOval(ctx, ppx + 9, Math.round(this.pupY) + 17 - pbob, 8 + pbob, 2));
-      r.push(2, this.pupY + 1, (ctx: CanvasRenderingContext2D) => {
-        drawSprite(ctx, pn + lit, ppx, ppy);
-        if (noz) flame(ctx, ppx + noz[0] - noz[2] / 2, ppy + noz[1] + 1, noz[2], 3 + [0, 1, 2][(t >> 1) % 3]);
-      });
-    }
-    if ((this.near > 0 || this.invuln > 0) && !whiteFlash && this.wakeT <= 0) {
+    this.renderPup(r, ground, sx, lit, tod, t);
+    if (this.near > 0 && !whiteFlash && this.wakeT <= 0) {
       const hb = this.hitbox();
-      r.push(3, this.y, (ctx: CanvasRenderingContext2D) => hitDot(ctx, sx(hb.x + hb.w / 2), Math.round(hb.y + hb.h / 2) + bob, (t >> 3) & 1 ? 'c' : '6'));
+      r.push(3, this.y, (ctx: CanvasRenderingContext2D) => hitDot(ctx, sx(hb.x + hb.w / 2), Math.round(hb.y + hb.h / 2) + bob, (t >> 3) & 1 ? 'f' : '6'));
     }
   }
 
-  renderNap(r: any, ground: boolean, sx: (wx: number) => number) {
-    // the world dims the playfield during a nap; Pom herself is drawn in overlay() so she stays lit, "spotlit" in the dim
-    if (ground && this.napT < NAP_CURL) r.push(1, this.y, (ctx: CanvasRenderingContext2D) => shadowOval(ctx, sx(this.x) + 13, Math.round(this.y) + 27, 15, 3));
+  renderPup(r: any, ground: boolean, sx: (wx: number) => number, lit: string, tod: string, t: number) {
+    if (!this.buddy) return;
+    const ph = Math.sin(t / 8 + 1.3);
+    const pbob = Math.round(ph * 1.6);
+    const ppx = sx(this.pupX), ppy = Math.round(this.pupY) + pbob;
+    const pn = this.pupName(), noz = PUP_NOZZLES[pn] ?? [];
+    if (ground) r.push(1, this.pupY + 1, (ctx: CanvasRenderingContext2D) => shadowOval(ctx, ppx + (tod === 'dusk' ? 5 : 3), Math.round(this.pupY) + 11 - pbob, tod === 'night' ? 7 : 11, 3, 'v', tod === 'night'));
+    r.push(2, this.pupY + 1, (ctx: CanvasRenderingContext2D) => {
+      for (const [ox, oy, w] of noz) {
+        const len = 2 + [0, 1, 1][(t >> 1) % 3];
+        ribbon(ctx, this.ribbonPts(this.puX, this.puY, ppx + ox, ppy + oy + 1 + len, 4), 1, t);
+      }
+      drawSprite(ctx, pn + lit, ppx, ppy, { frame: ph > 0.2 ? 1 : 0 });     // ears flap up with the bob
+      for (const [ox, oy, w] of noz) flame(ctx, ppx + ox - w / 2, ppy + oy + 1, w, 2 + [0, 1, 1][(t >> 1) % 3]);
+    });
   }
 
-  /** Nap pose + Zzz, drawn above the world's nap dim (player overlays run after the world's). */
+  renderNap(r: any, ground: boolean, sx: (wx: number) => number, tod: string) {
+    // the world dims the playfield during a nap; Pom herself is drawn in overlay() so she stays lit, "spotlit" in the dim
+    if (ground && this.napT < NAP_CURL) r.push(1, this.y, (ctx: CanvasRenderingContext2D) => shadowOval(ctx, sx(this.x) + 6, Math.round(this.y) + 19, 18, 4, 'v', tod === 'night'));
+  }
+
+  /** Nap pose + Zzz, drawn above the world's nap dim (player overlays run after the world's); touch auto-fire tag. */
   overlay(g: Game, ctx: CanvasRenderingContext2D) {
+    if (this.touchSeen && this.autoFire && (g.state.scene === 'play' || g.state.scene === 'bonus')) {
+      const x = PF_X + 4, y = H - 12;
+      ctx.fillStyle = col('0'); ctx.fillRect(x, y, 31, 9);
+      ctx.fillStyle = col('r'); ctx.fillRect(x + 1, y + 1, 29, 7);
+      text(ctx, 'AUTO', x + 4, y + 1, col('6'));
+    }
     if (g.state.scene !== 'play' || g.mods.world?.phase !== 'nap' || this.napT < 0) return;
     const camR = Math.round(this.camF);
     ctx.save();
     ctx.beginPath(); ctx.rect(PF_X, 0, PF_W, H); ctx.clip();
     ctx.translate(PF_X - camR, 0);
-    this.drawNap(ctx, Math.round(this.x - this.camF) + camR, Math.round(this.y), g.mods.interaction?.grounded?.() ?? true);
+    this.drawNap(ctx, Math.round(this.x - this.camF) + camR, Math.round(this.y), g.mods.interaction?.grounded?.() ?? true, g.state.tod);
     ctx.restore();
   }
 
-  drawNap(ctx: CanvasRenderingContext2D, px: number, y0: number, ground: boolean) {
+  drawNap(ctx: CanvasRenderingContext2D, px: number, y0: number, ground: boolean, tod = 'day') {
     const t = this.napT;
     if (t < NAP_CURL) {
       // spin in place with a little hop: left, poodle, right, poodle...
@@ -287,19 +417,8 @@ class Player implements Module {
       return;
     }
     const k = t - NAP_CURL;
-    const breathe = (k >> 5) % 2;       // slow in/out
-    const squash = k < 6 ? 1 : 0;       // tiny flop on landing
-    if (ground) shadowOval(ctx, px + 6, y0 + 15, 26, 3);
-    drawSprite(ctx, 'pom_nap', px, y0 + squash, { frame: breathe });
-    // three Zs float up from her snoot, staggered, swaying, growing as they rise
-    for (let i = 0; i < 3; i++) {
-      const z = k - i * 22; if (z < 0) continue;
-      const p = (z % 66) / 66;
-      const n = 4 + Math.floor(p * 3);
-      const zx = px - 12 + Math.round(Math.sin(p * 6.28 + i) * 3) - Math.round(p * 6);
-      const zy = y0 - 10 - Math.round(p * 30);
-      if (p < 0.9) zGlyph(ctx, zx, zy, n, p < 0.6 ? '6' : '5');
-    }
+    drawNapPose(ctx, px, y0, k, ground, tod);
   }
 }
+
 export const makePlayer = (): Module => new Player();

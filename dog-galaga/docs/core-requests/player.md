@@ -43,3 +43,32 @@
    a 31-tick wake-up (stretch + yawn in place, drop below the screen, eased fly-in to (224, 316), camera eased)
    before control returns; invulnerability covers it. A non-nap `respawn()` (area entry) still places her at
    once and now also snaps the camera, so there is no 32px slide after entering an area.
+
+## Round 3 (wave2/player)
+
+1. **Analog stick in core/input.ts (still wanted; now a clean-up rather than a blocker).** The player now reads
+   `navigator.getGamepads()` itself (left stick, radial dead zone 0.2, magnitude remapped to 0..1) so small
+   deflections give a slow, precise dodge (0.4 deflection = 0.7 px/tick, full = 2.6). Please expose
+   `input.axis: { x, y }` from `poll()` with the same dead zone; the player will switch to it and stop touching
+   `navigator`. Digital `held()` must stay as is (autopilot, d-pad, keyboard).
+2. **Touch: playfield drag-to-move is live in the player module; ui/touch.ts should advertise it.** A finger that
+   lands on the playfield (PF_X..PF_X+PF_W) during play moves Pom by the finger's offset x1.3 from where she
+   was (relative drag, she never jumps under the finger) and auto-fires while dragging; a quick tap (<230 ms,
+   <5 px) toggles persistent auto-fire (`player.autoFire`, shown as a small red AUTO tag bottom-left of the
+   playfield). The d-pad and TOOT button keep working. Requests for the `ui` owner: (a) add an AUTO-FIRE toggle
+   key in the right touch deck bound to `g.mods.player.autoFire`, (b) label the left deck "DRAG FIELD OR PAD",
+   (c) `touch.ts` must keep not mapping playfield touches to actions during `play` (it does today).
+3. **Showcase: frame gallery.** `?showcase=player&filter=gallery` (`--showcase=player --filter=gallery` in the
+   screenshot tool) now draws a full-screen frame gallery from the player module itself: every Pom frame at 2x
+   (bank set, toot squash, stretch, hit flash, blink off-phase), nap breathing frames with Zzz, wingpup frames
+   (ear flap), day/dusk/night variants with in-context composites, and flame lengths. Optional for the
+   showcase owner: make `case 'player'` mention it in its comment, or default to it when `filter` is absent.
+4. **Adopt the new Pom art everywhere (repeat of round 2 #1, now more important).** Pom was redrawn this round
+   (curly scalloped coat, superman pose with paws, long ears, red captain's scarf + teal goggles on the pup).
+   The old `poodle`/`poodle_left`/`poodle_right` (title screen, dialogue fallback, journal) no longer match her.
+   Alias them to `POM_ART.pom`, `POM_ART.pom_bank_l`, `POM_ART.pom_bank_r` from `src/player/pom-art.ts`, and
+   use `pom_pup` for the HUD wingman icon. Note `PUP_NOZZLE` was replaced by `PUP_NOZZLES` (array per frame) and
+   `POM_KNOT` was added; nothing outside `src/player/` used them.
+5. **ARCHITECTURE.md hitbox-marker rule (documentation).** The marker now shows only while a threat is within
+   44x52 px (lingering 24 ticks), not for the whole invulnerability window; invulnerability is a clean
+   4-on/4-off blink (fully hidden on the off phase) after a 10-tick white flash. `pom_nap` has 3 breathing frames.

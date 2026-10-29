@@ -1,44 +1,23 @@
 // Pixel-exact drawing helpers private to the player module: every shape is integer fillRects in palette colours.
-import { col, PALETTE, KEY } from '../core/palette';
-import { spriteRows } from '../art/sprite';
+import { col } from '../core/palette';
+import { drawSprite } from '../art/sprite';
 
 type Ctx = CanvasRenderingContext2D;
 
-/** Sparse ink oval drop shadow: 50% checker in the core, 25% at the rim, no translucency. */
-export function shadowOval(ctx: Ctx, cx: number, cy: number, w: number, h = 4) {
+/** Drop shadow: a solid core in a dark tinted ink with a 1-2px dithered rim (no translucency).
+ *  `soft` draws the dithered pattern only (night: a faint, smaller shadow). */
+export function shadowOval(ctx: Ctx, cx: number, cy: number, w: number, h = 4, key = 'v', soft = false) {
   const x0 = Math.round(cx), y0 = Math.round(cy); const rx = Math.max(2, w / 2), ry = Math.max(1, h / 2);
-  ctx.fillStyle = col('0');
+  ctx.fillStyle = col(key);
   for (let dy = -Math.floor(ry); dy <= Math.floor(ry); dy++) {
     const rw = Math.round(rx * Math.sqrt(Math.max(0, 1 - (dy * dy) / ((ry + 0.5) * (ry + 0.5)))));
+    const edgeRow = Math.abs(dy) === Math.floor(ry) && ry >= 1.5;
     for (let dx = -rw; dx <= rw; dx++) {
-      const X = x0 + dx, Y = y0 + dy, rim = Math.abs(dx) > rw - 2;
-      if (((X + Y) & 1) !== 0) continue;
-      if (rim && (X & 2)) continue;          // thinner at the ends: reads soft without alpha
+      const X = x0 + dx, Y = y0 + dy, rim = edgeRow || Math.abs(dx) > rw - 2;
+      if ((rim || soft) && ((X + Y) & 1)) continue;
       ctx.fillRect(X, Y, 1, 1);
     }
   }
-}
-
-/** Invulnerability ghost: the full ink outline stays, the interior fill is a fixed-parity 50% checker
- *  (anchored to the sprite, so it never crawls as she moves). */
-const ghostCache = new Map<string, HTMLCanvasElement>();
-export function ghostSprite(ctx: Ctx, name: string, frame: number, cx: number, cy: number) {
-  const key = name + '|' + frame;
-  let c = ghostCache.get(key);
-  if (!c) {
-    const rows = spriteRows(name, frame); if (!rows) return;
-    const h = rows.length, w = Math.max(...rows.map(r => r.length));
-    c = document.createElement('canvas'); c.width = w; c.height = h;
-    const x = c.getContext('2d')!;
-    rows.forEach((r, y) => [...r].forEach((ch, i) => {
-      if (ch === '.' || ch === ' ') return;
-      if (ch !== '0' && ((i + y) & 1)) return;
-      const pi = KEY.indexOf(ch); if (pi < 0) return;
-      x.fillStyle = PALETTE[pi]; x.fillRect(i, y, 1, 1);
-    }));
-    ghostCache.set(key, c);
-  }
-  ctx.drawImage(c, Math.round(cx - c.width / 2), Math.round(cy - c.height / 2));
 }
 
 /** Jet flame below a nozzle: white core, yellow body, orange then burnt tip; tapers to a point.
@@ -55,6 +34,66 @@ export function flame(ctx: Ctx, x: number, y: number, w: number, len: number) {
   }
 }
 
+/** Continuous exhaust ribbon through screen points (pts[0] = flame tip). Each segment is a Bresenham run, so
+ *  lateral motion leaves an unbroken diagonal; w px wide for the first 60%, then 1px, fading
+ *  yellow > orange > burnt; the last two points are flickering 1px sparkles instead of a dash. */
+export function ribbon(ctx: Ctx, pts: [number, number][], w: number, tick: number) {
+  const n = pts.length; if (n < 2) return;
+  for (let i = 1; i < n; i++) {
+    const k = i / n;
+    if (i >= n - 2 && n > 3) {
+      if (((tick + i) & 1) === 0) { ctx.fillStyle = col(i === n - 1 ? 'h' : 'g'); ctx.fillRect(Math.round(pts[i][0]), Math.round(pts[i][1]), 1, 1); }
+      continue;
+    }
+    ctx.fillStyle = col(k < 0.3 ? 'f' : k < 0.55 ? 'g' : 'h');
+    const ww = k < 0.6 ? w : 1;
+    let x0 = Math.round(pts[i - 1][0]), y0 = Math.round(pts[i - 1][1]);
+    const x1 = Math.round(pts[i][0]), y1 = Math.round(pts[i][1]);
+    const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+    let err = dx + dy;
+    for (let s = 0; s < 64; s++) {
+      ctx.fillRect(x0 - (ww >> 1), y0, ww, 1);
+      if (x0 === x1 && y0 === y1) break;
+      const e2 = 2 * err; if (e2 >= dy) { err += dy; x0 += sx; } if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+  }
+}
+
+/** The captain's scarf tail: a 2px red ribbon tied at (x, y), streaming out to `dir` (+1 right, -1 left),
+ *  drooping a little and waving; inked on both edges and ending in a notched two-point tip. */
+export function scarfTail(ctx: Ctx, x: number, y: number, dir: number, t: number, len = 10, amp = 1.4) {
+  x = Math.round(x); y = Math.round(y);
+  const ys: number[] = [];
+  for (let i = 0; i <= len; i++) ys.push(y + Math.round(Math.sin(i * 0.55 - t * 0.3) * amp * (i / len) + i * 0.3));
+  ctx.fillStyle = col('0');
+  for (let i = 0; i <= len + 1; i++) { const yy = ys[Math.min(i, len)], X = x + dir * i; ctx.fillRect(X, yy - 1, 1, 4); }
+  for (let i = 0; i <= len; i++) {
+    const yy = ys[i], X = x + dir * i;
+    if (i >= len - 1) {          // notched tip: two 1px points with an ink gap between
+      ctx.fillStyle = col('r'); ctx.fillRect(X, yy - (i === len ? 1 : 0), 1, 1);
+      ctx.fillStyle = col('e'); ctx.fillRect(X, yy + 1 + (i === len ? 1 : 0), 1, 1);
+      continue;
+    }
+    ctx.fillStyle = col(i < 3 ? 'c' : 'r'); ctx.fillRect(X, yy, 1, 1);
+    ctx.fillStyle = col('e'); ctx.fillRect(X, yy + 1, 1, 1);
+  }
+}
+
+/** Shield bubble: one clean midpoint circle, a lighter 1px arc on the upper-left quadrant as the highlight. */
+export function shieldRing(ctx: Ctx, cx: number, cy: number, r: number, key: string, hi: string) {
+  const x0 = Math.round(cx), y0 = Math.round(cy);
+  let x = r, y = 0, err = 1 - r;
+  const put = (dx: number, dy: number) => {
+    const ul = dx < 0 && dy < 0 && -dx > r * 0.3 && -dy > r * 0.3;
+    ctx.fillStyle = col(ul ? hi : key); ctx.fillRect(x0 + dx, y0 + dy, 1, 1);
+  };
+  while (x >= y) {
+    put(x, y); put(y, x); put(-y, x); put(-x, y); put(-x, -y); put(-y, -x); put(y, -x); put(x, -y);
+    y++;
+    if (err < 0) err += 2 * y + 1; else { x--; err += 2 * (y - x) + 1; }
+  }
+}
+
 /** Toot puff at the shot spawn point: frame 0 a tight 3px tan puff, frame 1 a 5px broken brown ring. */
 export function tootPuff(ctx: Ctx, x: number, y: number, f: number) {
   x = Math.round(x); y = Math.round(y);
@@ -68,12 +107,16 @@ export function tootPuff(ctx: Ctx, x: number, y: number, f: number) {
   }
 }
 
-/** Pixel "Z" glyph of size n (3..6) with a 1px ink outline so it reads on any background. */
+/** Pixel "Z" glyph of size n (3..8) with a 1px ink outline and a plum drop shadow, so it reads on any background.
+ *  Sizes 7+ get 2px-thick strokes. */
 export function zGlyph(ctx: Ctx, x: number, y: number, n: number, key: string) {
-  x = Math.round(x); y = Math.round(y);
+  x = Math.round(x); y = Math.round(y); n = Math.max(3, Math.min(8, Math.round(n)));
   const cells: [number, number][] = [];
-  for (let i = 0; i < n; i++) { cells.push([i, 0]); cells.push([i, n - 1]); }
-  for (let i = 1; i < n - 1; i++) cells.push([n - 1 - i, i]);
+  const bar = n >= 7 ? 2 : 1;
+  for (let i = 0; i < n; i++) for (let b = 0; b < bar; b++) { cells.push([i, b]); cells.push([i, n - 1 - b]); }
+  for (let i = bar; i < n - bar; i++) { const cx = n - 1 - i; cells.push([cx, i]); if (bar > 1) cells.push([Math.max(0, cx - 1), i]); }
+  ctx.fillStyle = col('v');
+  for (const [a, b] of cells) ctx.fillRect(x + a, y + b + 2, 2, 2);
   ctx.fillStyle = col('0');
   for (const [a, b] of cells) ctx.fillRect(x + a - 1, y + b - 1, 3, 3);
   ctx.fillStyle = col(key);
@@ -88,8 +131,27 @@ export function hitDot(ctx: Ctx, x: number, y: number, key: string) {
   ctx.fillStyle = col(key); ctx.fillRect(x - 1, y - 1, 2, 2);
 }
 
-/** 1px dot / 4-point star used by the jet trail. */
+/** 1px dot / 4-point star used by the boost sparkles. */
 export function dot(ctx: Ctx, x: number, y: number, key: string, star = false) {
   x = Math.round(x); y = Math.round(y); ctx.fillStyle = col(key);
   if (star) { ctx.fillRect(x - 1, y, 3, 1); ctx.fillRect(x, y - 1, 1, 3); } else ctx.fillRect(x, y, 1, 1);
+}
+
+/** The curled-up nap: whole-body breathing squash (3 frames on a slow sine), landing flop, rising Zzz. */
+export function drawNapPose(ctx: Ctx, px: number, y0: number, k: number, ground: boolean, tod = 'day') {
+  const s = Math.sin(k / 24);
+  const breathe = s > 0.45 ? 2 : s > -0.45 ? 1 : 0;
+  const squash = k < 6 ? 1 : 0;       // tiny flop on landing
+  if (ground) shadowOval(ctx, px + 5, y0 + 11, 28, 4, 'v', tod === 'night');
+  drawSprite(ctx, 'pom_nap', px, y0 + squash, { frame: breathe });
+  // three Zs rise from her snoot, staggered, swaying: the first pops in at 5px (with a 1-tick overshoot)
+  // and grows to 8px as it climbs
+  for (let i = 0; i < 3; i++) {
+    const z = k - i * 24; if (z < 0) continue;
+    const zt = z % 72, p = zt / 72;
+    const n = zt < 2 ? 3 : zt < 4 ? 6 : 5 + Math.floor(p * 3.99);
+    const zx = px + 1 + Math.round(Math.sin(p * 6.28 + i) * 2) + Math.round(p * 10);
+    const zy = y0 - 8 - Math.round(p * 34) - n;
+    if (p < 0.88) zGlyph(ctx, zx, zy, n, p < 0.65 ? '6' : '5');
+  }
 }
