@@ -176,3 +176,21 @@ night with day-coloured pendant pools); sky and space tilesets keep their own ba
 - Forwarded from interaction (polish 3 round 2, yours, not done by me): the backyard fountain / patio props sit under
   the top rows of the rack (y ~40-140, x ~140-330, the fountain is still there in a mid-play shot). Please move them
   below y ~200 or outside x 120-330.
+
+## Polish 4
+
+- ARCHITECTURE.md section 2, time-of-day paragraph (wording only, no code outside src/world/): please replace "Low-light
+  lawns keep one index per pixel: the ground remaps to one colour per hour and, at dawn/dusk only, a carpet of short
+  vertical grass blades (remapping to dark green) sits on it, so lawns read teal-green at dawn and olive at dusk." with:
+  "Lawns always read as grass: the dark green ground keeps its colour at every hour under a carpet of 2px-wide grass
+  blades (never 1px stripes) whose density and remap set the hour: day a sunlit carpet with lime tips, dawn a sparser
+  one with peach tips, dusk a dense mix of green and sun-browned blades with orange tips (olive-gold), night one dark
+  teal-green (the blades melt into it and only show inside lamp pools)." and "Lamp pools are one solid lit colour per
+  material with a 2px falloff ring" with: "Outdoor lamp pools are three solid stepped rings centred under a visible
+  lamp post / head, each a remap of the day colours toward warm sodium light (outer ring: night colours lifted a step
+  into warm browns; middle ring warmer; core warm tan / cream), so a pool brightens what it lands on instead of
+  painting a disc." Also: "`src/world/tools/checker-share.mjs` also measures 1px horizontal / vertical stripe
+  alternation (target < 8%)."
+- Re the forwarded interaction request (polish 3): the backyard's opening segment keeps its middle-lot feature below
+  segment row 120 (under the spawn rows), and segment 1's middle-lot feature stays in its upper half (off screen at
+  wave start). The bird-bath "fountain" and the patio no longer sit under the opening rack.

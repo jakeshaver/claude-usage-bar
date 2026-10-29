@@ -32,9 +32,9 @@ export const SHADE = ramp('1:0 2:1 3:2 4:3 5:4 6:5 7:8 8:9 9:a a:b b:v c:d d:e e
 /** Cast shadows per time of day: cool lavender-blue at dawn, plum at dusk, deep navy at night. Never dithered. */
 export const SHADE_TOD: Record<Tod, Ramp> = {
   day: SHADE,
-  night: remap('2:1 q:1 3:2 k:0 n:1 p:2 4:3 u:2 o:q 9:b a:v 8:p 1:0', SHADE),
-  dawn: remap('k:2 j:k q:2 p:3 o:4 7:5 8:4 9:3 a:2 b:1 h:a v:1 i:m 3:2 n:2 m:n c:d', SHADE),
-  dusk: remap('k:v j:k q:v p:q o:p 8:a 9:b a:v b:v h:b g:h 4:u 3:2 2:v n:v m:n 1:0 e:v u:v', SHADE),
+  night: remap('2:1 q:1 3:2 k:1 j:1 n:1 p:2 4:3 u:2 o:q 9:b a:v 8:p 1:0', SHADE),
+  dawn: remap('k:1 j:k i:k q:2 p:3 o:4 7:5 8:4 9:3 a:2 b:1 h:a v:1 i:m 3:2 n:2 m:n c:d', SHADE),
+  dusk: remap('k:1 j:b i:b q:v p:q o:p 8:a 9:b a:v b:v h:b g:h 4:u 3:2 2:v n:v m:n 1:0 e:v u:v', SHADE),
 };
 // ---------------------------------------------------------------- lighting
 // Time of day is a PALETTE REMAP: each time of day is a palette index -> palette index table applied once,
@@ -55,23 +55,30 @@ const ID = ramp('');
 /** outdoor time-of-day remaps (single index -> single index) */
 export const TOD_RAMP: Record<Tod, Ramp> = {
   day: ID,
-  // lawns cool to a dewy teal-blue (green tufts on top read teal-green), stone to indigo-slate, creams/yellows to peach-pink
-  dawn: remap('6:5 7:c 8:c 9:9 f:c g:c h:d r:d i:j j:k k:n l:s m:m n:2 o:4 p:3 q:2 s:5'),
-  // lawns warm to a dark olive-brown with green tufts and ochre tips, woods a step deeper, stone cools to indigo for
-  // contrast against the warm ground, blues to violet
-  dusk: remap('6:7 7:8 8:9 9:a a:b b:v c:d f:g g:h h:b r:h i:g j:k k:b l:t s:t m:u n:2 o:9 p:q q:2 1:v 2:v 3:2 4:3 5:4 t:u u:e'),
-  // dark but legible: lawns indigo with blue-teal tufts, stone periwinkle/indigo a step above the ground, creams to periwinkle
-  night: remap('6:5 7:4 8:3 9:a a:b b:v c:e d:e e:v f:9 g:a h:b r:e i:m j:n k:2 l:m m:n n:2 s:4 o:4 p:3 q:2 1:0 2:1 3:2 4:3 5:4 t:u u:2'),
+  // lawns stay a cool fresh green (grass blades green, their tips peach), stone to indigo-slate, creams/yellows to peach-pink
+  dawn: remap('6:5 7:c 8:c 9:9 f:c g:c h:d r:d i:c l:s m:m n:2 o:4 p:3 q:2 s:5'),
+  // lawns olive-gold: the dark green ground under a carpet of green and sun-browned blades with orange tips; woods a step deeper,
+  // stone cools to indigo for contrast against the warm ground, blues to violet
+  dusk: remap('6:7 7:8 8:9 9:a a:b b:v c:d f:g g:h h:b r:h i:g l:t s:t m:u n:2 o:9 p:q q:2 1:v 2:v 3:2 4:3 5:4 t:u u:e'),
+  // dark but legible: lawns one dark teal-green (blades and tufts melt into it), stone periwinkle/indigo, creams to periwinkle
+  night: remap('6:5 7:4 8:3 9:a a:b b:v c:e d:e e:v f:9 g:a h:b r:e i:k j:k l:m m:n n:2 s:4 o:4 p:3 q:2 1:0 2:1 3:2 4:3 5:4 t:u u:2'),
 };
 /** Low sun on the sunward faces: warm amber at dusk (west faces), peach-pink at dawn (top / east edges). */
 export const RIM_RAMP: Partial<Record<Tod, Ramp>> = {
   dusk: ramp('q:h p:g o:f v:a 1:b 2:e 3:d 4:c 5:7 a:g b:h 9:g 8:f 7:f k:a j:9 i:f n:e m:d 6:7 u:d t:c e:d'),
   dawn: ramp('q:p p:8 o:c v:q 1:v 2:3 3:4 4:c 5:c a:9 b:a 9:8 8:c 7:c k:j j:8 n:m m:4 h:g e:d u:t'),
 };
-/** Inside a lamp pool at night: the lit pixels are simply BRIGHTER (day colours; greys and whites warmed toward sodium cream). */
-export const LAMP_RAMP = remap('6:7 s:7 5:7 o:8 p:o q:p v:b 1:v 2:3 j:k');
-/** Falloff ring of a lamp pool: halfway between lamplight and moonlight, same hue families. */
-export const LAMP_EDGE = ramp('6:5 7:8 8:9 9:a a:b b:v c:d d:e e:v f:g g:h h:a i:j j:k k:k l:m m:n n:2 o:9 p:a q:b v:v r:e s:5 t:u u:2 1:1 2:2');
+/**
+ * Outdoor lamp pools at night are three solid stepped rings centred under the lamp head, each a remap of the DAY
+ * colours toward warm sodium light: the outer ring lifts the night colours one step into warm browns (grass shows its
+ * blades), the middle ring warmer and lighter, the core warmest and lightest (greys to tan / cream, grass to lit green
+ * with lime blades, wood to tan, water to teal).
+ */
+export const LAMP_RAMP = remap('q:9 p:8 o:7 v:a 1:b 2:3 3:4 4:5 5:7 7:6 8:7 9:8 a:9 b:a k:j j:i i:f n:m m:s h:g g:f e:d d:c u:t');
+/** middle ring: a step past the day colours, warm */
+export const LAMP_MID = remap('q:a p:9 o:8 v:b 1:v 2:2 3:3 4:4 5:5 7:7 8:7 9:8 a:9 b:a k:k j:i i:f n:n m:m h:g g:g e:e u:u');
+/** outer ring: night colours lifted one step (grass shows its blades, stone a step above moonlight) */
+export const LAMP_EDGE = remap('6:5 7:8 8:9 9:a a:b b:b c:d d:e e:v f:g g:h h:a i:j j:j k:k l:m m:n n:n o:9 p:a q:b v:v r:e s:5 t:u u:2 1:1 2:2 3:3 4:4 5:5');
 /** Interiors: the lights are on, so the room dims and warms instead of going black (pendant pools stay at day colours). */
 export const INDOOR_RAMP: Record<Tod, Ramp> = {
   day: ID,
@@ -123,7 +130,9 @@ export class Painter {
   shadow: Uint8Array;
   pools: Pool[] = [];
   /** skewed sunbeam parallelograms (interiors at dawn/day) */
-  beams: { x: number; y: number; w: number; h: number; skew: number; x0?: number; x1?: number }[] = [];
+  beams: { x: number; y: number; w: number; h: number; skew: number; x0?: number; x1?: number; soft?: boolean; tilt?: number }[] = [];
+  /** ramp used inside the soft outer halo of a sunbeam */
+  sunSoft: Ramp | null = null;
   /** low-sun rim light rows [x, y, w] (west faces at dusk, east faces at dawn) */
   rims: number[] = [];
   glows: { lit: number; x: number; y: number; w: number; h: number; on: boolean }[] = [];
@@ -222,7 +231,9 @@ export class Painter {
   /** draw this after the ground shadows are applied */
   obj(fn: () => void) { this.objs.push(fn); }
   /** a sunbeam: parallelogram lit with SUN_RAMP (only shown when the caller decides it is daytime) */
-  beam(x: number, y: number, w: number, h: number, skew: number, x0?: number, x1?: number) { this.beams.push({ x, y, w, h, skew, x0, x1 }); }
+  beam(x: number, y: number, w: number, h: number, skew: number, x0?: number, x1?: number, soft = false) { this.beams.push({ x, y, w, h, skew, x0, x1, soft }); }
+  /** a diagonal shaft: columns x..x+w, each lit from y + (col - x) * tilt for h rows (a band slanting across the floor) */
+  shaft(x: number, y: number, w: number, h: number, tilt: number, soft = false) { this.beams.push({ x, y, w, h, skew: 0, soft, tilt }); }
   /** a light source: lamp pool at night */
   pool(x: number, y: number, r: number, clip?: [number, number, number, number], spill = false) { this.pools.push({ x, y, r, clip, spill }); }
   /** emissive rect: shows `day` normally, `lit` (unaffected by darkness) when the light is on */
@@ -233,6 +244,7 @@ export class Painter {
   }
   /** Run the passes: shade shadows -> objects -> time-of-day remap (with lamp pools, sunbeams, rim light) -> emissives -> pixels. */
   finish(todRamp: Ramp, pools: boolean, poolRamp: Ramp = LAMP_RAMP, rimRamp: Ramp | null = null, edgeRamp: Ramp = LAMP_EDGE) {
+    const stepped = poolRamp === LAMP_RAMP; // outdoor lamps: three solid warm rings (interior pendants keep core + thin ring)
     const { w, h, buf } = this;
     const sh = SHADE_TOD[this.tod];
     for (let i = 0; i < w * h; i++) if (this.shadow[i]) {
@@ -241,7 +253,7 @@ export class Painter {
       buf[i] = sh.lv[v] > BAYER[(((i / w) | 0) & 3) * 4 + ((i % w) & 3)] ? sh.b[v] : sh.a[v];
     }
     for (const f of this.objs) f();
-    // light mask: 1 lamp pool, 2 sunbeam, 3 rim, 4 lamp falloff
+    // light mask: 1 lamp pool, 2 sunbeam, 3 rim, 4 lamp falloff, 5 lamp middle ring, 6 soft sunbeam edge
     let mask: Uint8Array | null = null;
     if (rimRamp && this.rims.length) {
       mask = new Uint8Array(w * h); const R = this.rims;
@@ -259,21 +271,29 @@ export class Painter {
         for (let y = Math.max(0, p.y - R); y < Math.min(h, p.y + R + 1); y++) for (let x = Math.max(0, p.x - R); x < Math.min(w, p.x + R + 1); x++) {
           const d = Math.hypot(x + 0.5 - (p.x + 0.5), (y + 0.5 - (p.y + 0.5)) * 1.15); if (d > R) continue;
           const o = y * w + x;
-          const v = d <= R - 2 ? 1 : d <= R - 1 ? 4 : ((x + y) & 1 ? 4 : 0);
-          if (v === 1 || (v === 4 && mask[o] !== 1)) mask[o] = v;
+          const v = stepped ? (d <= R * 0.42 ? 1 : d <= R * 0.72 ? 5 : 4) : d <= R - 2 ? 1 : d <= R - 1 ? 4 : ((x + y) & 1 ? 4 : 0);
+          const rank = (m: number) => m === 1 ? 3 : m === 5 ? 2 : m === 4 ? 1 : 0;
+          if (v && rank(v) > rank(mask[o])) mask[o] = v;
         }
       }
     }
     if (this.beams.length) {
       mask = mask ?? new Uint8Array(w * h);
-      for (const b of this.beams) for (let y = Math.max(0, b.y); y < Math.min(h, b.y + b.h); y++) {
+      for (const b of this.beams) if (b.tilt !== undefined) {
+        for (let x = Math.max(0, b.x); x < Math.min(w, b.x + b.w); x++) { const y0 = b.y + Math.round((x - b.x) * b.tilt);
+          for (let y = Math.max(0, y0); y < Math.min(h, y0 + b.h); y++) { const o = y * w + x; if (b.soft) { if (mask[o] !== 1 && mask[o] !== 2) mask[o] = 6; } else if (mask[o] !== 1) mask[o] = 2; } }
+      } else for (let y = Math.max(0, b.y); y < Math.min(h, b.y + b.h); y++) {
         const x0 = b.x + Math.round((y - b.y) * b.skew);
         // crisp beams: solid inside, one 50% pixel row on the edge (no wide halftone falloff)
-        for (let x = Math.max(0, x0, b.x0 ?? 0); x < Math.min(w, x0 + b.w, b.x1 ?? w); x++) { const e = Math.min(x - x0, x0 + b.w - 1 - x, y - b.y, b.y + b.h - 1 - y); if (e >= 1 || ((x + y) & 1) === 0) { const o = y * w + x; if (mask[o] !== 1) mask[o] = 2; } }
+        for (let x = Math.max(0, x0, b.x0 ?? 0); x < Math.min(w, x0 + b.w, b.x1 ?? w); x++) {
+          const o = y * w + x;
+          if (b.soft) { if (mask[o] !== 1 && mask[o] !== 2) mask[o] = 6; continue; } // a solid soft halo: never dithered
+          const e = Math.min(x - x0, x0 + b.w - 1 - x, y - b.y, b.y + b.h - 1 - y); if (e >= 1 || ((x + y) & 1) === 0) { if (mask[o] !== 1) mask[o] = 2; }
+        }
       }
     }
     if (!todRamp.id || mask) {
-      const ramps: (Ramp | null)[] = [todRamp, poolRamp, this.sunRamp, rimRamp, edgeRamp];
+      const ramps: (Ramp | null)[] = [todRamp, poolRamp, this.sunRamp, rimRamp, edgeRamp, stepped ? LAMP_MID : poolRamp, this.sunSoft ?? this.sunRamp];
       for (let y = 0, i = 0; y < h; y++) for (let x = 0; x < w; x++, i++) {
         const v = buf[i]; if (v === CLEAR) continue;
         const rm = ramps[mask ? mask[i] : 0] ?? todRamp; if (rm.id) continue;
