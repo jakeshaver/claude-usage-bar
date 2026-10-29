@@ -265,3 +265,45 @@
    `--at=640` (the credits STARRING plate), zero errors.
 3. FYI noted in ARCHITECTURE.md (ui entry): the merged quest/pup toast pills (`toastWaiting` still matches the
    original texts), and breed short names with 3-tone icons in the hostiles list.
+
+## Polish 5
+
+1. **core (attract demo flag):** ui now runs a Galaga attract demo after ~10 s idle on the title (autopilot flies a
+   mid wave of the start sector or a cleared one on a JSON copy of the state; `save.save` / `save.flush` are stubbed
+   for the run, the real state object is put back afterwards, memories' leftover drops/cards are cleared; verified
+   that localStorage and `g.state` are byte-identical after the demo). Modules that keep session-only bookkeeping
+   from bus events still hear the demo: journal's `seen` breeds / `boops` and quest's internal `touched` counters.
+   Please add a `g.demo: boolean` (ui sets it for the run) and have journal `note()` and quest `onEvent()` ignore events
+   while it is set, so a demo can never mark a breed as seen in the bestiary.
+2. **memories (row anchor):** the right HUD no longer has a SECTOR GOALS block. ui keeps a slim MEMORIES strip at
+   the same row (`x1 = RX+10`, label at `x1+15`, boxes right-aligned, `y 245..254`), so `goalsPulse` still lines up;
+   the LOST PUP / BIG CAT rows and the local / flight time moved to the pause menu's sector card (the HUD keeps a
+   one-line DAY + flight clock footer at y 336). Please update the comments that say "SECTOR GOALS (x1, y 230)" to
+   "memory strip (y 239..256)". In touch mode the strip is hidden (the deck starts at y 232), so please skip
+   `goalsPulse` when `ui.touch.visible(g)`.
+3. **save (indicator comment):** the keyboard floppy still lands at `colRight - 16, H - 26`, right of the new footer
+   row (DAY + flight clock end at x RX+98); only the comment "beside the FLIGHT TIME clock" is stale.
+4. **FYI (ui):** the HUD threat slot now reads HOSTILES while cats are up and NEXT WAVE (or NEXT: BIG CAT with the
+   boss's portrait) between waves, over an INCOMING pill, never SKIES CLEAR. The PUPPY RESCUED merge keeps the
+   rescue's own news: 'PUPPY RESCUED! WINGMAN ONLINE. LOST PUPS n/m'.
+
+### Polish 5, round 2
+
+5. **memories (card slot: the essentials must stay visible):** the right HUD was re-spaced into five even blocks
+   (SECTOR 10, WAVE 54, QUEST 88, threat slot 128..200, RESCUED 212) and a footer, and the memory card now has its
+   own slot at the panel foot. ui exposes the anchors as `g.mods.ui.hudSlots()`:
+   `{ card: { x: RX+4, y: 245, w: 120, h: 111 }, album: { x: RX+75, y: 232, tx: RX+86, ty: 228 }, strip: { x: RX+10, w: 108, row: 259 } }`.
+   Please read them (fall back to the current constants when `hudSlots` is missing) instead of the hard-coded values:
+   - card: `CARD_Y = card.y` and, in the keyboard layout too, the compact 111px card (`compact = true` whenever
+     `card.h < CARD_H`). Touch can keep its current spot (y 119..230). The card then covers only the photo strip, the
+     stage flags and the clock footer; QUEST, HOSTILES and the album chip stay in view.
+   - album: `ALBUM_X/ALBUM_Y = album.x/album.y` (the RESCUED row's polaroid chip, now just above the card, so the
+     file flight's FLY_TOP = CARD_Y - 2 still works), `ALBUM_TX/ALBUM_TY = album.tx/album.ty` (the chip is still plain
+     deep night behind the count).
+   - strip: `GOALS_X/GOALS_W/GOALS_ROW = strip.x/strip.w/strip.row` (label at x+15, boxes at row-1, as before).
+   ui verified this with a local patch of exactly these values (backyard reveal + bundle, zero errors), then reverted it.
+   Until this lands, the old constants repaint the album count at (RX+85, 102) over the QUEST name while a card is up.
+6. **core / journal / quest (FYI for request 1):** ui now sets `(g as any).demo = true` for the attract demo run (false
+   after), and snapshots and restores journal `seen` / `boops` / `bossesDown` and quest `touched` around it, because
+   the demo now tours later sectors (rooftops at night, sky at dusk, moon, alley, backyard, station). A typed
+   `g.demo` flag that those modules check would still be the cleaner fix.
