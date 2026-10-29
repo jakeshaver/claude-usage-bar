@@ -18,8 +18,8 @@
    "ending_true"
   ],
   "botMinutes": [
-   33,
-   35
+   32,
+   34
   ],
   "note": "waves trimmed to 7-9 per sector (104 waves); human estimate 70-100 min"
  },
@@ -40,8 +40,8 @@
    "history": null
   },
   "world": {
-   "score": 7.6,
-   "status": "polish4 r3"
+   "score": 7.8,
+   "status": "polish5 r3"
   },
   "player": {
    "score": 7.6,
@@ -49,11 +49,11 @@
   },
   "interaction": {
    "score": 8.2,
-   "status": "polish4 r2"
+   "status": "polish5 r2"
   },
   "ui": {
-   "score": 8.5,
-   "status": "PASSED"
+   "score": 8.2,
+   "status": "polish5 r2 (regressed from 8.5: memory card slot conflict)"
   },
   "audio": {
    "score": 7.2,
@@ -97,7 +97,7 @@
   "1px stray line ~y140 in some sectors; sky seam",
   "secret_route quest left active on moon route"
  ],
- "nextStep": "Polish loop 5: world dawn/dusk light (not hue wash), dark night grass, dither band behind rack, nebula/station/factory/alley lamps; interaction boss arena drama; ui HUD density + title attract demo. Target 8.5.",
+ "nextStep": "Polish loop 6: night lawns dark TEAL-GREEN, nebula, mothership/station variety, factory night, sky dawn gradient; ui+memories card slot, ending text clip, wave banner plate, HUD density; interaction KO/lane clipping, empress bullets, escort wings, arena dressing. Target 8.5.",
  "passedModules": [
   "memories",
   "journal",
@@ -106,7 +106,7 @@
  ],
  "finalGate": {
   "round": 1,
-  "wholeGameCritic": 8.3,
+  "wholeGameCritic": 8.4,
   "criticPass": false,
   "blindJudgeWinRate": 0.78,
   "blindPairs": 6,
@@ -145,6 +145,10 @@
    {
     "round": "polish4",
     "wholeGameCritic": 8.3
+   },
+   {
+    "round": "polish5",
+    "wholeGameCritic": 8.4
    }
   ]
  }
