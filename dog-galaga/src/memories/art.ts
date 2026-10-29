@@ -256,7 +256,7 @@ export function photo(id: string, blink = false): HTMLCanvasElement {
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 /**
  * Polaroid card (frame 64x62: 4px borders, 14px chin) with its photo at top-left (x, y).
- * dev 0..1 "develops" the photo: an ordered-dither veil of plum lifts pixel by pixel. scale is an integer.
+ * dev 0..1 "develops" the photo: a milky cream ordered-dither veil lifts pixel by pixel, like an instant photo. scale is an integer.
  */
 export function polaroid(ctx: Ctx, id: string, x: number, y: number, dev = 1, scale = 1, blink = false) {
   const s = Math.max(1, Math.round(scale)); x = Math.round(x); y = Math.round(y);
@@ -271,7 +271,10 @@ export function polaroid(ctx: Ctx, id: string, x: number, y: number, dev = 1, sc
     const th = Math.floor(dev * 17);
     for (let yy = 0; yy < PHOTO_H; yy++) for (let xx = 0; xx < PHOTO_W; xx++) {
       const b = BAYER[(yy & 3) * 4 + (xx & 3)];
-      if (b >= th) { ctx.fillStyle = col(b >= th + 6 ? 'v' : '2'); ctx.fillRect(px + xx * s, py + yy * s, s, s); }
+      if (b < th) continue;
+      // milky cream emulsion first (cream / light grey dither), warming to tan right before a pixel develops
+      const k = b >= th + 5 ? (((xx + yy) & 1) ? '7' : (b & 1 ? 'o' : '7')) : '8';
+      ctx.fillStyle = col(k); ctx.fillRect(px + xx * s, py + yy * s, s, s);
     }
   }
   // a strip of tape across the top edge
@@ -352,49 +355,114 @@ export function spriteChin(rows: string[] | null, key: string) {
   v = { w, h, chin }; chinCache.set(key, v); return v;
 }
 
-/**
- * Gold rim hugging a sprite's silhouette: 1px `key` right outside the sprite's own ink outline, then 1px of ink
- * beyond it so the rim reads on light floors too. Drawn in front of the cat (it never touches sprite pixels).
- */
-const rimCache = new Map<string, HTMLCanvasElement | null>();
-export function silhouetteRim(ctx: Ctx, rows: string[] | null, key: string, cacheKey: string, flipY: boolean, cx: number, cy: number) {
-  const ck = `${cacheKey}|${flipY ? 1 : 0}|${key}`;
-  let out = rimCache.get(ck);
-  if (out === undefined) {
-    out = null;
-    if (rows && typeof document !== 'undefined') {
-      const h = rows.length, w = Math.max(...rows.map(r => r.length));
-      const on = (x: number, y: number) => { const ch = rows[flipY ? h - 1 - y : y]?.[x]; return !!ch && ch !== '.' && ch !== ' '; };
-      const ring1 = (x: number, y: number) => !on(x, y) && (on(x + 1, y) || on(x - 1, y) || on(x, y + 1) || on(x, y - 1));
-      out = document.createElement('canvas'); out.width = w + 4; out.height = h + 4;
-      const c = out.getContext('2d')!;
-      for (let y = -2; y < h + 2; y++) for (let x = -2; x < w + 2; x++) {
-        if (on(x, y)) continue;
-        if (ring1(x, y)) { c.fillStyle = col(key); c.fillRect(x + 2, y + 2, 1, 1); continue; }
-        let near = false; for (let j = -1; j <= 1 && !near; j++) for (let i = -1; i <= 1; i++) if (ring1(x + i, y + j)) { near = true; break; }
-        if (near) { c.fillStyle = col('0'); c.fillRect(x + 2, y + 2, 1, 1); }
-      }
-    }
-    rimCache.set(ck, out);
+/** Top of a cat's head: the first row at least 40% as wide as the sprite (skips a tail tip sticking up). */
+const headCache = new Map<string, number>();
+export function spriteHeadTop(rows: string[] | null, key: string) {
+  let v = headCache.get(key); if (v !== undefined) return v;
+  v = 0;
+  if (rows) {
+    const w = Math.max(...rows.map(r => r.length));
+    for (let y = 0; y < rows.length; y++) { let n = 0; for (const ch of rows[y]) if (ch !== '.' && ch !== ' ') n++; if (n >= w * 0.4) { v = y; break; } }
   }
-  if (out) ctx.drawImage(out, Math.round(cx - out.width / 2), Math.round(cy - out.height / 2));
+  headCache.set(key, v); return v;
 }
 
 /**
- * The carrier's halo: one clean two-tone pixel ring (gold outside, white inside) between two ink rings, with
- * bright pixels chasing round it. bright = the slow blink's lit frame (the inner band flares white).
+ * The carrier's golden rim: a 2px band hugging the sprite's silhouette right outside its own ink outline
+ * (gold 'f' inside, orange 'g' outside), closed by 1px of ink so it reads on pale floors too. It stays within
+ * the 4px of air between formation neighbours, so it never crosses another cat. White shimmer pixels walk
+ * round the gold band (three heads with short cream tails): unmistakable at 1x, never a blink.
  */
-export function carrierHalo(ctx: Ctx, cx: number, cy: number, r: number, t: number, bright: boolean) {
-  pxRing(ctx, cx, cy, r + 1, '0'); pxRing(ctx, cx, cy, r - 2, '0');
-  pxRing(ctx, cx, cy, r, 'f'); pxRing(ctx, cx, cy, r - 1, bright ? '6' : 'f');
-  const n = 6;
-  for (let k = 0; k < n; k++) {
-    const a = t / 24 + (k * Math.PI * 2) / n;
-    for (let s = 0; s < 3; s++) { // a head pixel and a 2-pixel tail, all on the ring
-      const b = a - s * 0.06; const px = Math.round(cx + Math.cos(b) * (r - 0.5)), py = Math.round(cy + Math.sin(b) * (r - 0.5));
-      ctx.fillStyle = col(s === 0 ? '6' : s === 1 ? (bright ? '6' : 'f') : 'f'); ctx.fillRect(px, py, 1, 1);
-      if (s === 0) { ctx.fillStyle = col('6'); ctx.fillRect(Math.round(cx + Math.cos(b) * r), Math.round(cy + Math.sin(b) * r), 1, 1); }
+interface Rim { img: HTMLCanvasElement; perim: [number, number][] }
+const rimCache = new Map<string, Rim | null>();
+export function carrierRim(ctx: Ctx, rows: string[] | null, cacheKey: string, flipY: boolean, cx: number, cy: number, t: number) {
+  const ck = `${cacheKey}|${flipY ? 1 : 0}`;
+  let rim = rimCache.get(ck);
+  if (rim === undefined) {
+    rim = null;
+    if (rows && typeof document !== 'undefined') {
+      const h = rows.length, w = Math.max(...rows.map(r => r.length)), M = 3;
+      const on = (x: number, y: number) => { const ch = rows[flipY ? h - 1 - y : y]?.[x]; return !!ch && ch !== '.' && ch !== ' '; };
+      // distance rings (4-neighbour) out from the silhouette
+      const W2 = w + M * 2, H2 = h + M * 2; const dist = new Int8Array(W2 * H2).fill(99);
+      for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) if (on(x - M, y - M)) dist[y * W2 + x] = 0;
+      for (let k = 1; k <= M; k++) for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
+        if (dist[y * W2 + x] !== 99) continue;
+        const n = (xx: number, yy: number) => xx >= 0 && yy >= 0 && xx < W2 && yy < H2 && dist[yy * W2 + xx] === k - 1;
+        if (n(x + 1, y) || n(x - 1, y) || n(x, y + 1) || n(x, y - 1)) dist[y * W2 + x] = k;
+      }
+      const img = document.createElement('canvas'); img.width = W2; img.height = H2;
+      const c = img.getContext('2d')!; const perim: [number, number][] = [];
+      for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
+        const d = dist[y * W2 + x]; if (d < 1 || d > M) continue;
+        c.fillStyle = col(d === 1 ? 'f' : d === 2 ? 'g' : '0'); c.fillRect(x, y, 1, 1);
+        if (d === 1) perim.push([x, y]);
+      }
+      const ox = W2 / 2, oy = H2 / 2;
+      perim.sort((p, q) => Math.atan2(p[1] - oy, p[0] - ox) - Math.atan2(q[1] - oy, q[0] - ox));
+      rim = { img, perim };
     }
+    rimCache.set(ck, rim);
+  }
+  if (!rim) return;
+  const x0 = Math.round(cx - rim.img.width / 2), y0 = Math.round(cy - rim.img.height / 2);
+  ctx.drawImage(rim.img, x0, y0);
+  const n = rim.perim.length; if (!n) return;
+  for (let k = 0; k < 3; k++) {
+    const head = ((t >> 1) + Math.floor((k * n) / 3)) % n;
+    for (let s = 0; s < 3; s++) {
+      const [px, py] = rim.perim[(head - s + n) % n];
+      ctx.fillStyle = col(s === 0 ? '6' : '7'); ctx.fillRect(x0 + px, y0 + py, 1, 1);
+    }
+  }
+}
+
+/** A little gold pixel crown that floats over the carrier's head (jewels, a glint that runs along the band). */
+const CROWN = [
+  '6...6...6',
+  'f...f...f',
+  'ff.fff.ff',
+  'fffffffff',
+  'frfflffrf',
+  'ggggggggg',
+];
+export function carrierCrown(ctx: Ctx, cx: number, baseY: number, flipY: boolean, t: number) {
+  const s = sprite('crown', CROWN); const bob = ((t >> 4) & 1);
+  const x = Math.round(cx) - (s.width >> 1);
+  const y = flipY ? Math.round(baseY) + bob : Math.round(baseY) - s.height - bob;
+  fig(ctx, 'crown', CROWN, x, y, flipY);
+  const g = (t >> 2) % 14;   // a glint sweeps across the band, then rests
+  if (g < 9) { ctx.fillStyle = col('6'); ctx.fillRect(x + 1 + g, y + (flipY ? s.height - 1 - 4 : 4), 1, 1); }
+}
+
+/**
+ * The warm glow behind a drifting polaroid: a soft dithered disc (gold core, orange edge, sparse outer pixels),
+ * deliberately NOT a ring (rings are the power-up language). r breathes by a pixel.
+ */
+export function warmGlow(ctx: Ctx, cx: number, cy: number, r: number) {
+  cx = Math.round(cx); cy = Math.round(cy);
+  for (let yy = -r; yy <= r; yy++) for (let xx = -r; xx <= r; xx++) {
+    const d = Math.sqrt(xx * xx + yy * yy); if (d > r + 0.4) continue;
+    const X = cx + xx, Y = cy + yy;
+    let k: string | null = null;
+    if (d > r - 3) k = (X & 1) === 0 && (Y & 1) === 0 ? 'h' : null;   // sparse burnt-orange edge
+    else if (d > r - 7) k = ((X + Y) & 1) === 0 ? 'g' : null;        // 50% orange
+    else k = ((X + Y) & 1) === 0 ? 'f' : 'g';                         // gold/orange checker core
+    if (k) { ctx.fillStyle = col(k); ctx.fillRect(X, Y, 1, 1); }
+  }
+}
+
+/** A red heart pin (with ink outline and a white glint) pushed through the top of a polaroid. */
+const PIN = ['.rr.rr.', 'r6rrrrr', 'rrrrrre', '.rrrre.', '..rre..', '...e...'];
+export function heartPin(ctx: Ctx, cx: number, cy: number) { fig(ctx, 'pin', PIN, Math.round(cx) - 4, Math.round(cy) - 4); }
+
+/** A soft 1px-dither ink shadow on the ground (w x h oval), for the falling polaroid. */
+export function groundShadow(ctx: Ctx, cx: number, cy: number, w: number, h: number) {
+  cx = Math.round(cx); cy = Math.round(cy); ctx.fillStyle = col('0');
+  const a = w / 2, b = h / 2;
+  for (let yy = -Math.floor(b); yy <= Math.floor(b); yy++) for (let xx = -Math.floor(a); xx <= Math.floor(a); xx++) {
+    if ((xx * xx) / (a * a) + (yy * yy) / (b * b) > 1) continue;
+    if (((cx + xx + cy + yy) & 1) === 0) ctx.fillRect(cx + xx, cy + yy, 1, 1);
   }
 }
 

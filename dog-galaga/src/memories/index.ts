@@ -2,10 +2,10 @@ import type { Game, Module, Renderer } from '../core/game';
 import { PF_X, PF_W, H } from '../core/game';
 import type { MemoryDef } from '../core/types';
 import { col, PALETTE } from '../core/palette';
-import { pxRing, pxSpark } from '../core/pixel';
+import { pxSpark } from '../core/pixel';
 import { spriteRows } from '../art/sprite';
 import { text, textWidth, wrap } from '../art/font';
-import { polaroid, carriedPolaroid, fallingPolaroid, carrierHalo, silhouetteRim, spriteChin } from './art';
+import { polaroid, carriedPolaroid, fallingPolaroid, carrierRim, carrierCrown, warmGlow, heartPin, groundShadow, spriteChin, spriteHeadTop } from './art';
 import { memdrop } from './sound';
 
 type Ctx = CanvasRenderingContext2D;
@@ -24,10 +24,14 @@ export interface Pending extends Carry { more: Carry[] }
  * slides in, the photo develops and the cats go "aww"; then the card slides away and play resumes. No bullet
  * ever moves under the card. A fresh FIRE / confirm press after the photo has developed skips ahead.
  */
-const IN = 14, HOLD = 120, HOLD_QUEUED = 84, OUT = 12;
+const IN = 14, HOLD = 112, HOLD_QUEUED = 80, OUT = 12;
+/** a fresh FIRE can skip once the photo is mostly developed */
+const SKIP_AT = IN + 20;
+/** the photo develops over this many ticks */
+const DEV = 34;
 /** the polaroid pops up out of the cat, hangs for a beat, then drifts */
 const POP = 40;
-const CARD_W = 300, CARD_H = 70;
+const CARD_W = 340, CARD_H = 74;
 /** centred in the playfield, well below the toast stack (y 8.. / 24..) and the boss bar */
 const CARD_Y = Math.round((H - CARD_H) / 2) - 6;
 
@@ -51,8 +55,13 @@ class Memories implements Module {
   drops: Drop[] = [];
   reveals: Reveal[] = [];
   motes: Mote[] = [];
-  /** drop-moment rings (world coords) */
+  /** drop-moment star bursts (world coords) */
   rings: { x: number; y: number; t: number }[] = [];
+  /** Pom's little celebration burst waits until the reveal has finished (she stays readable during the freeze) */
+  private cheerDue = false;
+  /** toasts that arrived while a reveal card was up: shown right after it */
+  private heldToasts: string[] = [];
+  private toastOut: ((s: string) => void) | null = null;
   t = 0;
   /** true while the reveal holds the game (we set g.paused and must hand it back) */
   holding = false;
@@ -117,12 +126,35 @@ class Memories implements Module {
     this.drops = this.drops.filter(d => d.id !== id);
     if (g.state.memories.includes(id)) return;
     const lost = this.lostIds.has(id);
-    g.ops.addMemory(id);
-    this.reveals.push({ id, t: 0, lost, n: g.state.memories.length, hold: HOLD });
+    // the card goes up before the state changes, so anything reacting to memory:get (quest toasts) sees revealing()
+    this.reveals.push({ id, t: 0, lost, n: g.state.memories.length + 1, hold: HOLD });
     for (const r of this.reveals.slice(0, -1)) r.hold = Math.min(r.hold, HOLD_QUEUED);   // a queue of cards moves along faster
+    this.hookToasts(g);
+    g.ops.addMemory(id);
     g.mods.audio?.sfx('memory');
-    const P = g.mods.player;
-    if (P && g.state.scene === 'play') { g.mods.effects?.burst(P.x, P.y - 6, 'hearts'); g.mods.effects?.burst(P.x, P.y - 10, 'sparkle'); }
+    this.cheerDue = true;
+  }
+  /** after the last card leaves: hearts and sparkles pop over Pom (never during the freeze, where they'd hide her) */
+  private cheer(g: Game) {
+    if (!this.cheerDue) return; this.cheerDue = false;
+    const P = g.mods.player; const sc = g.state.scene;
+    if (P && (sc === 'play' || sc === 'bonus')) { g.mods.effects?.burst(P.x, P.y - 14, 'hearts'); g.mods.effects?.burst(P.x, P.y - 22, 'sparkle'); }
+  }
+  /**
+   * Toasts wait for the card: while a reveal is up, ui.toast() calls are held and replayed when it ends, so a
+   * NEW QUEST banner never fights the polaroid for attention. (A shim until ui waits on revealing() itself:
+   * see docs/core-requests/memories.md; if ui exposes holdToasts it is used instead.)
+   */
+  private hookToasts(g: Game) {
+    const ui: any = g.mods.ui; if (!ui || this.toastOut || typeof ui.toast !== 'function') return;
+    if (typeof ui.holdToasts === 'function') return;
+    const orig = ui.toast.bind(ui); this.toastOut = orig;
+    ui.toast = (s: string) => { if (this.holdingToasts(g)) { if (this.heldToasts.length < 4) this.heldToasts.push(s); } else orig(s); };
+  }
+  private holdingToasts(g: Game) { const sc = g.state.scene; return this.reveals.length > 0 && (sc === 'play' || sc === 'bonus'); }
+  private flushToasts(g: Game) {
+    if (!this.heldToasts.length || this.holdingToasts(g) || !this.toastOut) return;
+    const q = this.heldToasts; this.heldToasts = []; for (const s of q) this.toastOut(s);
   }
   /** True while a reveal card is up (other modules may keep toasts out of its way). */
   revealing() { return this.reveals.length > 0; }
@@ -134,7 +166,7 @@ class Memories implements Module {
     const g = this.g; const m = g.content.memories[index] ?? g.content.memories[0]; if (!m) return;
     g.mods.ui?.muteToasts?.(true);
     this.removeMemoryPickups();
-    this.drops = []; this.reveals = []; this.motes = []; this.rings = [];
+    this.drops = []; this.reveals = []; this.motes = []; this.rings = []; this.heldToasts = [];
     const run = (n: number) => { for (let i = 0; i < n; i++) { this.sim(g); this.stepReveal(g, true); } };
     if (kind === 'drop') {
       this.pending = null; this.clearGlow();
@@ -150,6 +182,7 @@ class Memories implements Module {
       if (!cats.some((c: any) => c.glow)) g.mods.interaction?.markGlow?.();
       run(at >= 0 ? at : 40);
     }
+    this.cheerDue = false;
     this.stageFrozen = true; this.holding = false; g.paused = true;
   }
 
@@ -183,8 +216,10 @@ class Memories implements Module {
   update(g: Game) {
     if (!this.staged && !g.headless) this.selfStage(g);
     if (this.stageFrozen) return;
+    this.hookToasts(g);
     this.stepReveal(g, false);
     if (!g.paused) this.sim(g);
+    this.flushToasts(g);
   }
 
   /** Advance the front reveal card and own the cozy freeze while it is up. */
@@ -196,9 +231,9 @@ class Memories implements Module {
       if (menu) return;                                   // the pause menu owns the clock; resume afterwards
       if (sc === 'play') { this.holding = true; g.paused = true; }
       const I = g.input;
-      if (r.t >= IN + 50 && r.t < IN + r.hold && (I?.pressed?.('fire') || I?.pressed?.('confirm'))) r.t = IN + r.hold;
+      if (r.t >= SKIP_AT && r.t < IN + r.hold && (I?.pressed?.('fire') || I?.pressed?.('confirm'))) r.t = IN + r.hold;
     }
-    if (++r.t >= IN + r.hold + OUT) { this.reveals.shift(); if (!this.reveals.length) this.release(); }
+    if (++r.t >= IN + r.hold + OUT) { this.reveals.shift(); if (!this.reveals.length) { this.release(); if (!staged) this.cheer(g); } }
   }
 
   private sim(g: Game) {
@@ -259,38 +294,54 @@ class Memories implements Module {
       const x = c.x, y = c.y, up = !!c.up, sz = c.def.size ?? 32;
       const frame = Math.floor((c.t + c.id * 7) / 12) % 2;   // same walk frame interaction draws
       const rows = spriteRows(c.def.sprite, frame); const ck = `${c.def.sprite}|${frame}`;
-      const lit = ((t / 22) | 0) % 2 === 0;                 // slow two-frame blink: catches the eye among 30 cats
-      // Behind the cat: the halo ring. interaction still paints its own legacy checker disc for c.glow; the halo
-      // is memories' job now (core request), so the flag is lowered just for that cat's draw and raised again
-      // right after it (render-time only: the simulation never sees it change).
-      r.push(2, y - 0.01, (ctx: Ctx) => { carrierHalo(ctx, x, y, Math.round(sz / 2) + 5, t, lit); c.glow = false; });
+      // Behind the cat (before it and its same-row neighbours): the 2px gold/orange silhouette rim with white
+      // shimmer walking round it. interaction still paints its own legacy checker disc for c.glow; the halo is
+      // memories' job now (core request), so the flag is lowered just for that cat's draw and raised again right
+      // after it (render-time only: the simulation never sees it change).
+      r.push(2, y - 0.01, (ctx: Ctx) => { carrierRim(ctx, rows, ck, up, x, y, t); c.glow = false; });
       r.push(2, y + 0.01, (ctx: Ctx) => {
         c.glow = true;
-        silhouetteRim(ctx, rows, lit ? '7' : 'f', ck, up, x, y);
         const { h, chin } = spriteChin(rows, ck);
         const chinY = up ? y + h / 2 - 1 - chin : y - h / 2 + chin;
         carriedPolaroid(ctx, pend.id, x, chinY, up ? -1 : 1, t, pend.more.length);
-        for (let k = 0; k < 3; k++) {   // three twinkles orbiting outside the ring
-          const a = t / 30 + k * 2.094; const R = sz / 2 + 9;
-          pxSpark(ctx, x + Math.cos(a) * R, y + Math.sin(a) * R, (t + k * 8) % 24 < 12 ? '6' : 'f', ((t >> 3) + k) % 3 === 0 ? 2 : 1);
-        }
+        // a little gold crown floats over the head (the ear side), with one twinkle hopping beside it
+        const head = spriteHeadTop(rows, ck) + 3;   // sits on the head between the ears
+        const top = up ? y + h / 2 - head : y - h / 2 + head;
+        carrierCrown(ctx, x, top, up, t);
+        const hop = (t >> 4) % 3; const sx = x + [-9, 9, 0][hop], sy = up ? top + 9 : top - 9 - (hop === 2 ? 3 : 0);
+        if (((t >> 2) & 3) !== 3) pxSpark(ctx, sx, sy, (t >> 3) & 1 ? '6' : 'f', hop === 2 ? 2 : 1);
       });
     }
-    for (const ring of this.rings) r.push(4, ring.y, (ctx: Ctx) => {
-      const k = ring.t; pxRing(ctx, ring.x, ring.y, 6 + k * 1.6, k < 10 ? '6' : 'f', 6, k / 9);
-      if (k < 14) pxRing(ctx, ring.x, ring.y, 3 + k, 'f', 3, -k / 7);
+    // drop moment: an 8-ray pixel star burst (no rings: rings are the power-up language)
+    for (const ring of this.rings) r.push(5, ring.y, (ctx: Ctx) => {
+      const k = ring.t; if (k > 22) return;
+      for (let i = 0; i < 8; i++) {
+        const a = (i * Math.PI) / 4 + Math.PI / 8; const ca = Math.cos(a), sa = Math.sin(a);
+        const r0 = 6 + k * 1.3, len = Math.max(1, 5 - (k >> 2));
+        for (let s2 = 0; s2 < len; s2++) {
+          const px = Math.round(ring.x + ca * (r0 + s2)), py = Math.round(ring.y + sa * (r0 + s2));
+          ctx.fillStyle = col(s2 === 0 ? (k < 8 ? '6' : 'f') : k < 12 ? 'f' : 'g'); ctx.fillRect(px, py, 1, 1);
+        }
+      }
     });
-    for (const m of this.motes) r.push(3, m.y, (ctx: Ctx) => {
+    // collectibles win: the drop, its shadow and motes sit above projectiles (layer 5), under only the HUD
+    for (const m of this.motes) r.push(5, m.y, (ctx: Ctx) => {
       if (m.t > m.life - 6 && (m.t & 1)) return;           // the last few frames twinkle out instead of fading
       if (m.t < 5) pxSpark(ctx, m.x, m.y, m.k, 1); else { ctx.fillStyle = col(m.k); ctx.fillRect(Math.round(m.x), Math.round(m.y), 1, 1); }
     });
-    for (const d of this.drops) r.push(3, d.y + 1, (ctx: Ctx) => {
+    const ground = g.mods.interaction?.grounded?.() ?? true;
+    for (const d of this.drops) {
+      // a soft dithered shadow on the ground below it (it hovers, floating down to Pom)
       const bob = d.t < POP ? 0 : Math.round(Math.sin(d.t / 11) * 1.5);
-      const cy = d.y + bob; const lit = ((t / 16) | 0) % 2 === 0;
-      // one crisp ring (ink, gold) so the photo reads over water, grass or regolith alike
-      pxRing(ctx, d.x, cy, 16, '0'); pxRing(ctx, d.x, cy, 15, lit ? 'f' : '6'); pxRing(ctx, d.x, cy, 14, '0');
+      if (ground) r.push(1, d.y, (ctx: Ctx) => groundShadow(ctx, d.x + 4, d.y + 18, 14 - Math.abs(bob) * 2, 4));
+    }
+    for (const d of this.drops) r.push(5, 1e6 + d.y, (ctx: Ctx) => {
+      const bob = d.t < POP ? 0 : Math.round(Math.sin(d.t / 11) * 1.5);
+      const cy = d.y + bob;
+      // a warm dithered glow disc behind the card (not a ring), breathing by a pixel
+      warmGlow(ctx, d.x, cy, 18 + (((t >> 4) & 1) ? 1 : 0));
       fallingPolaroid(ctx, d.id, d.x, cy, d.t, d.t >= POP / 2);
-      for (let k = 0; k < 2; k++) { const a = t / 18 + k * Math.PI; pxSpark(ctx, d.x + Math.cos(a) * 15, cy + Math.sin(a) * 15, '6', k === 0 ? 2 : 1); }
+      heartPin(ctx, d.x, cy - 9);
     });
   }
 
@@ -301,8 +352,13 @@ class Memories implements Module {
     const m = g.content.memories.find(x => x.id === r.id); if (!m) return;
     const reduce = !!g.state.settings.reduceMotion;
     const end = IN + r.hold;
-    // the cozy beat: the playfield dims one step while the card is up
-    if (sc === 'play' && r.t >= 2 && r.t < end + OUT - 2) { dimPlayfield(ctx); this.aww(g, ctx, r.t); }
+    // the cozy beat: the playfield dims one step while the card is up, eased in and out through two ordered-dither
+    // frames (25%, 50%) each way. At night the scene is already dark: it stops at the 50% checker and leaves the
+    // bottom of each ramp alone, so the field stays readable instead of crushing to black.
+    const k = Math.min(r.t - 1, end + OUT - 1 - r.t);
+    const night = g.state.tod === 'night';
+    const lvl = Math.max(0, Math.min(night ? 2 : 3, k));
+    if (sc === 'play' && lvl > 0) { dimPlayfield(ctx, lvl, night); if (lvl >= 2) this.aww(g, ctx, r.t); }
     // slide in from the left with a 3px overshoot, settle, then slide out to the right
     const cx = PF_X + Math.round((PF_W - CARD_W) / 2);
     let x = cx;
@@ -336,29 +392,49 @@ class Memories implements Module {
     rect(x, y, CARD_W, CARD_H, 'f'); rect(x + 1, y + 1, CARD_W - 2, CARD_H - 2, 'h');
     rect(x + 2, y + 2, CARD_W - 4, CARD_H - 4, 'v'); rect(x + 2, y + CARD_H - 4, CARD_W - 4, 2, '1');
     for (const [cx, cy] of [[x + 3, y + 3], [x + CARD_W - 5, y + 3], [x + 3, y + CARD_H - 5], [x + CARD_W - 5, y + CARD_H - 5]]) rect(cx, cy, 2, 2, 'g');
-    // the polaroid: develops over the first ~45 ticks of the hold, sitting up out of the card a little;
+    // the polaroid: develops (milky cream -> colour) over the first ~DEV ticks of the hold, sitting up out of the card a little;
     // once developed, the people in it blink now and then (the photo is alive for a moment)
-    const dev = Math.min(1, Math.max(0, (r.t - IN + 6) / 45));
+    const dev = Math.min(1, Math.max(0, (r.t - IN + 6) / DEV));
     const blink = dev >= 1 && (r.t - IN) % 64 >= 56;
     polaroid(ctx, m.id, x + 8, y - 2, dev, 1, blink);
-    // text column
+    // text column: small gold kicker + count, rule, the title in 2x type, two balanced body lines, a fixed footer
     const tx = x + 82, right = x + CARD_W - 8;
     const head = r.lost ? 'LOST MEMORY FOUND' : 'MEMORY FOUND';
     const hb = r.t - IN; const flash = hb >= 0 && hb < 48 && ((hb >> 3) & 1) === 1;   // three calm blinks
-    text(ctx, head, tx, y + 7, col(flash ? '6' : 'f'), { shadow: col('0') });
+    text(ctx, head, tx, y + 6, col(flash ? '6' : 'f'), { shadow: col('0') });
     const count = `${r.n}/${g.content.memories.length}`;
     const cw = textWidth(count); const gx = right - cw - 10;   // a little photo glyph before the count
-    rect(gx - 1, y + 6, 9, 9, '0'); rect(gx, y + 7, 7, 7, '6'); rect(gx + 1, y + 8, 5, 3, 'm'); rect(gx + 1, y + 11, 5, 1, 'j');
-    text(ctx, count, right, y + 7, col('5'), { align: 'right' });
-    rect(tx, y + 17, right - tx, 1, 'h'); for (let xx = tx; xx < right; xx += 2) rect(xx, y + 18, 1, 1, '1');
+    rect(gx - 1, y + 5, 9, 9, '0'); rect(gx, y + 6, 7, 7, '6'); rect(gx + 1, y + 7, 5, 3, 'm'); rect(gx + 1, y + 10, 5, 1, 'j');
+    text(ctx, count, right, y + 6, col('5'), { align: 'right' });
+    rect(tx, y + 16, right - tx, 1, 'h'); for (let xx = tx; xx < right; xx += 2) rect(xx, y + 17, 1, 1, '1');
     const cols = Math.floor((right - tx + 1) / 6);
-    const title = wrap(m.title.toUpperCase(), cols)[0] ?? '';
-    text(ctx, title, tx, y + 22, col('6'), { shadow: col('0') });
-    let lines = wrap(firstSentence(m.text), cols);
-    if (lines.length > 3) { lines = lines.slice(0, 3); lines[2] = lines[2].slice(0, cols - 3).trimEnd() + '...'; }
-    lines.forEach((ln, i) => text(ctx, ln, tx, y + 34 + i * 9, col(i === 0 ? '7' : '5')));
-    if (lines.length < 3 && r.t > IN + 30) text(ctx, 'KEPT IN YOUR JOURNAL', right, y + CARD_H - 15, col('5'), { align: 'right' });
+    const big = textWidth(m.title.toUpperCase(), 2) <= right - tx;
+    if (big) text(ctx, m.title, tx, y + 21, col('6'), { scale: 2, shadow: col('0') });
+    else text(ctx, wrap(m.title.toUpperCase(), cols)[0] ?? '', tx, y + 25, col('6'), { shadow: col('0') });
+    bodyLines(firstSentence(m.text), cols).forEach((ln, i) => text(ctx, ln, tx, y + 40 + i * 9, col(i === 0 ? '7' : '5')));
+    // footer: always there, so every card has the same layout
+    rect(tx, y + 58, right - tx, 1, 'v');
+    text(ctx, 'KEPT IN YOUR JOURNAL', right, y + 61, col(r.t > IN + 30 ? '4' : '3'), { align: 'right' });
+    for (let i = 0; i < 3; i++) rect(tx + i * 4, y + 63, 2, 2, i === 0 ? 'd' : '3');
   }
+}
+
+/**
+ * Two body lines at most, balanced: the narrowest width that still fits in as few lines as the greedy wrap,
+ * so the last line is never a lone orphan word. Text that needs more than two lines ends on an ellipsis at a
+ * word boundary (the journal has the whole memory).
+ */
+function bodyLines(s: string, cols: number): string[] {
+  let lines = wrap(s, cols);
+  if (lines.length > 2) {
+    const words = s.split(/\s+/); let l2 = '';
+    const rest = words.slice(lines[0].split(' ').length);
+    for (const w of rest) { if ((l2 + ' ' + w).trim().length + 3 > cols) break; l2 = (l2 + ' ' + w).trim(); }
+    return [lines[0], l2.replace(/[,;:]$/, '') + '...'];
+  }
+  const n = lines.length; if (n < 2) return lines;
+  for (let w = Math.ceil(s.length / n); w < cols; w++) { const t = wrap(s, w); if (t.length <= n) { lines = t; break; } }
+  return lines;
 }
 
 /** first sentence of a memory, for the reveal card (the journal has the whole text) */
@@ -383,20 +459,30 @@ const STEP: Record<string, string> = {
 const KEYS = '0123456789abcdefghijklmnopqrstuv';
 const RGB = PALETTE.map(h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]);
 const packed = (i: number) => { const [r, g, b] = RGB[i]; return (255 << 24 | b << 16 | g << 8 | r) >>> 0; };
-let dimMap: Map<number, number> | null = null;
-function dimPlayfield(ctx: Ctx) {
+/** at night the bottom of each ramp stays put (the field is already dark) */
+const NIGHT_KEEP = new Set(['0', '1', '2', 'v', 'b', 'e', 'k', 'q']);
+const maps: Record<string, Map<number, number>> = {};
+function dimTarget(i: number, night: boolean) { const k = KEYS[i]; return packed(night && NIGHT_KEEP.has(k) ? i : KEYS.indexOf(STEP[k])); }
+/**
+ * lvl 1 = 25% of pixels (one per 2x2), 2 = 50% checker, 3 = every pixel: the ordered-dither ease of the dim.
+ */
+function dimPlayfield(ctx: Ctx, lvl = 3, night = false) {
   const x = PF_X + 1, w = PF_W - 2;
   let img: ImageData; try { img = ctx.getImageData(x, 0, w, H); } catch { return; }
-  if (!dimMap) { dimMap = new Map(); for (let i = 0; i < 32; i++) dimMap.set(packed(i), packed(KEYS.indexOf(STEP[KEYS[i]]))); }
+  const mk = night ? 'n' : 'd';
+  let map = maps[mk];
+  if (!map) { map = maps[mk] = new Map(); for (let i = 0; i < 32; i++) map.set(packed(i), dimTarget(i, night)); }
   const d = new Uint32Array(img.data.buffer);
-  for (let i = 0; i < d.length; i++) {
-    const v = d[i]; let o = dimMap.get(v);
+  for (let yy = 0; yy < H; yy++) for (let xx = 0; xx < w; xx++) {
+    const X = x + xx;
+    if (lvl === 1 ? ((X & 1) | (yy & 1)) !== 0 : lvl === 2 ? ((X + yy) & 1) !== 0 : false) continue;
+    const i = yy * w + xx; const v = d[i]; let o = map.get(v);
     if (o === undefined) {
       const r = v & 255, g = (v >> 8) & 255, b = (v >> 16) & 255;
       let best = 0, bd = 1e9;
       RGB.forEach(([pr, pg, pb], k) => { const dd = (pr - r) ** 2 + (pg - g) ** 2 + (pb - b) ** 2; if (dd < bd) { bd = dd; best = k; } });
-      o = packed(KEYS.indexOf(STEP[KEYS[best]]));
-      if (dimMap.size < 8192) dimMap.set(v, o);
+      o = dimTarget(best, night);
+      if (map.size < 8192) map.set(v, o);
     }
     d[i] = o;
   }

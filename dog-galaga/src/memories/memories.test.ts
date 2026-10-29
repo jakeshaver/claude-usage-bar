@@ -97,6 +97,24 @@ describe('memories: reveal freeze', () => {
     expect(g.state.memories).toContain('mem_03');
   });
 
+  it('toasts wait for the card, and Pom\'s hearts burst only after it leaves', () => {
+    const { g, M } = fresh();
+    playing(g);
+    const ui = g.mods.ui; const bursts: string[] = [];
+    const fx = g.mods.effects; const orig = fx.burst.bind(fx);
+    fx.burst = (x: number, y: number, k: string) => { bursts.push(k); return orig(x, y, k); };
+    ui.toasts = [];
+    M.collect('mem_03');
+    ui.toast('NEW QUEST: TEST');
+    g.step();
+    expect(ui.toasts.map((t: any) => t.text)).not.toContain('NEW QUEST: TEST');
+    expect(bursts).not.toContain('hearts');
+    for (let i = 0; i < 400 && M.revealing(); i++) g.step();
+    g.step();
+    expect(ui.toasts.map((t: any) => t.text)).toContain('NEW QUEST: TEST');
+    expect(bursts).toContain('hearts');
+  });
+
   it('a scene change mid-reveal (dialogue) releases the pause instead of softlocking', () => {
     const { g, M } = fresh();
     playing(g);
