@@ -86,6 +86,8 @@ class Quest implements Module {
   private mapFresh = false;
   /** quests started whose NEW QUEST toast has not been shown yet: the HUD keeps them hidden until it lands */
   private unrevealed = new Set<string>();
+  /** quest id -> its NEW QUEST toast text, handed to ui but maybe still queued there (ui.toastWaiting) */
+  private revealing = new Map<string, string>();
   private toastT = 0;
   /** tick each quest was last started or reached a milestone (drives tracked()) */
   private touched: Record<string, number> = {};
@@ -104,7 +106,7 @@ class Quest implements Module {
       if (p.to === 'ending') this.wrapUp();
       if (p.to === 'map') { this.mapFresh = true; try { this.routeHeadsUp(); } catch (e) { g.reportError('quest', e); } }
     });
-    g.bus.on('game:new', () => { this.dlgEngine.reset(); this.deferred = []; this.toastQ = []; this.unrevealed.clear(); this.touched = {}; this.finale = false; this.finaleLog = []; this.check(); });
+    g.bus.on('game:new', () => { this.dlgEngine.reset(); this.deferred = []; this.toastQ = []; this.unrevealed.clear(); this.revealing.clear(); this.touched = {}; this.finale = false; this.finaleLog = []; this.check(); });
     // deep links (tools, showcases, tests) land mid-route: start the quests the skipped sectors would have started
     g.bus.on('area:enter', (p: any) => { try { if (this.isDeepLink(p?.areaId)) this.seedRoute(p.areaId); } catch (e) { g.reportError('quest', e); } });
     // boss banter: optional content nodes taunt-<bossId> (boss arrives) and defeat-<bossId> (opens the outro)
@@ -229,7 +231,7 @@ class Quest implements Module {
     const t = this.toastQ.shift()!;
     if (t.kind) g.mods.ui?.toast(t.t, { kind: t.kind }); else g.mods.ui?.toast(t.t);
     this.toastGap = t.alone ? TOAST_ALONE : TOAST_GAP;
-    if (t.reveal) { this.unrevealed.delete(t.reveal); this.touched[t.reveal] = g.tick + 0.5; }
+    if (t.reveal) { this.revealing.set(t.reveal, t.t.toUpperCase()); this.touched[t.reveal] = g.tick + 0.5; this.settleReveals(); }
   }
   /** The run is wrapping up: the final sector was cleared, or the ending is set / on screen. */
   private inFinale() { const s = this.g.state; return this.finale || !!s.ending || s.scene === 'ending'; }
@@ -247,7 +249,7 @@ class Quest implements Module {
   private enterFinale() {
     this.finale = true;
     for (const x of this.toastQ) if (x.done && !this.finaleLog.some(r => r.questId === x.done!.questId)) this.finaleLog.push(x.done);
-    this.toastQ = []; this.unrevealed.clear();
+    this.toastQ = []; this.unrevealed.clear(); this.revealing.clear();
     const ui = this.g.mods.ui; if (!ui) return;
     if (typeof ui.muteToasts === 'function') { const was = !!ui.toastsMuted; ui.muteToasts(true); ui.muteToasts(was); }
     else if (Array.isArray(ui.toasts)) ui.toasts = [];
@@ -265,7 +267,20 @@ class Quest implements Module {
   /** Quest toasts not shown yet (tests). */
   heldToasts() { return this.toastQ.map(x => x.t); }
   /** False while a just-started quest's NEW QUEST toast is still held (the HUD should not spoil it). */
-  revealed(id: string) { return !this.unrevealed.has(id); }
+  revealed(id: string) { this.settleReveals(); return !this.unrevealed.has(id); }
+  /**
+   * A NEW QUEST toast counts as shown once ui has it on screen, not when quest hands it over: ui may still queue it
+   * (boss intro hold, memory card, one-at-a-time in combat). Asks `ui.toastWaiting(text)`; a toast ui dropped, or
+   * no ui at all, reveals at once, so a quest can never stay hidden.
+   */
+  private settleReveals() {
+    if (!this.revealing.size) return;
+    const ui = this.g.mods.ui; const ask = typeof ui?.toastWaiting === 'function';
+    for (const [id, text] of this.revealing) {
+      if (ask && ui.toastWaiting(text)) continue;
+      this.revealing.delete(id); this.unrevealed.delete(id);
+    }
+  }
 
   // ---------------- quests ----------------
   private matches(t: NQuest['start'], evt: string, p: any) {
@@ -515,6 +530,7 @@ class Quest implements Module {
    * most recently started or advanced to a milestone. Long-running quests (boops, scrapbook) never bury new ones.
    */
   tracked(): NQuest | null {
+    this.settleReveals();
     const s = this.g.state; let best: NQuest | null = null; let bestScore = -Infinity;
     this.quests().forEach((q, i) => {
       if (this.st(q.id) !== 'active' || this.missed(q.id) || this.unrevealed.has(q.id)) return;

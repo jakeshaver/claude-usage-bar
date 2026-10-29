@@ -213,6 +213,11 @@ class UI implements Module {
     this.toasts.push({ text: s.toUpperCase(), t: 170, age: 0, y: -1, kind: opts?.kind });
     if (this.toasts.length > 8) this.toasts.splice(this.toastCap(), 1); // a long backlog drops its oldest waiting news
   }
+  /** True while a toast with this text is queued here but not on screen yet (quest reveals NEW QUEST on display). */
+  toastWaiting(text: string) {
+    const u = text.toUpperCase();
+    return this.toastPend.some(p => p.s.toUpperCase() === u) || this.toasts.some(x => x.text === u && x.age === 0);
+  }
   /** How many toasts are on screen at once: two, or one at a time in a live wave / boss fight. */
   private toastCap() { return this.toastsSingle() ? 1 : TOAST_CAP; }
   openPause() {
