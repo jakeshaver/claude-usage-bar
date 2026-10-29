@@ -33,7 +33,7 @@ export const SHADE = ramp('1:0 2:1 3:2 4:3 5:4 6:5 7:8 8:9 9:a a:b b:v c:d d:e e
 export const SHADE_TOD: Record<Tod, Ramp> = {
   day: SHADE,
   night: remap('2:1 q:1 3:2 k:1 j:1 n:1 p:2 4:3 u:2 o:q 9:b a:v 8:p 1:0', SHADE),
-  dawn: remap('k:1 j:k i:k q:2 p:q o:p 7:o 8:p 9:b a:b b:v h:a v:1 3:2 4:3 5:4 6:5 n:2 m:n c:d', SHADE),
+  dawn: remap('k:1 j:k i:k q:2 p:q o:3 7:o 8:p 9:b a:b b:v h:a v:1 3:2 4:3 5:4 6:5 n:2 m:n c:d', SHADE),
   dusk: remap('k:1 j:b i:b q:v p:q o:p 8:a 9:b a:v b:v h:b g:h 4:u 3:2 2:v n:v m:n 1:0 e:v u:v', SHADE),
 };
 // ---------------------------------------------------------------- lighting
@@ -64,7 +64,7 @@ export const TOD_RAMP: Record<Tod, Ramp> = {
   dawn: remap('6:7 7:8 i:8 l:m s:c'),
   // lawns olive-gold: the dark green ground under a carpet of green and sun-browned blades with orange tips; woods a step deeper,
   // stone cools to indigo for contrast against the warm ground, blues to violet
-  dusk: remap('6:7 7:8 8:9 9:a a:b b:v c:d f:g g:h h:b r:h i:f j:9 l:m s:m m:n o:p p:q 1:v 2:v 3:2 4:3 5:4 t:u'),
+  dusk: remap('6:7 7:8 8:9 9:a a:b b:v c:d f:g g:h h:b r:h i:f j:k l:m s:m m:n o:p p:q 1:v 2:v 3:2 4:3 5:4 t:u'),
   // dark but legible: lawns one dark teal-green (blades and tufts melt into it), stone periwinkle/indigo, creams to periwinkle
   night: remap('6:o 7:p 8:q 9:a a:b b:v c:e d:e e:v f:9 g:a h:b r:e i:k j:k k:1 l:m m:n n:2 s:p o:p p:q q:1 1:0 2:1 3:2 4:3 5:4 t:u u:2'),
 };
@@ -85,20 +85,21 @@ const WARM_LIFT = remap('0:1 1:v v:b b:a a:9 h:g 9:8 8:7 7:7 6:6 2:v q:a 3:a p:9
 function liftN(v: number, n: number) { for (let i = 0; i < n; i++) v = WARM_LIFT.a[v]; return v; }
 const GK = KEY.indexOf('k'), GJ = KEY.indexOf('j'), GI = KEY.indexOf('i');
 /** grass under a lamp, by ring (edge..hot) for the day indices k (ground), j (blade), i (tip) */
-const GRASS_LIT: [string, string, string][] = [['k', 'j', 'j'], ['j', 'j', 'i'], ['j', 'i', 'f'], ['i', 'f', '7']];
+export const GRASS_LIT: [string, string, string][] = [['k', 'j', 'j'], ['j', 'j', 'i'], ['j', 'i', 'f'], ['i', 'f', '7']];
 const lampCache = new WeakMap<Ramp, Map<string, Ramp[]>>();
 /** the four lamp ring ramps (edge, middle, core, hot), built from the area's night remap; lifts = warm steps per ring */
-export function lampRamps(night: Ramp, lifts: number[] = [1, 2, 3, 4]): Ramp[] {
+export function lampRamps(night: Ramp, lifts: number[] = [1, 2, 3, 4], grass: [string, string, string][] = GRASS_LIT): Ramp[] {
   let m = lampCache.get(night); if (!m) lampCache.set(night, m = new Map());
-  let r = m.get(lifts.join()); if (r) return r;
+  const key = lifts.join() + '|' + grass.map(g => g.join('')).join();
+  let r = m.get(key); if (r) return r;
   r = lifts.map((n, ring) => {
     const a = new Uint8Array(32);
     for (let i = 0; i < 32; i++) a[i] = liftN(night.a[i], n);
-    const g = GRASS_LIT[ring]; a[GK] = KEY.indexOf(g[0]); a[GJ] = KEY.indexOf(g[1]); a[GI] = KEY.indexOf(g[2]);
+    const g = grass[ring]; a[GK] = KEY.indexOf(g[0]); a[GJ] = KEY.indexOf(g[1]); a[GI] = KEY.indexOf(g[2]);
     a[0] = ring >= 2 ? 1 : 0; // ink outlines stay outlines
     return { a, b: a, lv: new Uint8Array(32), id: false };
   });
-  m.set(lifts.join(), r); return r;
+  m.set(key, r); return r;
 }
 /** kept for callers that pass a pool ramp: the stepped outdoor lamp model */
 export const LAMP_RAMP = remap('');
@@ -107,7 +108,7 @@ export const LAMP_EDGE = remap('');
 export const INDOOR_RAMP: Record<Tod, Ramp> = {
   day: ID,
   // early: the room is cooler and a step dimmer (woods toward grey-brown, greys toward slate); peach from the low sunbeams
-  dawn: remap('6:7 s:o l:m'),
+  dawn: remap('6:7 s:o l:m 9:a a:b 8:9'),
   // golden hour: woods warm and a step deeper, greys to warm brown, shadows plum; amber beams and the first pools on top
   dusk: remap('6:7 7:8 o:p s:o 1:v'),
   // closing time: a dim room that keeps its dark wood planks and slate tiles; only the pendant pools stay warm
@@ -179,6 +180,12 @@ export class Painter {
   poolScale = 0.55;
   /** warm lift steps of the four lamp rings (edge, middle, core, hot): lower = a softer, lower-contrast pool */
   poolLift = [1, 2, 3, 4];
+  /** lit grass per lamp ring (edge..hot) for the day indices k, j, i */
+  grassLit: [string, string, string][] = GRASS_LIT;
+  /** cast-shadow ramp override (interiors keep plain shade instead of the outdoor sky-tinted one) */
+  shade: Ramp | null = null;
+  /** how lumpy a lamp pool's outline is (1 = uneven ground; lower = a rounder, cleaner pool on smooth floors) */
+  poolWobble = 1;
   constructor(public canvas: HTMLCanvasElement, public w: number, public h: number, public tod: Tod) {
     this.buf = new Uint8Array(w * h).fill(CLEAR);
     this.shadow = new Uint8Array(w * h);
@@ -243,7 +250,7 @@ export class Painter {
     if (!this.pend.length) return;
     const R = this.pend; this.pend = [];
     this.objs.push(() => {
-      const sh = SHADE_TOD[this.tod], w = this.w, done = new Set<number>();
+      const sh = this.shade ?? SHADE_TOD[this.tod], w = this.w, done = new Set<number>();
       for (let k = 0; k < R.length; k += 4) for (let j = R[k + 1]; j < R[k + 3]; j++) for (let i = R[k]; i < R[k + 2]; i++) {
         const o = j * w + i; if (done.has(o)) continue; done.add(o);
         const v = this.buf[o]; this.buf[o] = v === CLEAR ? this.clearShadow : sh.a[v];
@@ -258,13 +265,16 @@ export class Painter {
   /** rows of the low-sun rim: 2px on the sunward edge of a footprint row */
   private rimRow(x: number, y: number, w: number) {
     if (!this.rimLight || w < 4) return;
-    if (this.tod === 'dusk') this.rims.push(x + 1, y, 2);
-    else if (this.tod === 'dawn') this.rims.push(x + w - 2, y, 1);
+    // dusk: the low west sun lays a 3px warm key on the west face; dawn: a 2px peach rim on the east face
+    if (this.tod === 'dusk') this.rims.push(x + 1, y, w >= 10 ? 3 : 2);
+    else if (this.tod === 'dawn') this.rims.push(x + w - 3, y, 2);
   }
   /** dawn: the low north-east sun catches the top (and right) edge of an object */
   private rimTop(x: number, y: number, w: number) {
-    if (!this.rimLight || this.tod !== 'dawn' || w < 4) return;
-    this.rims.push(x + 1, y, w - 2, x + 2, y + 1, w - 3);
+    if (!this.rimLight || w < 4) return;
+    // dawn: the sky-facing top edge catches a 3-row peach lip (tapering); dusk: a 1-row warm glance on the top edge
+    if (this.tod === 'dawn') { this.rims.push(x + 1, y, w - 2, x + 2, y + 1, w - 3); if (w >= 10) this.rims.push(x + 3, y + 2, w - 5); }
+    else if (this.tod === 'dusk') this.rims.push(x + 1, y, Math.max(2, Math.round((w - 2) * 0.6)));
   }
   /** rectangular object footprint of given height casts a swept shadow (and catches a rim of low sun) */
   shRect(x: number, y: number, w: number, h: number, height: number) {
@@ -277,7 +287,7 @@ export class Painter {
     const [dx, dy] = this.cast(height); const n = Math.max(Math.abs(dx), Math.abs(dy), 1);
     for (let i = 0; i <= n; i += Math.max(1, (n / 6) | 0)) spans(cx + Math.round(dx * i / n), cy + Math.round(dy * i / n), rx, ry, (x, y, w) => this.sm(x, y, w, 1));
     spans(cx + dx, cy + dy, rx, ry, (x, y, w) => this.sm(x, y, w, 1));
-    if (height >= 5) { let n2 = 0; spans(cx, cy, rx, ry, (x, y, w) => { this.rimRow(x, y, w); if (n2++ < 2) this.rimTop(x, y, w); }); }
+    if (height >= 5) { let n2 = 0; spans(cx, cy, rx, ry, (x, y, w) => { this.rimRow(x, y, w); if (n2++ < (this.tod === 'dawn' ? 2 : 1)) this.rimTop(x, y, w); }); }
     this.flushPend();
   }
   /** draw this after the ground shadows are applied */
@@ -300,7 +310,7 @@ export class Painter {
   finish(todRamp: Ramp, pools: boolean, poolRamp: Ramp = LAMP_RAMP, rimRamp: Ramp | null = null, edgeRamp: Ramp = LAMP_EDGE) {
     const stepped = poolRamp === LAMP_RAMP; // outdoor lamps: three solid warm rings (interior pendants keep core + thin ring)
     const { w, h, buf } = this;
-    const sh = SHADE_TOD[this.tod];
+    const sh = this.shade ?? SHADE_TOD[this.tod];
     for (let i = 0; i < w * h; i++) if (this.shadow[i]) {
       const v = buf[i];
       if (v === CLEAR) { buf[i] = this.clearShadow; continue; } // a shadow cast onto the layer below: one solid deep tone (never a checker)
@@ -325,7 +335,7 @@ export class Painter {
         for (let y = Math.max(0, p.y - R); y < Math.min(h, p.y + R + 1); y++) for (let x = Math.max(0, p.x - R); x < Math.min(w, p.x + R + 1); x++) {
           const ddx = x + 0.5 - (p.x + 0.5), ddy = (y + 0.5 - (p.y + 0.5)) * 1.15;
           // a lumpy outline (light catches the ground unevenly), never a perfect coin
-          const ang = Math.atan2(ddy, ddx), wob = 1 + 0.07 * Math.sin(ang * 3 + p.x * 0.7) + 0.05 * Math.sin(ang * 5 + p.y * 1.3);
+          const ang = Math.atan2(ddy, ddx), wob = 1 + (0.07 * Math.sin(ang * 3 + p.x * 0.7) + 0.05 * Math.sin(ang * 5 + p.y * 1.3)) * this.poolWobble;
           const d = Math.hypot(ddx, ddy) / wob; if (d > R) continue;
           const o = y * w + x;
           // stepped: hot centre, core, middle, edge; each boundary is a ~2px ordered-dither seam so the steps melt
@@ -345,8 +355,9 @@ export class Painter {
         const f = d / sp.len, half = sp.h / 2 + d * 0.22, c = sp.y + sp.h / 2 + d * sp.tilt;
         for (let y = Math.max(0, Math.floor(c - half - 1)); y < Math.min(h, Math.ceil(c + half + 1)); y++) {
           const e = Math.abs(y + 0.5 - c) / half; if (e > 1) continue;
-          const v = f * 0.82 + e * e * 0.3 + (BAYER[(y & 3) * 4 + (x & 3)] / 15 - 0.5) * 0.07, o = y * w + x;
-          const m = v < 0.34 ? 2 : v < 0.58 ? 6 : v < 0.84 ? 8 : v < 1 && BAYER[(y & 3) * 4 + (x & 3)] < (1 - v) / 0.16 * 16 ? 8 : 0;
+          // clean stepped bands (no dither seams): bright core by the door, a softer middle, a faint tail that just ends
+          const v = f * 0.82 + e * e * 0.3, o = y * w + x;
+          const m = v < 0.34 ? 2 : v < 0.58 ? 6 : v < 0.86 ? 8 : 0;
           const rank = (k: number) => k === 2 ? 3 : k === 6 ? 2 : k === 8 ? 1 : 0;
           if (m && mask[o] !== 1 && rank(m) > rank(mask[o])) mask[o] = m;
         }
@@ -370,7 +381,7 @@ export class Painter {
       }
     }
     if (!todRamp.id || mask) {
-      const L = stepped ? lampRamps(todRamp, this.poolLift) : null;
+      const L = stepped ? lampRamps(todRamp, this.poolLift, this.grassLit) : null;
       const tail = this.sunTail ?? this.sunSoft ?? this.sunRamp;
       const ramps: (Ramp | null)[] = L ? [todRamp, L[2], this.sunRamp, rimRamp, L[0], L[1], this.sunSoft ?? this.sunRamp, L[3], tail]
         : [todRamp, poolRamp, this.sunRamp, rimRamp, edgeRamp, poolRamp, this.sunSoft ?? this.sunRamp, null, tail];

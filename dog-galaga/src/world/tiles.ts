@@ -7,7 +7,7 @@
 import { Rng, hash } from '../core/rng';
 import { col, KEY } from '../core/palette';
 import type { Tod } from '../core/types';
-import { Painter, spans, bayer, ramp, remap, TOD_RAMP, type Ramp } from './paint';
+import { Painter, spans, bayer, ramp, remap, TOD_RAMP, SHADE, type Ramp } from './paint';
 import type { Background } from './bg';
 
 export const SEG = 256;
@@ -102,7 +102,7 @@ function lawnBlades(p: Painter, x0: number, y0: number, w: number, h: number, ba
   // (night keeps a carpet too: it melts into the ground, and only shows where a lamp pool lights it)
   // calm: a mown garden lawn (sparser blades, few bright tips, so a dusk lawn stays quiet)
   const dens = (p.tod === 'day' ? 0.26 : p.tod === 'dawn' ? 0.12 : p.tod === 'dusk' ? 0.28 : 0.3) * (calm ? 0.6 : 1);
-  const tipP = (p.tod === 'dusk' ? 0.5 : p.tod === 'dawn' ? 0.45 : 0.25) * (calm ? 0.25 : 1);
+  const tipP = (p.tod === 'dusk' ? 0.32 : p.tod === 'dawn' ? 0.45 : 0.25) * (calm ? 0.25 : 1);
   const kb = KEY.indexOf(base), kj = KEY.indexOf('j'), ki = KEY.indexOf('i'), k9 = KEY.indexOf('9');
   const B = p.buf, W = p.w, H = p.h;
   const put = (xx: number, yy: number, k: number) => { if (xx < x0 || xx >= x0 + w || xx >= W || yy >= H || yy < 0) return; const o = yy * W + xx; if (B[o] === kb) B[o] = k; };
@@ -877,7 +877,9 @@ function parkEdge(p: Painter, kind: number, x0: number, right: boolean, r: Rng) 
   }
 }
 const park: LayerDef = { speed: 1, opaque: true, paint(p, z) {
-  const r = z.r; p.poolScale = 0.8;
+  // night lamps: a low, warm pool that never pulls focus from the cats beside it: one step lower than the street lamps,
+  // and the lawn under it only lifts back to its own dark greens (no bright green halo ring)
+  const r = z.r; p.poolScale = 0.8; p.poolLift = [1, 1, 2, 3]; p.grassLit = [['1', 'k', 'k'], ['k', 'k', 'k'], ['k', 'k', 'j'], ['k', 'j', '9']];
   lawn(p, z);
   // gravel path: runs along one edge strip, crossing the lawn once in a while (keeps the centre open)
   const px = (y: number) => 224 + Math.round(Math.sin(z.wy(y) / 230) * 56 + Math.sin(z.wy(y) / 71) * 6);
@@ -1101,7 +1103,7 @@ const alley: LayerDef = { speed: 1, opaque: true, paint(p, z) {
     const bx = side ? 352 : 0;
     let y = -(z.s * 37 % 64);
     while (y < SEG) {
-      const hh = r.int(80, 140); roof(p, bx, y, 96, hh, 40, r.pick(['q', 'v']), r.pick(['p', 'b', 'a']));
+      const hh = r.int(80, 140); roof(p, bx, y, 96, hh, 28 + (hh * 7) % 19, r.pick(['q', 'v']), r.pick(['p', 'b', 'a'])); // tenements of uneven height: a stepped shadow edge
       // roof clutter so the tenement tops never read as flat slabs: an AC unit, a lit skylight, a vent stack, a hatch
       const ay = y + r.int(12, 22); acUnit(p, bx + (side ? r.int(44, 60) : r.int(14, 30)), ay);
       if (hh >= 90) skylight(p, bx + (side ? 16 : 56), y + hh - 36, 22, 16, 0.7, r.next());
@@ -1728,13 +1730,13 @@ const factoryFx = (ctx: CanvasRenderingContext2D, scroll: number, t: number, _se
 /** dye vat / turntable: steel rim, dark muted liquid, one stirring arm */
 function vat(p: Painter, cx: number, cy: number, k: string, hi: string) {
   p.shEll(cx, cy, 26, 26, 20);
-  p.obj(() => { p.disc('0', cx, cy, 28); p.disc('q', cx, cy, 27); p.ring('p', cx - 1, cy - 1, 26, 26, 1); p.disc('0', cx, cy, 23); p.disc(k, cx, cy, 22); p.ring(hi, cx, cy, 15, 15, 1); p.ring(hi, cx + 3, cy + 2, 7, 7, 1); p.r('0', cx - 1, cy - 22, 3, 44); p.r('p', cx - 1, cy - 22, 1, 44); });
+  p.obj(() => { p.disc('0', cx, cy, 28); p.disc('3', cx, cy, 27); p.ring('p', cx - 1, cy - 1, 26, 26, 1); p.disc('0', cx, cy, 23); p.disc(k, cx, cy, 22); p.ring(hi, cx, cy, 15, 15, 1); p.ring(hi, cx + 3, cy + 2, 7, 7, 1); p.r('0', cx - 1, cy - 22, 3, 44); p.r('p', cx - 1, cy - 22, 1, 44); });
 }
 function spinner(p: Painter, x: number, y: number, rng: Rng) {
   const w = 96, h = 56;
   p.shRect(x, y, w, h, 22);
   p.obj(() => {
-    p.r('0', x, y, w, h); p.r('q', x + 1, y + 1, w - 2, h - 2); p.r('p', x + 1, y + 1, w - 2, 2); p.r('p', x + 1, y + 1, 2, h - 2);
+    p.r('0', x, y, w, h); p.r('3', x + 1, y + 1, w - 2, h - 2); p.r('p', x + 1, y + 1, w - 2, 2); p.r('p', x + 1, y + 1, 2, h - 2);
     for (let j = 0; j < 2; j++) for (let i = 0; i < 6; i++) { const cx = x + 10 + i * 15, cy = y + 16 + j * 24; const [k, sh, hi] = rng.pick(DYES); p.disc('0', cx, cy, 6); p.disc(k, cx, cy, 5); p.ring(sh, cx, cy, 3, 3, 1); p.r(hi, cx - 3, cy - 3, 2, 1); p.disc('0', cx, cy, 1); }
   });
   p.glow('1', 'i', x + w - 8, y + 4, 3, 2); p.glow('1', 'r', x + w - 14, y + 4, 3, 2, 0.6, rng.next());
@@ -1761,7 +1763,7 @@ function hazard(p: Painter, x: number, y: number, w: number, h: number) {
 function catwalk(p: Painter, x: number, w: number, z: Seg) {
   p.shRect(x, 0, w, SEG, 18);
   p.obj(() => {
-    p.r('0', x - 1, 0, w + 2, SEG); p.r('q', x, 0, w, SEG);
+    p.r('0', x - 1, 0, w + 2, SEG); p.r('3', x, 0, w, SEG);
     for (let y = 0; y < SEG; y += 4) p.r('1', x + 1, y, w - 2, 2);
     for (const rx of [x, x + w - 2]) { p.r('0', rx, 0, 2, SEG); p.r('o', rx, 0, 1, SEG); }
     every(z, 24, 0, y => { if (y > -2 && y < SEG) { p.r('0', x - 1, y, 4, 3); p.r('0', x + w - 3, y, 4, 3); p.r('p', x, y, 2, 2); p.r('p', x + w - 2, y, 2, 2); } });
@@ -1795,7 +1797,7 @@ function spoolRack(p: Painter, x: number, y: number, n: number, rng: Rng) {
   const w = n * 12 + 4, h = 30;
   p.shRect(x, y, w, h, 14);
   p.obj(() => {
-    p.r('0', x, y, w, h); p.r('q', x + 1, y + 1, w - 2, h - 2); p.r('p', x + 1, y + 1, w - 2, 1); p.r('v', x + 1, y + 14, w - 2, 2);
+    p.r('0', x, y, w, h); p.r('3', x + 1, y + 1, w - 2, h - 2); p.r('p', x + 1, y + 1, w - 2, 1); p.r('v', x + 1, y + 14, w - 2, 2);
     for (let j = 0; j < 2; j++) for (let i = 0; i < n; i++) { const [k, sh, hi] = rng.pick(DYES); const cx = x + 8 + i * 12, cy = y + 7 + j * 15;
       p.disc('0', cx, cy, 5.5); p.disc(sh, cx, cy, 4.5); p.disc(k, cx - 0.5, cy - 0.5, 3.5); p.r(hi, cx - 3, cy - 3, 2, 1); p.disc('0', cx, cy, 1.5); }
   });
@@ -1806,11 +1808,16 @@ function workLamp(p: Painter, x: number, y: number, r: number) {
   p.glow('q', 'f', x - 1, y - 1, 3, 3, 1, 0); p.glow('p', '7', x, y, 1, 1, 1, 0);
   p.pool(x, y, r);
 }
-/** the dusk sun shafts in the factory (applied to day indices): amber core, a warm brown halo */
-const FACTORY_SUN = remap('q:h v:a p:g o:f 1:b 2:e 3:e a:h b:a 9:g');
-const FACTORY_SOFT = remap('q:a v:b p:h o:g 1:v 2:v 3:e a:a b:b 9:h');
+/** the dusk light through the west windows (applied to day indices): exactly one warm value step above the dusk floor
+ *  (plum steel -> dark brown, studs grey -> brown, seams ink -> plum), so the shafts brighten what they land on at low
+ *  contrast instead of painting it orange */
+/** the dawn light through the east windows (applied to day indices): one pale step above the dawn steel, peach on the studs */
+const FACTORY_DAWN = remap('q:p v:q p:8 o:7 1:v 3:p a:9 b:a 9:8 2:2 n:n e:e h:h k:k');
+const FACTORY_SUN = remap('q:b v:v p:p o:o 1:v 3:p a:9 b:a 9:8 2:2 n:n e:e h:h k:k');
 const factory: LayerDef = { speed: 1, paint(p, z) {
   const r = z.r;
+  // indoors the shadows stay plain steel shade (the sky tint only comes in through the windows)
+  if (p.tod === 'dawn') p.shade = SHADE;
   // steel floor plates with open grate panels (machinery shows through)
   const grates = new Set<number>(); for (let i = 0; i < 3; i++) grates.add(r.int(0, 5) * 100 + r.int(0, 13));
   for (let y = 0; y < SEG; y += 32) for (let x = 0; x < SW; x += 32) {
@@ -1838,7 +1845,9 @@ const factory: LayerDef = { speed: 1, paint(p, z) {
   // a control console and a spool rack where the machinery leaves room; warning lights along the pipe wall
   const free = k === 0 ? [212, 20] : k === 1 ? [196, 206] : k === 2 ? [18, 200] : [40, 104];
   controlConsole(p, r.int(146, 250), free[0], r);
-  spoolRack(p, r.int(144, 220), free[1], r.int(5, 7), r);
+  { const sx = r.int(144, 220), sn = r.int(5, 7); spoolRack(p, sx, free[1], sn, r);
+    // a small lamp hung over the rack, so the dyed cones still read after dark
+    if (p.tod === 'night' || p.tod === 'dusk') p.pool(sx + (sn * 12 + 4) / 2, free[1] + 15, 34); }
   every(z, 64, 24, y => { if (y > 2 && y < SEG - 4) p.obj(() => { p.r('0', 38, y - 1, 12, 5); p.r('q', 39, y, 10, 3); }); p.glow('q', (Math.round(z.wy(y)) >> 6) % 3 ? 'i' : 'r', 42, y, 4, 3, 1.3, 0); });
   // a pipe run crossing the floor (world-spaced): two lagged pipes on stands with flanges and a red valve wheel
   every(z, 224, 120, y => { if (y < -12 || y > SEG + 12) return;
@@ -1851,17 +1860,29 @@ const factory: LayerDef = { speed: 1, paint(p, z) {
   // a floor motor with a cooling fan and a status lamp, in an empty stretch
   { const mx = r.int(150, 290), my = r.int(10, 230), cl = (a: number, b: number) => Math.abs(a - b);
     if (cl(my, free[0]) > 40 && cl(my, free[1]) > 44) { p.shRect(mx, my, 30, 22, 10);
-      p.obj(() => { p.r('0', mx, my, 30, 22); p.r('q', mx + 1, my + 1, 28, 20); p.r('p', mx + 1, my + 1, 28, 1); p.disc('0', mx + 10, my + 11, 7); p.disc('1', mx + 10, my + 11, 6); p.r('p', mx + 5, my + 11, 11, 1); p.r('p', mx + 10, my + 6, 1, 11); p.disc('o', mx + 10, my + 11, 1);
+      p.obj(() => { p.r('0', mx, my, 30, 22); p.r('3', mx + 1, my + 1, 28, 20); p.r('p', mx + 1, my + 1, 28, 1); p.disc('0', mx + 10, my + 11, 7); p.disc('1', mx + 10, my + 11, 6); p.r('p', mx + 5, my + 11, 11, 1); p.r('p', mx + 10, my + 6, 1, 11); p.disc('o', mx + 10, my + 11, 1);
         for (let j = my + 4; j < my + 19; j += 4) p.r('v', mx + 20, j, 7, 2); });
       p.glow('1', 'i', mx + 24, my + 2, 3, 2, 1.3, 0); p.pool(mx + 25, my + 3, 16); } }
   if (r.chance(0.5)) steamVent(p, r.int(150, 300), r.int(10, 240));
   if (r.chance(0.4)) yarnPile(p, r.int(150, 290), r.int(20, 230), 3, r);
   // hanging work lamps: at night each throws a warm stepped pool on the steel (the lights are what is lit, never a white blob)
-  p.poolScale = 0.9; workLamp(p, r.int(170, 290), r.int(70, 180), 50);
+  p.poolScale = 0.9; p.poolWobble = 0.25; p.poolLift = [1, 2, 2, 3]; workLamp(p, r.int(170, 290), r.int(70, 180), 50);
   if (r.chance(p.tod === 'night' ? 0.9 : 0.6)) workLamp(p, r.chance(0.5) ? 70 : 350, r.int(70, 180), 42);
   // golden hour: the low sun slants in through the high west windows in long amber shafts (props' shadows cut them)
-  if (p.tod === 'dusk') { p.sunRamp = FACTORY_SUN; p.sunSoft = FACTORY_SOFT; p.beamShade = true;
-    every(z, 180, 50, y => { p.shaft(26, y - 34, 350, 34, 0.42, true); p.shaft(26, y - 24, 350, 12, 0.42); }); }
+  // golden hour: the low sun comes in through tall west windows in the pipe wall (lit amber panes, a visible source) and
+  // lays long, soft shafts across the steel: one warm step lighter than the floor, a clean 2:1 slant, props' shadows cut them
+  if (p.tod === 'dusk') { p.sunRamp = FACTORY_SUN; p.sunSoft = FACTORY_RAMPS.dusk!; p.sunTail = FACTORY_RAMPS.dusk!; p.beamShade = true;
+    every(z, 180, 50, y => { if (y < -200 || y > SEG + 40) return;
+      p.shaft(36, y - 22, 230, 22, 0.5);
+      p.obj(() => { p.r('0', 29, y - 26, 10, 30); p.r('a', 30, y - 25, 8, 28); p.r('g', 31, y - 24, 6, 26); p.r('f', 31, y - 24, 2, 26); p.r('7', 31, y - 21, 1, 18); p.r('0', 30, y - 12, 8, 1); });
+    }); }
+  // first light: the sun rises behind the east wall and pale peach light falls through its windows across the floor,
+  // one soft step above the steel, slanting down to the left
+  if (p.tod === 'dawn') { p.sunRamp = FACTORY_DAWN; p.sunSoft = FACTORY_RAMPS.dawn!; p.sunTail = FACTORY_RAMPS.dawn!; p.beamShade = true;
+    every(z, 200, 120, y => { if (y < -40 || y > SEG + 200) return;
+      p.shaft(150, y, 254, 18, -0.5);
+      p.obj(() => { p.r('0', 405, y - 132, 9, 26); p.r('p', 406, y - 131, 7, 24); p.r('c', 407, y - 130, 5, 22); p.r('7', 410, y - 130, 2, 22); p.r('0', 406, y - 120, 7, 1); });
+    }); }
 } };
 const girdersFg: LayerDef = { speed: 1.4, paint(p, z) {
   const r = z.r;
@@ -1988,17 +2009,18 @@ interface NebMass { x: number; wy: number; lobes: [number, number, number][]; fa
 /** cloud families by hue, three value steps each (body, inner, small core): teal catnip, violet, rose */
 const NEB_FAM = [['2', 'n', 'm'], ['v', '2', '3'], ['v', 'e', 'd']].map(f => f.map(k => KEY.indexOf(k)));
 const NEB_HALO = KEY.indexOf('1');
-const NEB_P = 230; // world px between mass anchors
+const NEB_P = 210; // world px between mass anchors
 /** the mass anchored at slot k: alternating sides (the column behind the formation stays dark), now and then a gap */
 function nebMass(k: number, seed: number): NebMass | null {
   const r = new Rng(hash(seed, 'neb', k));
-  if (r.chance(0.18)) return null;
-  const left = (k + (r.chance(0.25) ? 1 : 0)) % 2 === 0;
-  const x = left ? r.int(-30, 70) : r.int(SW - 70, SW + 30), wy = k * NEB_P + r.int(-40, 40);
-  const big = r.range(0.85, 1.25), lobes: [number, number, number][] = [];
-  const n = r.int(5, 8), ang = r.range(-0.6, 0.6) + Math.PI / 2;
-  for (let i = 0; i < n; i++) { const t = (i / (n - 1)) * 2 - 1; const along = t * 90 * big, side = r.int(-26, 26);
-    lobes.push([Math.cos(ang) * along - Math.sin(ang) * side, Math.sin(ang) * along + Math.cos(ang) * side, Math.round((58 - Math.abs(t) * 26) * big * r.range(0.8, 1.15))]); }
+  if (r.chance(0.08)) return null;
+  const left = (k + (r.chance(0.2) ? 1 : 0)) % 2 === 0;
+  // anchored inside the visible playfield edge (world x 32..416), so a mass reads as a big cloud, not a sliver at the frame
+  const x = left ? r.int(50, 110) : r.int(SW - 110, SW - 50), wy = k * NEB_P + r.int(-30, 30);
+  const big = r.range(1.0, 1.35), lobes: [number, number, number][] = [];
+  const n = r.int(6, 9), ang = r.range(-0.5, 0.5) + Math.PI / 2;
+  for (let i = 0; i < n; i++) { const t = (i / (n - 1)) * 2 - 1; const along = t * 100 * big, side = r.int(-30, 30);
+    lobes.push([Math.cos(ang) * along - Math.sin(ang) * side, Math.sin(ang) * along + Math.cos(ang) * side, Math.round((70 - Math.abs(t) * 28) * big * r.range(0.85, 1.15))]); }
   return { x, wy, lobes, fam: r.int(0, 2) };
 }
 /**
@@ -2011,7 +2033,7 @@ const nebulaMain: LayerDef = { speed: 1, paint(p, z) {
   const B = p.buf;
   const top = z.wy(SEG), bot = z.wy(0); // world y range of this segment (wy grows upward)
   const cellN = (x: number, y: number) => ((Math.imul((x >> 1) * 73856093 ^ (y >> 1) * 19349663 ^ seed, 0x27d4eb2d) >>> 24) & 255) / 256;
-  const T = [0.16, 0.5, 0.95, 1.55]; // halo, body, inner, core
+  const T = [0.18, 0.62, 1.45, 2.4]; // halo, body, inner, core (big dark bodies, a small bright core)
   for (let k = Math.floor((bot - 220) / NEB_P); k <= Math.ceil((top + 220) / NEB_P); k++) {
     const m = nebMass(k, seed); if (!m) continue;
     const ly = (wy: number) => (z.s + 1) * SEG - wy; // local y of a world y
@@ -2025,7 +2047,7 @@ const nebulaMain: LayerDef = { speed: 1, paint(p, z) {
       if (d <= 0.05) continue;
       d *= 0.78 + 0.44 * fbm(x / 46, wy / 46, seed + m.fam * 7, 3);
       // the column behind the rack stays dark: the mass thins toward the middle of the playfield
-      const mid = Math.max(0, 1 - Math.abs(x - SW / 2) / 120); d *= 1 - 0.75 * mid * mid;
+      const mid = Math.max(0, 1 - Math.abs(x - SW / 2) / 100); d *= 1 - 0.8 * mid * mid;
       let b = -1; while (b + 1 < T.length && d >= T[b + 1]) b++;
       if (b >= 0 && b + 1 < T.length) { const fr = (d - T[b]) / (T[b + 1] - T[b]); if (fr > 0.82 && (fr - 0.82) / 0.18 > cellN(x, y)) b++; } // a short grainy melt into the next step
       else if (b < 0 && d >= T[0] * 0.8 && cellN(x, y) < (d / T[0] - 0.8) * 5) b = 0;
@@ -2061,14 +2083,27 @@ function catEyeGalaxy(p: Painter, cx: number, cy: number, rx: number, ry: number
 }
 /** far layer of the nebula: the star field, with the cat-eye galaxy every other far segment, off to one side */
 const nebulaFar: LayerDef = { speed: 0.25, opaque: true, paint(p, z) {
-  starFar('0', 80).paint(p, z);
-  if (((z.s % 2) + 2) % 2 === 0) { const left = ((z.s >> 1) & 1) === 0; catEyeGalaxy(p, left ? 92 : SW - 92, 128, 40, 26, z.seed | 0); }
+  const seed = (z.seed | 0) ^ 0x5f3a;
+  p.r('0', 0, 0, SW, SEG);
+  // a deep, faint dust wash far behind the clouds: two dark value steps in big soft shapes (2x2 grain where they meet),
+  // fading out toward the middle so the column behind the rack stays the darkest
+  const grain2 = (x: number, y: number) => ((Math.imul((x >> 1) * 73856093 ^ (y >> 1) * 19349663 ^ seed, 0x27d4eb2d) >>> 24) & 255) / 256;
+  p.pixels(set => { for (let y = 0; y < SEG; y++) { const wy = z.wy(y); for (let x = 0; x < SW; x++) {
+    const mid = Math.max(0, 1 - Math.abs(x - SW / 2) / 140);
+    const v = fbm(x / 110, wy / 110, seed, 4) - 0.16 * mid * mid + (grain2(x, y) - 0.5) * 0.025;
+    if (v > 0.6) set(v > 0.68 ? 'v' : '1', x, y); } } });
+  stars(p, z.r, 80, ['2', '2', '3', 'v']);
+  for (let i = 0; i < 6; i++) { const x = z.r.int(4, SW - 4), y = z.r.int(4, SEG - 4); p.r('4', x, y, 1, 1); p.r('2', x - 1, y, 1, 1); p.r('2', x + 1, y, 1, 1); p.r('2', x, y - 1, 1, 1); p.r('2', x, y + 1, 1, 1); }
+  // the focal point: a distant cat-eye galaxy watching from one side, every other far segment
+  if (((z.s % 2) + 2) % 2 === 0) { const left = ((z.s >> 1) & 1) === 0; catEyeGalaxy(p, left ? 112 : SW - 112, 110, 50, 32, z.seed | 0); }
 } };
 /** nebula hours: the clouds keep their own hues; dawn adds a plum veil and pink cores, dusk warms the cores, night dims a step */
 const NEBULA_RAMPS: Partial<Record<Tod, Ramp>> = {
   day: remap(''),
+  // first light: the dust warms to plum, the rose cores blush pink, the violet cores pale
   dawn: remap('1:v d:c 3:4'),
-  dusk: remap('1:v d:e'),
+  // a warm hour: the dust goes plum, violet clouds deepen to wine, teal clouds dim a step, rose cores glow ember orange
+  dusk: remap('1:v 3:e n:2 m:n d:h'),
   // night: the clouds dim a step but stay (deep teal, indigo, wine) so the sky is never an empty black
   night: remap('3:2 4:3 5:4 m:n s:m e:v d:e c:d i:j'),
 };
@@ -2392,10 +2427,12 @@ function podModule(p: Painter, kind: number, x0: number, y0: number, x1: number,
         p.r('0', x0 + 8, j, w - 16, 16); p.r('a', x0 + 9, j + 1, w - 18, 14); p.r('b', x0 + 10, j + 3, w - 20, 11); p.r('9', x0 + 9, j + 1, w - 18, 1);
         for (let i = x0 + 14; i < x1 - 14; i += 9) { const ly = j + 7 + ((i * 7) % 3); p.r('k', i - 2, ly, 5, 3); p.r('j', i - 1, ly - 2, 3, 3); p.r('i', i, ly - 2, 1, 1); p.r('j', i - 3, ly + 1, 2, 1); p.r('j', i + 2, ly + 1, 2, 1); }
         p.glow('2', 't', x0 + 12, j - 3, w - 24, 1, 1.4, 0);
+        // the grow light catches the trough's front lip in one crisp violet line (no soft pool: the style stays crisp)
+        p.glow('9', 'u', x0 + 10, j + 1, w - 20, 1, 1.4, 0);
       }
       stencil(p, 'GARDEN', x0 + 10, y1 - 10, 'j');
     });
-    p.pool(cx, cy, 30);
+    void cy;
   } else if (kind === 3) { // docking bay: hazard-striped bay doors, a landing ring and a little cat-food-can shuttle
     p.obj(() => {
       p.r('1', x0 + 4, y0 + 4, w - 8, h - 14);
@@ -2522,7 +2559,7 @@ const mothership: LayerDef = { speed: 1, paint(p, z) {
   }
   // ear-shaped fins along both hull edges (pointing forward, like a cat's ears)
   for (const [x0, dir] of [[L, -1], [R, 1]] as [number, number][]) every(z, 128, 40, y => {
-    for (let j = 0; j < 56; j++) { const out = Math.round(Math.min(j, 56 - j * 0.6) * 0.75); if (out <= 0) continue; const xa = dir > 0 ? x0 : x0 - out; p.r('0', xa - 1, y - 56 + j, out + 2, 1); p.r('v', xa, y - 56 + j, out, 1); const inner = Math.round(out * 0.45); if (j > 10 && inner > 1) p.r('2', dir > 0 ? x0 + 3 : x0 - 3 - inner, y - 56 + j, inner, 1); }
+    for (let j = 0; j < 56; j++) { const out = Math.round(Math.min(j, 56 - j * 0.6) * 0.75); if (out <= 0) continue; const xa = dir > 0 ? x0 : x0 - out; p.r('0', xa - 1, y - 56 + j, out + 2, 1); p.r('v', xa, y - 56 + j, out, 1); const inner = Math.round(out * 0.45); if (j > 10 && inner > 1) p.r(p.tod === 'dusk' || p.tod === 'dawn' ? 'p' : '2', dir > 0 ? x0 + 3 : x0 - 3 - inner, y - 56 + j, inner, 1); }
   });
   p.r('u', L, 0, 1, SEG); p.r('u', R - 1, 0, 1, SEG);
   p.r('0', 326, 0, 12, SEG); p.r('q', 327, 0, 10, SEG); p.r('p', 327, 0, 1, SEG); p.r('v', 335, 0, 2, SEG); for (let y = 6; y < SEG; y += 52) { p.r('0', 324, y, 16, 8); p.r('1', 325, y + 1, 14, 6); p.glow('1', 'd', 330, y + 3, 4, 2, 1, 0.5); }
@@ -2640,7 +2677,9 @@ const ROOF_RAMPS: Partial<Record<Tod, Ramp>> = {
  * ripples, the planks a moonlit step above it */
 const DOCK_RAMPS: Partial<Record<Tod, Ramp>> = {
   dawn: remap('s:c 5:c', TOD_RAMP.dawn),
-  dusk: remap('n:n m:m l:m s:g 5:8 2:2', TOD_RAMP.dusk),
+  // golden hour: the weathered plank decks and the seawall take the warm key (wood-brown, a step under the day's value),
+  // the water stays blue and its ripples carry the plum sky; long plum shadows (SHADE_TOD) cross both
+  dusk: remap('n:n m:h l:m s:g 5:8 2:v p:a o:9 q:b', TOD_RAMP.dusk),
   night: remap('n:1 2:2 m:n p:q o:p', TOD_RAMP.night),
 };
 /** alley: grey asphalt and granite setts by day; dawn a grey step lower crossed by peach-pink door light; dusk a darker
@@ -2654,9 +2693,10 @@ const ALLEY_RAMPS: Partial<Record<Tod, Ramp>> = {
 /** inside the alley's low-sun shafts (applied to day indices) */
 /** the soft halo round each shaft: a step of the same warm light */
 const ALLEY_SOFT: Partial<Record<Tod, Ramp>> = {
-  // the light always brightens what it lands on: floor -> faint lift -> soft halo -> bright core
+  // the light always brightens what it lands on: floor -> faint lift -> soft halo -> bright core (greys stay grey, only
+  // the brightest tones warm)
   dawn: remap('q:o p:o v:p o:7 1:q 2:3 n:m 3:4 a:9 b:a 7:6 f:7'),
-  dusk: remap('q:9 p:9 v:a o:8 1:b 2:v n:m 3:4 a:9 b:a 9:8 f:7'),
+  dusk: remap('q:p p:o v:p o:8 1:q 2:v n:m 3:4 a:9 b:a 9:8 f:7'),
 };
 /** the faint outer step of a doorway's light spill: one warm step above the floor */
 const ALLEY_TAIL: Partial<Record<Tod, Ramp>> = {
@@ -2665,7 +2705,7 @@ const ALLEY_TAIL: Partial<Record<Tod, Ramp>> = {
 };
 const ALLEY_SUN: Partial<Record<Tod, Ramp>> = {
   dawn: remap('q:c p:7 v:9 o:6 1:a 2:3 n:m 3:5 a:8 b:9 9:8 7:6 f:7'),
-  dusk: remap('q:8 p:8 v:9 o:7 1:a 2:v n:m 3:4 a:8 b:9 9:8 7:6 f:7'),
+  dusk: remap('q:o p:8 v:o o:7 1:p 2:v n:m 3:4 a:8 b:9 9:8 7:6 f:7'),
 };
 /** park: the gravel path stays grey at every hour; by night it stays a step above the dark lawn */
 const PARK_RAMPS: Partial<Record<Tod, Ramp>> = {
@@ -2676,29 +2716,38 @@ const MOON_RAMPS: Partial<Record<Tod, Ramp>> = {
   // a slate-navy night. Value falls day > dawn > dusk > night. The dust stays grey.
   // ('i' marks the brighter highland dust: always one step above the base ground)
   day: remap('8:9 7:8 i:o'),
-  dawn: remap('i:o 8:9 7:8 6:7 5:c'),
+  // dawn: crater crests catch a peach lip with a pink highlight on the sunward side, the dust stays grey
+  dawn: remap('i:o 8:9 7:c 6:7 5:c o:8'),
   dusk: remap('p:q o:p q:v v:1 8:g 7:8 6:f 9:h 5:8 i:p'),
   night: remap('i:p o:q p:q q:1 v:0 9:a 8:9 7:8 6:5 5:4 4:3 3:2 2:1'),
 };
 /** factory: daylight steel a step up; dawn the authored steel; dusk a darker steel crossed by amber window shafts; a dark
  * plum-slate night under warm work-lamp pools. The steel stays grey; value falls day > dawn > dusk > night. */
+// ('3' marks machine steel: the same grey as the floor plates by day, one step above the floor at dusk and night so the
+// vats, spinners, racks and catwalk keep their silhouettes in the dark)
 const FACTORY_RAMPS: Partial<Record<Tod, Ramp>> = {
-  day: remap('q:p v:q p:o'),
-  dawn: remap('q:q v:v p:p o:o', TOD_RAMP.dawn),
-  dusk: remap('q:v v:1 p:q o:p 1:0', TOD_RAMP.dusk),
-  night: remap('q:v v:1 p:q o:p 1:0', TOD_RAMP.night),
+  day: remap('q:p v:q p:o 3:p'),
+  dawn: remap('q:q v:v p:p o:o 3:q', TOD_RAMP.dawn),
+  dusk: remap('q:v v:1 p:q o:p 1:0 3:q', TOD_RAMP.dusk),
+  night: remap('q:v v:1 p:q o:p 1:0 3:q', TOD_RAMP.night),
 };
 /** mothership deck: sunlit periwinkle plates by day, the authored plates with pink highlights at dawn, steel-grey plates
  * with warm edge light at dusk, dark plum at night (metal stays metal: never brown) */
 const MOTHER_RAMPS: Partial<Record<Tod, Ramp>> = {
   day: remap('0:1 1:2 v:3 2:4'),
-  dawn: remap('0:1 1:v v:2 2:3 5:c 6:7'),
-  dusk: remap('0:1 1:v v:q 2:2 o:p 5:8 6:7 4:3'),
+  // first light: cool indigo plates, the sun-facing plate lips catch a peach edge
+  dawn: remap('0:1 1:v v:2 2:8 5:c 6:7'),
+  // sunset: the plates stay grey metal a step under the day, their sun-facing lips take an orange-gold key, the seams
+  // and the shade between them go plum
+  dusk: remap('0:1 1:v v:q 2:h o:p 5:8 6:7 4:3'),
 };
 /** street: a sunlit day (pale sidewalks and roofs a step up from the asphalt) */
 const STREET_RAMPS: Partial<Record<Tod, Ramp>> = { day: ramp('q:p p:o'),
   // first light: the road and sidewalks a step under the day (still grey); peach comes from the highlights and rims
-  dawn: remap('q:q p:p', TOD_RAMP.dawn) };
+  dawn: remap('q:q p:p', TOD_RAMP.dawn),
+  // golden hour: sidewalks and tar roofs take the warm low sun (a deep warm brown, lower than the day), kerbs a lit
+  // light-brown lip; long plum shadows and amber west rims do the rest
+  dusk: remap('q:b p:a', TOD_RAMP.dusk) };
 export const TILESETS: Record<string, Tileset> = {
   backyard: { id: 'backyard', speed: 0.4, base: 'k', main: backyard, fg: yardFg(['1', 'k', 'j'], 0.6, 0), anim: both(flyers('birds', 460), flyers('leaves', 610)) },
   street: { id: 'street', speed: 0.6, base: 'v', ramps: STREET_RAMPS, main: street, fg: yardFg(['1', 'k', 'j'], 0.7, 0), anim: both(steamAnim(188, 300, 120), flyers('birds', 540)) },

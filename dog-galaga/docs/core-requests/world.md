@@ -256,3 +256,12 @@ night with day-coloured pendant pools); sky and space tilesets keep their own ba
   `Painter.poolLift` (warm steps per ring, default [1, 2, 3, 4]; street [1, 1, 2, 3], alley [1, 2, 2, 3]). Add: "Busy
   stages (docks, factory, alley) dim the ground under the rack one value step inside a soft organic blob (`world/bg.ts`
   `RACK_DIM`)."
+- Polish 5 round 2, for interaction (src/interaction/index.ts): the rack shade band request above still stands. Until it
+  lands, `world/index.ts` switches it off at runtime: the first time world renders it replaces
+  `g.mods.interaction.renderShade` with a no-op (guarded by `typeof === 'function'`, so it does nothing once the method is
+  deleted). Please delete `renderShade()`, `RACK_SHADE` and `shadeCache` (and the call in `render()`); world will then drop
+  the shim. With the band off, the checker share of alley / factory / docks is 0.6-1.0% (was 12-19%).
+- ARCHITECTURE.md (wording, optional): `Painter` gained `shade` (cast-shadow ramp override; the factory uses plain steel
+  shade indoors at dawn), `poolWobble` (lamp pool outline lumpiness, factory 0.25) and `grassLit` (lit-grass colours per
+  lamp ring; the park uses a low, dark-green set so night pools have no bright green halo). Door-light spills are now
+  clean stepped bands with no dithered tail.
