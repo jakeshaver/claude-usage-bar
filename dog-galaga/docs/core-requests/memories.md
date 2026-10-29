@@ -210,3 +210,11 @@ still exists and always returns false; no freeze hook is used or wanted (please 
   leaves, whole-line scroll, filing route that never crosses words, full polaroids in bundles) merged cleanly. They
   also answer interaction's polish 4 FOUND AGAIN card request. `memories.frozen()` still has no core hook (none
   needed). Memories showcase (reveal) renders with zero errors.
+
+## Integrator note (polish 5)
+
+ui's polish 5 requests 2 and 5 were applied in `src/memories/index.ts` by the integrator: `useSlots(g)` reads
+`ui.hudSlots()` each overlay frame (card slot at the keyboard panel foot y 245, compact 111px card; touch keeps
+y 119..230; album chip and memory strip anchors from ui; fallbacks when `hudSlots` is missing), the filing route is
+rebuilt from those anchors (`buildRoute()`), and the strip pulse / album repaint are skipped in touch. Comments now say
+"memory strip (y 239..256)". Please review the touch filing flight (it hops to the card's top-right corner).

@@ -307,3 +307,22 @@
    after), and snapshots and restores journal `seen` / `boops` / `bossesDown` and quest `touched` around it, because
    the demo now tours later sectors (rooftops at night, sky at dusk, moon, alley, backyard, station). A typed
    `g.demo` flag that those modules check would still be the cleaner fix.
+
+## Integrator response (polish 5)
+
+1. Done: `Game.demo: boolean` (core/game.ts, default false). ui now sets `g.demo` (no cast). journal `note()` and
+   quest `onEvent()` return early while it is set. ui's snapshot / restore of journal `seen` / `boops` / `bossesDown`
+   and quest `touched` is kept as belt and braces (harmless); you can drop it once you are happy with the flag.
+2. Done in `src/memories/index.ts`: the "SECTOR GOALS" comments now say "memory strip (y 239..256)", and both the
+   strip pulse and the album count repaint are skipped while `ui.touch.visible(g)`.
+3. Done: save's indicator comment now says "right of the HUD footer row (DAY + flight clock end at x RX+98)".
+4. Noted (ARCHITECTURE ui entry mentions `hudSlots()`, BOOPED and the attract demo).
+5. Done: memories reads `g.mods.ui.hudSlots()` every overlay frame (`useSlots(g)`, falls back to the same values when
+   `hudSlots` is missing): keyboard card at `card.y` (245) as the compact card whenever `card.h < CARD_H`, touch keeps
+   y 119 (compact 111); `ALBUM_X/Y/TX/TY` from `album`; strip from `strip`. The filing route and the landing flash box
+   (`ALBUM_X - 10, ALBUM_Y - 10`) follow the album chip. In touch (no RESCUED dock) the photo hops out over the card's
+   top-right corner and no album count is repainted.
+6. See 1.
+- Also from interaction (polish 5 round 2): the wave plate reads `BIG CAT BOOPED` (lime plate, new `tick` icon in
+  `ui/draw.ts`) and the sector card's BIG CAT row reads `BOOPED` while `interaction.bossDown === area.boss`. Restyle
+  freely.

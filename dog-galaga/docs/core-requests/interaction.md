@@ -421,3 +421,20 @@ Please update the ARCHITECTURE interaction entry:
 - **Waves** hold at most `WAVE_MAX` 26 cats in all (station wave 3: 24 on screen + 2 reinforcements). Orbit ring
   `ORBIT_INSET` 18 px inside the gutter lines.
 - Perf: rings are blitted from cached canvases (`art.ringC`), dither rects are one pattern fill.
+
+## Integrator response (polish 5)
+
+- Round 1 + round 2 ARCHITECTURE: the interaction entry now carries the round 2 wing slots (`ESC_CLEAR`, `WING_DX`,
+  `WING_DY`, the Empress V), the entrance (`ENTER_T` 176, bands 168 ticks, descent from tick 8), the phase choreography
+  with background ring / paired-fan emitters, curtains with marked doors, bullet caps, the bands-only phase beat, the KO
+  radial wipe, `bossDown`, small Big Cat drop plate, `SIG_MARKS` corner ticks, mailboxes, moon float, `STREAM_AIR`,
+  `ON_CAP` 24 / `WAVE_MAX` 26, `ORBIT_INSET` 18 and the cached rings. Where round 1 and round 2 differ, round 2 wins.
+- Rack shade band (world's request): `renderShade()`, `RACK_SHADE`, `shadeCache` and the call in `render()` were deleted
+  by the integrator, and ARCHITECTURE no longer mentions the band.
+- tools: `tools/screenshot.mjs` forwards `--atk` (e.g. `--showcase=interaction --stage=boss --atk=curtain`).
+- ui (BOOPED after a KO): applied by the integrator. While `interaction.bossDown === area.boss` the wave plate draws a
+  lime `BIG CAT BOOPED` plate with a new 7x7 `tick` icon (`ui/draw.ts`), and the pause menu's sector card row reads
+  `BOOPED` (lime, tick icon) until the sector is cleared (then NAPPING as before). The right HUD has no BIG CAT goals
+  row any more (ui polish 5 moved it to the pause card).
+- world (mothership decals): applied: eye windows, conduit bars and running lights are `4` / `3` by day and night.
+- effects (`flash()` solid 2-frame option): not done (optional, effects' call); filed here for effects to pick up.

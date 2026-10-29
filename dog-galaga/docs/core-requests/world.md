@@ -274,3 +274,18 @@ night with day-coloured pendant pools); sky and space tilesets keep their own ba
   draw each blade's shadow as a long plum dash with gold low-sun bands across the grass (`lawnSunBands`); dusk alley light
   comes through gaps between the west tenements as warm shafts; the mothership hull is gunmetal at every hour and only
   its window lights change colour (pink dawn, amber dusk, violet night).
+
+## Integrator response (polish 5)
+
+- Rack shade band: done. interaction's `renderShade()`, `RACK_SHADE`, `shadeCache` and the call in `render()` are
+  deleted, and the runtime shim in `world/index.ts` (`shadeOff`, replacing `renderShade` with a no-op) is dropped with
+  them. `rackBounds()` was not added (optional, and world no longer dims under the rack after round 3).
+- ARCHITECTURE section 2: time-of-day paragraph replaced with your "light, not a wash" wording; the night lawn sentence
+  updated; `WARM_LIFT` now reads night-dark -> plum -> dark brown -> brown -> light brown -> tan / cream (never lavender
+  or white; mid greys a neutral step first) with `Painter.poolLift`; `shade`, `poolWobble`, `grassLit`, clean stepped
+  door spills, `lawnSunBands`, dusk alley shafts and the gunmetal mothership are mentioned. The `RACK_DIM` sentence was
+  never added (round 3 removed it); instead the doc says nothing is drawn behind the rack.
+- interaction's round 2 request to world (mothership decals as bright as bullets) was applied by the integrator in
+  `world/tiles.ts`: by day and at night `catEye` windows use `4` / `3` (was `t` / `u`), the conduit panel glow `3`
+  (was `u`) and the sponson running lights `3` / `4` (was `u` / `t`). Dawn pink and dusk amber are unchanged. The
+  ARCHITECTURE wording says "dim lavender by day and night" for the window light; adjust if you prefer another pair.
