@@ -28,44 +28,49 @@ export function ramp(map: string, base?: Ramp): Ramp {
 }
 /** One step darker, same hue family (used for cast shadows at day/night). */
 export const SHADE = ramp('1:0 2:1 3:2 4:3 5:4 6:5 7:8 8:9 9:a a:b b:v c:d d:e e:v f:g g:h h:a i:j j:k k:1 l:m m:n n:2 o:p p:q q:v r:h s:l t:u u:2 v:1');
-/** Cast shadows per time of day: long cool blue at dawn, long plum/violet at dusk (the only place dusk keeps purple). */
+/** Cast shadows per time of day: cool lavender-blue at dawn, plum at dusk, deep navy at night. Never dithered. */
 export const SHADE_TOD: Record<Tod, Ramp> = {
   day: SHADE,
-  night: SHADE,
-  dawn: ramp('k:n j:k q:2 p:3 o:4 7:5 8:4 9:3 a:2 b:1 h:a v:1 i:m', SHADE),
-  dusk: ramp('k:v j:k q:v p:u2/8 o:u 8:e 9:e a:v b:v h:e g:h 4:u 3:2 2:v n:v m:u 1:0', SHADE),
+  night: ramp('2:1 q:1 3:2 k:1 n:1 p:2 4:3 u:2 o:q 9:b a:v 8:p', SHADE),
+  dawn: ramp('k:2 j:k q:2 p:3 o:4 7:5 8:4 9:3 a:2 b:1 h:a v:1 i:m 3:2', SHADE),
+  dusk: ramp('k:v j:v q:v p:q o:p 8:a 9:b a:v b:v h:b g:h 4:u 3:2 2:v n:v m:n 1:0', SHADE),
 };
 /**
- * Time-of-day palette ramps: lighting is told apart by colour temperature, not just darkness.
- * Day is identity (backgrounds are authored in muted day colours).
+ * Time-of-day palette ramps, remapped per material (asphalt greys, grass greens, brick browns, ...),
+ * one palette entry to one palette entry: no dither on large flat areas.
+ * Day is identity (backgrounds are authored in muted day colours) and is the brightest key.
  */
 export const TOD_RAMP: Record<Tod, Ramp> = {
   day: ramp(''),
-  // cool, pale pink-peach lift: darks lift toward periwinkle, highlights catch peach and pink
-  dawn: ramp('1:21/8 v:2v/8 2:23/6 q:2q/8 p:3p/10 o:oc/6 3:34/6 4:54/8 5:c5/8 6:7 7:c7/8 8:8c/6 9:89/6 a:a9/6 b:ba/6 k:kn/5 j:jm/5 i:jm/4 n:n3/4 m:m4/6 l:s e:ed/6 h:hg/6 g:gc/6 f:7f/8'),
-  // sunset: mids and highs go amber / rust / rose, purple stays only in the darkest tones
-  dusk: ramp('1:v 2:v 3:eu/8 4:ct/8 5:c 6:7 7:f8/8 8:g8/8 9:h9/6 a:ah/6 b:b f:gf/8 i:9f/8 j:ja/6 k:kb/4 l:t m:eu/8 n:ve/4 o:9 p:ae/4 q:b s:c t:ct/8 u:eu/8'),
-  // moonlit: blue and ~2 steps darker, greens stay blue-green (dithered toward deep night)
-  night: ramp('1:1 2:1 3:2 4:3 5:4 6:5 7:5 8:p 9:a a:b b:v c:t d:e e:v f:8 g:h h:a i:j j:k k:k1/8 l:m m:n n:2 o:p p:q q:v r:e s:4 t:u u:2 v:1'),
+  // early light: cool, slightly lower values; whites and pale tones catch a pink sky reflection,
+  // greens go cool blue-green, warm browns drop toward mauve. The peach comes from the rim light on top edges.
+  dawn: ramp('6:7 7:c 5:c s:5 o:4 p:p q:q v:v 1:1 8:9 9:a a:a b:b j:n i:j k:k l:m m:4 n:3 f:8 g:9 h:a 4:4 3:3 r:d d:e t:4 e:e u:u'),
+  // sunset: about one step darker; light greys and creams go warm, greens drop to their shade tone,
+  // purples stay in the shadows. Warm accents come from rim light on west faces and lit windows.
+  dusk: ramp('6:8 7:8 5:t 4:u 3:2 2:v o:9 p:q q:q 8:9 9:a a:b b:b j:a i:j k:k l:m m:n s:t f:g c:d t:u n:2 g:h r:h'),
+  // moonlight: navy / indigo, roughly 30% lower value than day; grass goes indigo, asphalt near-black.
+  night: ramp('1:1 2:1 3:2 4:3 5:4 6:5 7:o 8:p 9:a a:b b:v c:u d:e e:v f:9 g:a h:b i:j j:k k:2 l:m m:n n:2 o:p p:q q:2 r:e s:4 t:u u:3 v:1'),
 };
-/** Low sun on the sunward faces: warm amber at dusk (west faces), pale pink-gold at dawn (east faces). */
+/** Low sun on the sunward faces: warm amber at dusk (west faces), peach-pink at dawn (top / east edges). */
 export const RIM_RAMP: Partial<Record<Tod, Ramp>> = {
   dusk: ramp('q:h p:g o:f v:a 1:b 2:e 3:d 4:c 5:7 a:g b:h 9:g 8:f 7:f k:a j:9 i:f n:e m:d 6:7 u:d t:c e:d'),
-  dawn: ramp('q:3 p:4 o:c v:2 1:v 2:3 3:4 4:5 a:9 b:a 9:8 8:7 k:j j:i n:m m:4 h:g'),
+  dawn: ramp('q:p p:8 o:c v:q 1:v 2:3 3:4 4:c 5:c a:9 b:a 9:8 8:c 7:c k:j j:8 n:m m:4 h:g e:d u:t'),
 };
-/** Inside a lamp pool at night: neutral-cool lift (about day values) so brown turds still read against the floor. */
-export const LAMP_RAMP = ramp('0:1 1:2 v:q 2:3 q:p p:o 3:4 n:m b:a a:9 4:5 o:5 e:d u:t');
+/** Inside a lamp pool at night: warm sodium light (applied to day colours) so the pool reads as a hard warm cone. */
+export const LAMP_RAMP = ramp('0:0 1:b v:a 2:a q:9 p:8 o:7 3:9 4:8 n:a m:9 k:k j:j b:a a:9 9:8 8:7 7:7 6:7 5:7 e:h u:h');
+/** Outer falloff ring of a lamp pool: halfway between sodium light and moonlight. */
+export const LAMP_EDGE = ramp('0:0 1:v v:b 2:b q:a p:9 o:9 3:a 4:9 n:b m:a k:k j:k b:b a:a 9:9 8:9 7:8 6:8 5:8 e:b u:b');
 /** Interiors: lamps are on after dark, so the room only warms up instead of going dark. */
 export const INDOOR_RAMP: Record<Tod, Ramp> = {
   day: ramp(''),
   dawn: ramp('0:1 1:v 5:c 6:7 7:c o:8 n:3 m:4 4:t'),
-  dusk: ramp('5:c 6:7 7:8 o:8 4:t 3:u s:c p:ae/8 q:va/8 n:e 9:h9/8 a:ab/4'),
+  dusk: ramp('5:c 6:7 7:8 o:8 4:t 3:u s:c p:q q:v n:e'),
   night: ramp('5:4 6:5 7:8 o:p 4:3 3:2 s:4 p:q q:v 2:1 9:a a:b b:v 8:9 n:2 m:n e:v u:2 c:d'),
 };
 /** Sunbeams through windows (interiors by day/dawn): warm lift. */
-export const SUN_RAMP = ramp('0:1 1:v v:b b:a a:9 9:8 8:7 q:p p:o 2:3 3:4 e:d u:t n:m k:j');
+export const SUN_RAMP = ramp('0:1 1:v v:b b:a a:a 9:9 8:8 q:p p:p 2:3 3:3 e:e u:u n:n k:k');
 /** Low dusk sun through the windows: deep amber / rust beams. */
-export const DUSK_SUN = ramp('0:b 1:b v:a b:h a:h 9:g 8:f q:a p:9 o:8 2:e 3:d e:d u:d n:e k:a');
+export const DUSK_SUN = ramp('0:1 1:b v:b b:a a:h 9:9 q:b p:a 2:e 3:u n:2 k:k');
 /** Space: day = sunlit hull, night = eclipse (highlights drop, running lights on). */
 export const SPACE_RAMP: Record<Tod, Ramp> = {
   day: ramp(''),
@@ -82,7 +87,7 @@ const KI = new Uint8Array(128); for (let i = 0; i < 32; i++) KI[KEY.charCodeAt(i
 const ci = (k: string) => KI[k.charCodeAt(0)];
 const CLEAR = 255;
 
-export interface Pool { x: number; y: number; r: number }
+export interface Pool { x: number; y: number; r: number; clip?: [number, number, number, number] }
 
 /**
  * Painter over one segment. Everything is drawn into a palette-index buffer
@@ -106,6 +111,7 @@ export class Painter {
   /** ramp used inside sunbeams */
   sunRamp: Ramp = SUN_RAMP;
   /** lamp pools are scaled by this (busy tilesets keep them small) */
+  poolScale = 0.55;
   constructor(public canvas: HTMLCanvasElement, public w: number, public h: number, public tod: Tod) {
     this.buf = new Uint8Array(w * h).fill(CLEAR);
     this.shadow = new Uint8Array(w * h);
@@ -159,7 +165,7 @@ export class Painter {
   /** Shadow offset per unit of object height for the current time of day (long and low at dawn / dusk). */
   cast(height: number): [number, number] {
     const t = this.tod;
-    const [ax, ay] = t === 'dawn' ? [-1.25, 0.3] : t === 'dusk' ? [1.25, 0.3] : t === 'night' ? [0.25, 0.3] : [0.45, 0.55];
+    const [ax, ay] = t === 'dawn' ? [-1.1, 1.0] : t === 'dusk' ? [2.4, 0.5] : t === 'night' ? [0.2, 0.25] : [0.45, 0.55];
     return [Math.round(ax * height), Math.round(ay * height)];
   }
   private sm(x: number, y: number, w: number, h: number) {
@@ -170,26 +176,31 @@ export class Painter {
   private rimRow(x: number, y: number, w: number) {
     if (!this.rimLight || w < 4) return;
     if (this.tod === 'dusk') this.rims.push(x + 1, y, 2);
-    else if (this.tod === 'dawn') this.rims.push(x + w - 3, y, 2);
+    else if (this.tod === 'dawn') this.rims.push(x + w - 2, y, 1);
+  }
+  /** dawn: the low north-east sun catches the top (and right) edge of an object */
+  private rimTop(x: number, y: number, w: number) {
+    if (!this.rimLight || this.tod !== 'dawn' || w < 4) return;
+    this.rims.push(x + 1, y, w - 2, x + 2, y + 1, w - 3);
   }
   /** rectangular object footprint of given height casts a swept shadow (and catches a rim of low sun) */
   shRect(x: number, y: number, w: number, h: number, height: number) {
     const [dx, dy] = this.cast(height); const n = Math.max(Math.abs(dx), Math.abs(dy), 1);
     for (let i = 0; i <= n; i++) this.sm(x + Math.round(dx * i / n), y + Math.round(dy * i / n), w, h);
-    if (height >= 5) for (let j = 1; j < h - 1; j++) this.rimRow(x, y + j, w);
+    if (height >= 5) { for (let j = 1; j < h - 1; j++) this.rimRow(x, y + j, w); this.rimTop(x, y, w); }
   }
   shEll(cx: number, cy: number, rx: number, ry: number, height: number) {
     const [dx, dy] = this.cast(height); const n = Math.max(Math.abs(dx), Math.abs(dy), 1);
     for (let i = 0; i <= n; i += Math.max(1, (n / 6) | 0)) spans(cx + Math.round(dx * i / n), cy + Math.round(dy * i / n), rx, ry, (x, y, w) => this.sm(x, y, w, 1));
     spans(cx + dx, cy + dy, rx, ry, (x, y, w) => this.sm(x, y, w, 1));
-    if (height >= 5) spans(cx, cy, rx, ry, (x, y, w) => this.rimRow(x, y, w));
+    if (height >= 5) { let n2 = 0; spans(cx, cy, rx, ry, (x, y, w) => { this.rimRow(x, y, w); if (n2++ < 2) this.rimTop(x, y, w); }); }
   }
   /** draw this after the ground shadows are applied */
   obj(fn: () => void) { this.objs.push(fn); }
   /** a sunbeam: parallelogram lit with SUN_RAMP (only shown when the caller decides it is daytime) */
   beam(x: number, y: number, w: number, h: number, skew: number) { this.beams.push({ x, y, w, h, skew }); }
   /** a light source: lamp pool at night */
-  pool(x: number, y: number, r: number) { this.pools.push({ x, y, r }); }
+  pool(x: number, y: number, r: number, clip?: [number, number, number, number]) { this.pools.push({ x, y, r, clip }); }
   /** emissive rect: shows `day` normally, `lit` (unaffected by darkness) when the light is on */
   glow(day: string, lit: string, x: number, y: number, w: number, h: number, chance = 1, roll = 0) {
     const t = this.tod; const p = t === 'night' ? chance : t === 'dusk' ? chance * 0.7 : t === 'dawn' ? chance * 0.3 : 0;
@@ -206,19 +217,24 @@ export class Painter {
       buf[i] = sh.lv[v] > BAYER[(((i / w) | 0) & 3) * 4 + ((i % w) & 3)] ? sh.b[v] : sh.a[v];
     }
     for (const f of this.objs) f();
-    // light mask: 1 lamp pool, 2 sunbeam, 3 rim
+    // light mask: 1 lamp pool, 2 sunbeam, 3 rim, 4 lamp falloff
     let mask: Uint8Array | null = null;
     if (rimRamp && this.rims.length) {
       mask = new Uint8Array(w * h); const R = this.rims;
       for (let k = 0; k < R.length; k += 3) { const x = R[k], y = R[k + 1]; if (y < 0 || y >= h) continue; for (let i = Math.max(0, x); i < Math.min(w, x + R[k + 2]); i++) mask[y * w + i] = 3; }
     }
     if (pools && this.pools.length) {
+      // small hard-edged lamp cones: a solid warm core, then a 2-step ordered-dither falloff
       mask = mask ?? new Uint8Array(w * h);
       for (const p of this.pools) {
-        const rin = p.r * 0.62;
-        for (let y = Math.max(0, p.y - p.r); y < Math.min(h, p.y + p.r + 1); y++) for (let x = Math.max(0, p.x - p.r); x < Math.min(w, p.x + p.r + 1); x++) {
-          const d = Math.hypot((x - p.x), (y - p.y) * 1.15); if (d > p.r) continue;
-          if (d <= rin || bayer(x, y) < ((p.r - d) / (p.r - rin)) * 16) mask[y * w + x] = 1;
+        const R = Math.max(6, Math.round(p.r * this.poolScale)), rin = R * 0.62, rmid = R * 0.82;
+        for (let y = Math.max(0, p.y - R); y < Math.min(h, p.y + R + 1); y++) for (let x = Math.max(0, p.x - R); x < Math.min(w, p.x + R + 1); x++) {
+          if (p.clip && (x < p.clip[0] || y < p.clip[1] || x >= p.clip[0] + p.clip[2] || y >= p.clip[1] + p.clip[3])) continue;
+          const d = Math.hypot((x - p.x), (y - p.y) * 1.2); if (d > R) continue;
+          const o = y * w + x; const b = bayer(x, y);
+          if (d <= rin) mask[o] = 1;
+          else if (d <= rmid) mask[o] = b < 10 ? 1 : 4;
+          else if (b < 8 && mask[o] !== 1) mask[o] = 4;
         }
       }
     }
@@ -230,7 +246,7 @@ export class Painter {
       }
     }
     if (!todRamp.id || mask) {
-      const ramps: (Ramp | null)[] = [todRamp, poolRamp, this.sunRamp, rimRamp];
+      const ramps: (Ramp | null)[] = [todRamp, poolRamp, this.sunRamp, rimRamp, poolRamp === LAMP_RAMP ? LAMP_EDGE : todRamp];
       for (let y = 0, i = 0; y < h; y++) for (let x = 0; x < w; x++, i++) {
         const v = buf[i]; if (v === CLEAR) continue;
         const rm = ramps[mask ? mask[i] : 0] ?? todRamp; if (rm.id) continue;

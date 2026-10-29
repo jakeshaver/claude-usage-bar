@@ -50,3 +50,25 @@ blue shadows; day: identity; dusk: amber/rust/rose mids and highs with purple ke
 west faces; night: blue, darker, lit windows and lamp pools). Ramps may ordered-dither two palette entries. Tilesets can
 add a screen-fixed backdrop (sky gradient bands) and per-frame `fx` blits (conveyor belts, water swells). Layers are
 far / main / fg 448x256 segments painted once (about 2-7 ms each) and cached as canvases; layers under an opaque layer are skipped."
+
+# Round 4
+
+## 7. (ui owner) Long sector names wrap into the WAVE label in the right HUD panel
+In the cafe pause capture, `THE PURRFECT CUP CAFE` wraps over the `WAVE` label in the right side panel. Please clip or
+ellipsize the sector name to the panel width (128px minus padding), or switch to a 2-line layout that pushes the WAVE
+block down, in `src/ui/`. Not a world defect (world's own title card centres the name on the playfield and fits).
+
+## 8. (content owner, verification only) time of day vs intro dialogue
+World sets `state.tod = area.tod` on every `enterArea`, so the default time of day always comes from `content/areas.json`
+(rooftops: night, docks: dawn, matching their intro lines). The mismatch the critic saw came from `--tod=` overrides in the
+screenshot tool, not from the director. If the content owner wants different defaults, change `tod` in areas.json; no
+world change is needed.
+
+## 9. ARCHITECTURE.md section 2 wording (supersedes #3 and #6)
+Replace "Time-of-day is a palette-safe overlay tint" with:
+"Time of day is lighting, not a tint: segments are painted into a palette-index buffer in day colours, then remapped one
+palette entry to one palette entry per material (no dither on large areas). Day is the brightest key; dawn is cool with
+pink sky reflections, long lavender shadows cast down-left and peach rim light on the top edges of objects; dusk drops
+lights one step, with long plum shadows to the east and amber rim light on west faces; night is navy/indigo about 30%
+darker, with warm lit windows and small hard-edged sodium lamp cones (solid core + 2-step dither falloff, clippable to a
+surface). Rare fast foreground flyers (birds, leaves, steam, cloud wisps, debris) are drawn per frame with the background."

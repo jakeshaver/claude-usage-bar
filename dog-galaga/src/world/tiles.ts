@@ -94,10 +94,10 @@ function grass(p: Painter, x: number, y: number, w: number, h: number, rng: Rng,
   const n = Math.floor((w * h) / 520 * density);
   for (let i = 0; i < n; i++) tuft(p, rng.chance(0.75) ? hi : '1', x + rng.int(1, w - 6), y + rng.int(2, h - 2));
 }
-function lamp(p: Painter, x: number, y: number, r = 40) {
+function lamp(p: Painter, x: number, y: number, r = 40, clip?: [number, number, number, number]) {
   p.shRect(x - 1, y - 1, 3, 3, 14);
   p.obj(() => { p.disc('0', x + 0.5, y + 0.5, 3); p.disc('p', x + 0.5, y + 0.5, 2); p.glow('q', 'f', x, y, 1, 1); p.glow('o', '7', x - 1, y - 1, 1, 1); });
-  p.pool(x, y + 2, r);
+  p.pool(x, y + 2, r, clip);
 }
 function crate(p: Painter, x: number, y: number, w = 20, h = 20, k = 'a') {
   p.shRect(x, y, w, h, 8);
@@ -223,16 +223,18 @@ function doghouse(p: Painter, x: number, y: number) {
     p.r('0', x + 1, y + rh - 1, w - 2, 12); p.r('8', x + 2, y + rh, w - 4, 10); p.r('9', x + 2, y + rh + 8, w - 4, 2);
     for (let i = 4; i < w - 4; i += 4) p.r('9', x + i, y + rh, 1, 8);
     p.r('0', x + 12, y + rh + 2, 12, 9); p.r('0', x + 13, y + rh + 1, 10, 1); p.r('1', x + 14, y + rh + 4, 8, 7); // entrance + inside shadow
-    // roof: lit left plane, shaded right plane, shingle courses, ridge cap
+    // roof: lit left plane, shaded right plane, shingle courses, ridge cap (muted brick so it never competes with the cats)
     p.r('0', x - 2, y - 1, w + 4, rh + 1);
-    p.r('r', x - 1, y, w / 2 + 1, rh); p.r('e', x + w / 2, y, w / 2 + 1, rh);
-    for (let j = 3; j < rh; j += 4) { p.r('e', x - 1, y + j, w / 2, 1); p.r('v', x + w / 2 + 1, y + j, w / 2, 1); for (let i = (j >> 2) % 2 ? 2 : 6; i < w; i += 8) p.r(i < w / 2 ? 'e' : 'v', x + i, y + j - 3, 1, 3); }
-    p.r('c', x - 1, y, w / 2, 1);
-    p.r('c', x + w / 2 - 1, y, 1, rh); p.r('0', x + w / 2, y, 1, rh); // ridge: highlight + crease
+    p.r('a', x - 1, y, w / 2 + 1, rh); p.r('b', x + w / 2, y, w / 2 + 1, rh);
+    for (let j = 3; j < rh; j += 4) { p.r('b', x - 1, y + j, w / 2, 1); p.r('v', x + w / 2 + 1, y + j, w / 2, 1); for (let i = (j >> 2) % 2 ? 2 : 6; i < w; i += 8) p.r(i < w / 2 ? 'b' : 'v', x + i, y + j - 3, 1, 3); }
+    p.r('9', x - 1, y, w / 2, 1);
+    p.r('9', x + w / 2 - 1, y, 1, rh); p.r('0', x + w / 2, y, 1, rh); // ridge: highlight + crease
     p.r('0', x - 2, y + rh - 1, w + 4, 1);
     // name plate over the door: cream board with three dark letter blocks
     p.r('0', x + 11, y + rh - 3, 14, 5); p.r('7', x + 12, y + rh - 2, 12, 3);
     p.r('b', x + 13, y + rh - 1, 2, 1); p.r('b', x + 17, y + rh - 1, 2, 1); p.r('b', x + 21, y + rh - 1, 2, 1);
+    // little lantern by the door: warm after dusk
+    p.r('0', x + 3, y + rh + 1, 6, 6); p.glow('b', 'f', x + 4, y + rh + 2, 4, 4, 1, 0.5);
   });
   // bowl + bone
   p.obj(() => {
@@ -284,16 +286,33 @@ function clothesline(p: Painter, x0: number, x1: number, y: number, rng: Rng) {
     for (let x = x0 + 8; x < x1 - 14; x += rng.int(14, 22)) { const k = rng.pick(['n', 'e', '8', 'u', 'p']); const ww = rng.int(8, 12), hh = rng.int(8, 14); p.r('0', x, y + 1, ww, hh); p.r(k, x + 1, y + 1, ww - 2, hh - 1); p.r('o', x + 1, y + 1, ww - 2, 1); }
   });
 }
-/** wooden fence with the odd missing board (gaps a small dog could squeeze through) */
+/**
+ * Wooden plank fence running up the screen, seen from above: a 6px strip of
+ * board tops (each board 4px long, lit on the left, dark gaps between), posts
+ * every 32px with caps, and the odd missing board a small dog could squeeze through.
+ */
 function fenceV(p: Painter, x: number, y0: number, y1: number, rng?: Rng) {
   const gaps: number[] = []; if (rng) for (let y = y0 + 40; y < y1 - 30; y += rng.int(70, 120)) gaps.push(y);
-  const runs: [number, number][] = []; let a = y0; for (const g of gaps) { runs.push([a, g]); a = g + 10; } runs.push([a, y1]);
-  for (const [a0, a1] of runs) p.shRect(x, a0, 4, a1 - a0, 10);
-  p.obj(() => { for (const [a0, a1] of runs) { p.r('b', x, a0, 4, a1 - a0); p.r('9', x, a0, 1, a1 - a0); p.r('a', x + 1, a0, 2, a1 - a0); } for (let y = y0; y < y1; y += 32) { p.r('0', x - 1, y + 14, 6, 5); p.r('9', x, y + 15, 4, 3); } for (const g of gaps) { p.r('b', x + 1, g + 3, 3, 1); p.r('b', x + 1, g + 7, 2, 1); } });
+  const runs: [number, number][] = []; let a = y0; for (const g of gaps) { runs.push([a, g]); a = g + 8; } runs.push([a, y1]);
+  for (const [a0, a1] of runs) p.shRect(x, a0, 6, a1 - a0, 12);
+  p.obj(() => {
+    for (const [a0, a1] of runs) {
+      p.r('0', x - 1, a0, 8, a1 - a0);
+      for (let y = a0; y < a1; y += 5) { const h = Math.min(4, a1 - y); p.r('a', x, y, 6, h); p.r('9', x, y, 2, h); p.r('b', x + 5, y, 1, h); }
+    }
+    for (let y = y0 + 14; y < y1; y += 32) { p.r('0', x - 2, y, 10, 6); p.r('b', x - 1, y + 1, 8, 4); p.r('a', x - 1, y + 1, 8, 1); }
+    for (const g of gaps) { p.r('b', x, g + 2, 6, 1); p.r('v', x + 1, g + 5, 4, 1); }
+  });
 }
+/** Plank fence running across the screen, seen in 3/4: a face of vertical boards with dark gaps under a top rail. */
 function fenceH(p: Painter, x0: number, x1: number, y: number) {
-  p.shRect(x0, y, x1 - x0, 4, 10);
-  p.obj(() => { p.r('b', x0, y, x1 - x0, 4); p.r('9', x0, y, x1 - x0, 1); p.r('a', x0, y + 1, x1 - x0, 2); for (let x = x0 + 6; x < x1; x += 32) { p.r('0', x, y - 1, 5, 6); p.r('9', x + 1, y, 3, 4); } });
+  p.shRect(x0, y, x1 - x0, 10, 12);
+  p.obj(() => {
+    p.r('0', x0, y - 1, x1 - x0, 12);
+    for (let x = x0; x < x1; x += 5) { p.r('a', x, y + 2, 4, 8); p.r('9', x, y + 2, 1, 8); p.r('b', x, y + 8, 4, 2); }
+    p.r('b', x0, y, x1 - x0, 2); p.r('9', x0, y, x1 - x0, 1);
+    for (let x = x0 + 6; x < x1; x += 32) { p.r('0', x - 1, y - 2, 6, 13); p.r('a', x, y - 1, 4, 11); p.r('9', x, y - 1, 1, 11); }
+  });
 }
 /** soil border along a fence with low shrubs and a few muted flowers */
 function border(p: Painter, x: number, y: number, w: number, h: number, rng: Rng) {
@@ -348,14 +367,14 @@ const backyard: LayerDef = { speed: 1, opaque: true, paint(p, z) {
   if (top) brownstoneBacks(p, r);
   const lots = [[0, 144], [148, 300], [304, 448]];
   // the middle lot (centre of the playfield) always holds this segment's hero object
-  const hero = ['dog', 'pool', 'patio', 'dog', 'pool', 'garden'][z.s % 6];
+  const hero = ['dog', 'pool', 'patio', 'clothes', 'dog', 'garden'][z.s % 6];
   const side = ['clothes', 'yard', 'garden', 'patio', 'yard', 'clothes'];
   for (let i = side.length - 1; i > 0; i--) { const j = r.int(0, i); [side[i], side[j]] = [side[j], side[i]]; }
   lots.forEach(([x0, x1], li) => {
     const kind = li === 1 ? hero : side[li];
     const cx = (x0 + x1) >> 1, y0 = top + 14, y1 = SEG - 8;
     border(p, li === 2 ? x1 - 12 : li === 1 ? x0 + 4 : x0, top + 2, 10, SEG - top - 2, r);
-    if (kind !== 'patio' && kind !== 'pool') for (let y = y0 + 8; y < y1 - 8; y += 20) { const sx = cx + Math.round(Math.sin((z.wy(y) + li * 50) / 40) * 14) + ((y / 20) % 2 ? 4 : -4); p.ell('0', sx, y + 3, 6, 4); p.ell('q', sx, y + 3, 5, 3); p.r('p', sx - 3, y + 1, 4, 1); }
+    if (kind !== 'patio' && kind !== 'pool') { let y = y0 + r.int(4, 16); const sx0 = cx + r.int(-30, 30); while (y < y1 - 8) { const sx = sx0 + Math.round(Math.sin((z.wy(y) + li * 50) / r.int(30, 60)) * 18) + r.int(-5, 5); const rx = r.int(4, 7), ry = r.int(3, 4); if (!r.chance(0.15)) { p.ell('0', sx, y + 3, rx + 1, ry + 1); p.ell('q', sx, y + 3, rx, ry); p.r('p', sx - rx + 2, y + 3 - ry + 1, rx, 1); } y += r.int(16, 28); } }
     if (kind === 'dog') { const dy = top ? y0 + 30 : y0 + 60; doghouse(p, cx - 26, dy); p.obj(() => { const tx = cx - 30, ty = dy + 70; p.r('0', tx - 1, ty - 1, 16, 4); p.r('8', tx, ty, 14, 2); p.r('h', tx + 3, ty, 2, 2); p.r('h', tx + 9, ty, 2, 2); }); }
     else if (kind === 'pool') { kiddiePool(p, cx, top ? y0 + 70 : y0 + 90); p.obj(() => { const tx = cx + 34, ty = y1 - 50; p.r('0', tx - 1, ty - 1, 18, 26); for (let j = 0; j < 24; j += 4) p.r(j % 8 ? '7' : 'n', tx, ty + j, 16, 4); }); }
     else if (kind === 'patio') { patio(p, x0 + 14, y0 + 4, x1 - x0 - 28, 96); umbrellaTable(p, cx, y0 + 50); grill(p, x1 - 30, y0 + 20); }
@@ -366,7 +385,10 @@ const backyard: LayerDef = { speed: 1, opaque: true, paint(p, z) {
   });
   fenceV(p, 144, top ? top - 8 : 0, SEG, r); fenceV(p, 300, top ? top - 8 : 0, SEG, r);
   if (top) fenceH(p, 0, SW, top - 8);
-  if (!top) lamp(p, 224, 30, 30);
+  if (top) { // the brownstone's back stoop: iron-railed steps down into the middle yard
+    const sx = 206, sy = top - 18; p.shRect(sx, sy, 26, 24, 10);
+    p.obj(() => { p.r('0', sx - 1, sy - 1, 28, 26); for (let i = 0; i < 6; i++) { p.r(i % 2 ? '9' : '8', sx, sy + i * 4, 26, 3); p.r('a', sx, sy + i * 4 + 3, 26, 1); } p.r('0', sx - 1, sy - 2, 2, 27); p.r('0', sx + 25, sy - 2, 2, 27); p.r('q', sx - 1, sy - 2, 1, 27); p.r('q', sx + 25, sy - 2, 1, 27); });
+  }
 } };
 /** fast foreground: overhanging trees, the odd branch and utility wires */
 const yardFg = (keys = ['1', 'k', 'j'], density = 0.6, wireChance = 0.1): LayerDef => ({ speed: 1.4, paint(p, z) {
@@ -377,12 +399,15 @@ const yardFg = (keys = ['1', 'k', 'j'], density = 0.6, wireChance = 0.1): LayerD
 } });
 
 // ---------------------------------------------------------------- STREET
-/** night on asphalt: lifted one step to a cool grey-violet so navy / tuxedo cats keep a dark rim against it */
-const NIGHT_PAVED = ramp('v:q 1:v q:2q/8 p:3q/8 o:3', TOD_RAMP.night);
 const street: LayerDef = { speed: 1, opaque: true, paint(p, z) {
   const r = z.r; const cross = z.s % 4 === 3; const cy0 = 150, cy1 = 230;
   p.r('v', 0, 0, SW, SEG);
-  for (let i = 0; i < 5; i++) { const x = r.int(130, 300), y = r.int(0, SEG - 30); p.r('1', x, y, r.int(14, 30), r.int(6, 20)); } // patched asphalt
+  // tar patches: a slightly darker slab with a 1px lighter sealed seam, so they read as repairs, not missing tiles
+  for (let i = 0; i < 3; i++) { const x = r.int(130, 290), y = r.int(0, SEG - 30), w = r.int(14, 30), h = r.int(8, 20); p.r('q', x - 1, y - 1, w + 2, h + 2); p.r('1', x, y, w, h); p.r('v', x + 2, y + 2, w - 4, 1); }
+  // tar-sealed cracks
+  for (let i = 0; i < 3; i++) { let cx = r.int(140, 300), cy = r.int(0, SEG - 20); for (let k = 0; k < 5; k++) { const nx = cx + r.int(-4, 4), ny = cy + r.int(3, 6); p.line('1', cx, cy, nx, ny); cx = nx; cy = ny; } }
+  // lane arrows (faded paint)
+  if (r.chance(0.5)) { const ax = r.chance(0.5) ? 172 : 262, ay = r.int(20, 200), down = ax > 224; for (let j = 0; j < 14; j++) p.r('p', ax + 2, ay + j, 2, 1); for (let j = 0; j < 5; j++) p.r('p', ax + 3 - j, down ? ay + 14 + j - 4 : ay + j, 1 + j * 2 - 0, 1); }
   for (let i = 0; i < 40; i++) p.r('1', r.int(120, 328), r.int(0, SEG - 1), r.int(2, 4), 1);
   const segs: [number, number][] = cross ? [[0, cy0], [cy1, SEG]] : [[0, SEG]];
   for (const [a, b] of segs) for (let y = a; y < b; y += 32) { if (y + 14 < b) { p.r('h', 222, y + 4, 2, 14); p.r('h', 225, y + 4, 2, 14); } }
@@ -403,6 +428,12 @@ const street: LayerDef = { speed: 1, opaque: true, paint(p, z) {
         p.obj(() => { p.r('a', cornX, y + 1, 4, hh - 2); for (let j = y + 3; j < y + hh - 3; j += 5) p.r('b', cornX + (side ? 0 : 2), j, 2, 2); });
         skylight(p, bx + 20, y + 18, 16, 12, 0.85, r.next());
         if (r.chance(0.5)) vent(p, bx + (side ? 50 : 14), y + 46);
+        // brownstone roof detail: party-wall parapet, a pair of brick chimneys at the back, a roof hatch
+        const back = side ? bx + 46 : bx + 6; const chy = y + 6;
+        p.shRect(back, chy, 12, 8, 14);
+        p.obj(() => { p.r('0', bx, y, 64, 2); p.r('p', bx + 1, y, 62, 1);
+          p.r('0', back, chy, 12, 8); p.r('a', back + 1, chy + 1, 10, 6); p.r('9', back + 1, chy + 1, 10, 1); p.r('b', back + 1, chy + 4, 10, 1); p.r('0', back + 2, chy + 2, 3, 2); p.r('0', back + 7, chy + 2, 3, 2); });
+        if (hh >= 56) { const hx = side ? bx + 12 : bx + 40, hy = y + hh - 18; p.shRect(hx, hy, 10, 10, 6); p.obj(() => { p.r('0', hx, hy, 10, 10); p.r('p', hx + 1, hy + 1, 8, 8); p.r('o', hx + 1, hy + 1, 8, 1); p.r('q', hx + 2, hy + 4, 6, 1); }); }
         const stx = side ? 384 - 14 : 64;
         if (hh >= 40) { p.shRect(stx, y + 22, 14, 18, 4); p.obj(() => { p.r('0', stx, y + 22, 14, 18); for (let i = 0; i < 5; i++) p.r(i % 2 ? 'a' : '9', side ? stx + 3 + i * 2 : stx + 1 + (4 - i) * 2, y + 23, 2, 16); p.r('0', stx, y + 22, 14, 1); }); }
       }
@@ -412,7 +443,7 @@ const street: LayerDef = { speed: 1, opaque: true, paint(p, z) {
       if (r.chance(0.4) && b - a > 120) { const mx = side ? sx + 12 : sx + 36, my = a + r.int(110, b - a - 20); p.shRect(mx, my, 10, 12, 10); p.obj(() => { p.r('0', mx, my, 10, 12); p.r('n', mx + 1, my + 1, 8, 10); p.r('m', mx + 1, my + 1, 8, 2); }); }
     }
   }
-  for (const [a, b] of segs) for (const lane of [124, 302]) for (let y = a + 6; y + 46 < b; y += 52) if (r.chance(0.55)) car(p, lane, y + r.int(0, 4), r.pick(['n', 'e', 'u', 'a', 'k', 'q', '2']), lane > 200);
+  for (const [a, b] of segs) for (const lane of [124, 302]) for (let y = a + 6; y + 46 < b; y += 52) if (r.chance(0.55)) car(p, lane, y + r.int(0, 4), r.pick(['n', 'b', '3', 'a', 'p', 'q', '2']), lane > 200);
   if (cross) {
     p.r('v', 0, cy0, SW, cy1 - cy0);
     for (let x = 0; x < SW; x += 40) { p.r('h', x + 6, cy0 + 38, 14, 2); p.r('h', x + 6, cy0 + 41, 14, 2); }
@@ -453,11 +484,12 @@ function aFrame(p: Painter, x: number, y: number) {
     p.r('o', x, mid - 2, w, 1); p.r('0', x, mid - 1, w, 2);
   });
 }
-/** weave poles: 10 striped poles on a base rail */
+/** weave poles: 12 upright poles on a low base rail, alternating white / muted orange, each with its own cast shadow */
 function weavePoles(p: Painter, x: number, y: number) {
-  p.shRect(x, y, 4, 100, 3);
-  p.obj(() => { p.r('0', x, y, 4, 100); p.r('p', x + 1, y, 2, 100); });
-  for (let i = 0; i < 10; i++) { const yy = y + 2 + i * 10, xx = x + 0; p.shRect(xx, yy, 4, 4, 14); p.obj(() => { p.r('0', xx - 1, yy - 1, 6, 6); p.r(i % 2 ? 'h' : '7', xx, yy, 4, 4); p.r(i % 2 ? 'a' : 'o', xx + 2, yy + 2, 2, 2); }); }
+  const n = 12, gap = 9;
+  p.shRect(x - 1, y, 6, n * gap + 2, 2);
+  p.obj(() => { p.r('0', x - 1, y, 6, n * gap + 2); p.r('p', x, y + 1, 4, n * gap); p.r('o', x, y + 1, 1, n * gap); });
+  for (let i = 0; i < n; i++) { const yy = y + 2 + i * gap; p.shRect(x, yy, 4, 4, 16); p.obj(() => { p.r('0', x - 1, yy - 1, 6, 6); p.r(i % 2 ? 'h' : '7', x, yy, 4, 4); p.r(i % 2 ? 'a' : 'o', x + 2, yy + 2, 2, 2); p.r(i % 2 ? 'g' : '6', x, yy, 1, 1); }); }
 }
 function tireJump(p: Painter, x: number, y: number) {
   p.shRect(x, y, 48, 6, 20);
@@ -500,107 +532,126 @@ function pen(p: Painter, x: number, y: number, w: number, h: number, rng: Rng) {
   fountain(p, x + w - 26, y + 20);
   p.obj(() => { const bx = x + 30 + rng.int(0, 20), by = y + h - 24; p.disc('0', bx, by, 4); p.disc('i', bx, by, 3); p.r('7', bx - 1, by - 2, 1, 2); });
 }
-/** mown lawn: 32px stripes in world space, two quiet textures of one desaturated green */
+/** mown lawn: 40px stripes in world space, the darker stripe only marked by sparse regular dark tufts (quiet texture, no dither) */
 function lawn(p: Painter, z: Seg) {
   p.r('k', 0, 0, SW, SEG);
-  for (let y = 0; y < SEG; y++) { const band = Math.floor(z.wy(y) / 40) & 1; p.dith('q', 0, y, SW, 1, band ? 2 : 0); }
-  for (let i = 0; i < 70; i++) tuft(p, z.r.chance(0.7) ? 'j' : '1', z.r.int(4, SW - 8), z.r.int(2, SEG - 2));
+  for (let i = 0; i < 40; i++) tuft(p, z.r.chance(0.6) ? 'j' : '1', z.r.int(4, SW - 8), z.r.int(2, SEG - 2));
+}
+const DARK_CANOPY = ['0', '1', 'k'];
+/** park bench facing the path + a bin, for the edge strips */
+function parkEdge(p: Painter, kind: number, x0: number, right: boolean, r: Rng) {
+  // x0 = inner edge of the strip; props stay in x0-100 .. x0 (left) or x0 .. x0+100 (right)
+  const X = (dx: number, w = 0) => right ? x0 + dx : x0 - dx - w;
+  switch (kind) {
+    case 0: aFrame(p, X(24, 34), 70); break;
+    case 1: weavePoles(p, X(30, 4), 40); weavePoles(p, X(56, 4), 120); break;
+    case 2: tireJump(p, X(14, 48), 60); tireJump(p, X(20, 48), 170); break;
+    case 3: tunnel(p, X(48), 30, 170); break;
+    case 4: pen(p, X(6, 92), 30, 92, 170, r); break;
+    case 5: fountain(p, X(40), 70); bench(p, X(16, 36), 130, false); bench(p, X(16, 36), 190, false); bin(p, X(70), 160); break;
+    default: canopy(p, X(48), r.int(60, 190), r.int(26, 34), r, DARK_CANOPY); bench(p, X(8, 12), 40, true);
+  }
 }
 const park: LayerDef = { speed: 1, opaque: true, paint(p, z) {
   const r = z.r;
   lawn(p, z);
-  const px = (y: number) => 224 + Math.round(Math.sin(z.wy(y) / 170) * 70 + Math.sin(z.wy(y) / 61) * 8);
-  for (let y = 0; y < SEG; y++) { const x = px(y); p.r('1', x - 14, y, 29, 1); p.r('q', x - 12, y, 25, 1); if ((y + z.s) % 5 === 0) p.r('p', x - 8 + ((y * 7) % 16), y, 1, 1); }
-  // perimeter fence of the dog run
-  for (const fx of [26, 420]) { p.shRect(fx, 0, 3, SEG, 8); p.obj(() => { p.r('0', fx, 0, 3, SEG); p.checker('p', fx + 1, 0, 1, SEG); for (let y = 0; y < SEG; y += 32) { p.r('0', fx - 1, y, 5, 5); p.r('o', fx, y + 1, 3, 3); } }); }
-  // edge trees outside the fence
-  for (const tx of [4, 444]) if (r.chance(0.7)) canopy(p, tx, r.int(40, 210), r.int(22, 30), r, ['1', 'k', 'j']);
-  // hero prop on the open side of the path
-  const side = px(128) > 224 ? 0 : 1;
-  const ex = side ? 268 : 44;
-  const k = (z.s + (z.seed % 5)) % 5;
-  if (k === 0) { aFrame(p, ex + 24, 60); weavePoles(p, ex + 96, 70); }
-  else if (k === 1) { tunnel(p, ex + 50, 36, 150); tireJump(p, ex + 70, 210); }
-  else if (k === 2) pond(p, ex + 66, 128, r);
-  else if (k === 3) pen(p, ex + 4, 40, 128, 150, r);
-  else { fountain(p, ex + 64, 110); bench(p, ex + 30, 150, false); bench(p, ex + 82, 150, false); bin(p, ex + 120, 70); }
-  // path furniture: benches facing the path, a lamp, paw prints
-  bench(p, px(60) + (side ? -34 : 22), 50, true);
-  const ly = r.int(140, 200); lamp(p, px(ly) + (side ? -22 : 22), ly, 34);
-  for (let i = 0; i < 6; i++) { const y = 20 + i * 36, x = px(y) + (i % 2 ? 5 : -7); p.r('v', x, y, 3, 3); p.r('v', x - 2, y - 3, 1, 1); p.r('v', x + 1, y - 4, 1, 1); p.r('v', x + 4, y - 3, 1, 1); }
-  // flower bed on the path side
-  if (r.chance(0.6)) { const fx = side ? r.int(50, 110) : r.int(330, 390), fy = r.int(40, 210); if (Math.abs(px(fy) - fx) > 50) { p.ell('0', fx, fy, 15, 9); p.ell('b', fx, fy, 14, 8); for (let k2 = 0; k2 < 14; k2++) { const a = r.range(0, 6.28), d = r.range(0, 1); p.r(r.pick(['c', '7', 't', 'e']), fx + Math.cos(a) * d * 11, fy + Math.sin(a) * d * 5, 1, 1); p.r('j', fx + Math.cos(a) * d * 11 + 1, fy + Math.sin(a) * d * 5 + 1, 1, 1); } } }
+  // gravel path: runs along one edge strip, crossing the lawn once in a while (keeps the centre open)
+  const px = (y: number) => 224 + Math.round(Math.sin(z.wy(y) / 230) * 56 + Math.sin(z.wy(y) / 71) * 6);
+  for (let y = 0; y < SEG; y++) { const x = px(y); p.r('1', x - 13, y, 27, 1); p.r('q', x - 11, y, 23, 1); if ((y + z.s) % 6 === 0) p.r('p', x - 8 + ((y * 7) % 16), y, 1, 1); }
+  for (let i = 0; i < 6; i++) { const y = 20 + i * 36, x = px(y) + (i % 2 ? 4 : -6); p.r('v', x, y, 3, 3); p.r('v', x - 2, y - 3, 1, 1); p.r('v', x + 1, y - 4, 1, 1); p.r('v', x + 4, y - 3, 1, 1); }
+  // perimeter fence of the park
+  for (const fx of [26, 420]) { p.shRect(fx, 0, 3, SEG, 8); p.obj(() => { p.r('0', fx, 0, 3, SEG); p.r('p', fx + 1, 0, 1, SEG); for (let y = 0; y < SEG; y += 32) { p.r('0', fx - 1, y, 5, 5); p.r('o', fx, y + 1, 3, 3); } }); }
+  // dark-canopy trees outside the fence
+  for (const tx of [4, 444]) canopy(p, tx, r.int(40, 210), r.int(24, 32), r, DARK_CANOPY);
+  // agility kit and park furniture on the edge strips only; the path side gets furniture, the other side agility gear
+  const midX = px(128); const kL = (z.s + (z.seed % 7)) % 7, kR = (z.s * 3 + 2 + (z.seed % 5)) % 7;
+  void midX; parkEdge(p, kL, 140, false, r); parkEdge(p, kR === kL ? (kR + 3) % 7 : kR, 308, true, r);
+  // flower bed tucked against the fence
+  if (r.chance(0.6)) { const fx = r.chance(0.5) ? 50 : 398, fy = r.int(30, 220); p.ell('0', fx, fy, 12, 8); p.ell('b', fx, fy, 11, 7); for (let k2 = 0; k2 < 10; k2++) { const a = r.range(0, 6.28), d = r.range(0, 1); p.r(r.pick(['d', '7', 't']), fx + Math.cos(a) * d * 8, fy + Math.sin(a) * d * 4, 1, 1); } }
+  // a lamp by the path
+  const ly = r.int(140, 200); lamp(p, px(ly) + 18, ly, 30); bench(p, px(60) + 18, 40, true);
 } };
-
 // ---------------------------------------------------------------- ALLEY
 function dumpster(p: Painter, x: number, y: number) {
   p.shRect(x, y, 44, 26, 16);
   p.obj(() => { p.r('0', x - 1, y - 1, 46, 28); p.r('k', x, y, 44, 26); p.r('1', x, y + 12, 44, 2); p.r('j', x, y, 44, 1); p.r('j', x, y + 14, 44, 1); p.r('1', x + 21, y, 2, 26); p.r('q', x + 2, y + 2, 4, 2); p.r('q', x + 38, y + 2, 4, 2); });
 }
+/** black bin bags piled against a wall: grey plastic with a lit knot, never the dark navy of the cats */
 function bags(p: Painter, x: number, y: number, rng: Rng) {
-  for (let i = 0; i < 4; i++) { const bx = x + rng.int(0, 22), by = y + rng.int(0, 14), rr = rng.int(5, 7); p.shEll(bx, by, rr, rr, 4); p.obj(() => { p.disc('0', bx, by, rr + 1); p.disc('1', bx, by, rr); p.disc('q', bx - 2, by - 2, 2); p.r('p', bx - 3, by - 3, 1, 1); p.r('0', bx - 1, by - rr, 3, 2); }); }
+  for (let i = 0; i < 4; i++) { const bx = x + rng.int(0, 10), by = y + i * 8 + rng.int(0, 3), rr = rng.int(5, 6); p.shEll(bx, by, rr, rr, 4); p.obj(() => { p.disc('0', bx, by, rr + 1); p.disc('q', bx, by, rr); p.disc('p', bx - 2, by - 2, 2); p.r('o', bx - 3, by - 3, 1, 1); p.r('0', bx - 1, by - rr, 3, 2); p.r('p', bx, by - rr - 1, 1, 1); }); }
 }
-/** puddle that mirrors the neon after dark (pink/cyan streaks), sky-blue glints by day */
+/** puddle: a filled pixel oval that mirrors the sky by day and the bodega neon after dark (hard bands, no strokes) */
 function puddle(p: Painter, x: number, y: number, rng: Rng) {
-  p.ell('1', x, y, 18, 7); p.ell('n', x + 1, y, 16, 5); p.ell('2', x + 4, y + 1, 10, 3);
-  const k = rng.pick(['d', 'l', 'f']);
-  p.glow('n', k, x - 8, y - 2, 6, 1, 1, 0); p.glow('n', k, x + 2, y + 1, 9, 1, 1, 0); p.glow('2', 'e', x - 2, y + 3, 5, 1, 1, 0);
+  const rx = rng.int(12, 18), ry = rng.int(5, 7);
+  p.ell('1', x, y, rx + 1, ry + 1); p.ell('n', x, y, rx, ry); p.ell('2', x + 2, y + 1, rx - 4, ry - 2);
+  const k = rng.pick(['d', 'l']); const k2 = k === 'd' ? 'e' : 'm';
+  spans(x - 2, y, rx * 0.6, ry * 0.6, (sx, sy, w) => { if (((sy - y) & 1) === 0) p.glow('2', sy < y ? k : k2, sx, sy, w, 1, 1, 0.5); });
+  p.r('3', x - rx + 4, y - ry + 2, 4, 1);
 }
-/** cracked asphalt patch: darker irregular slab with ink crack lines (low contrast) */
+/** sealed crack in the asphalt: tar line (one step darker than the floor, not ink), branching once */
 function cracked(p: Painter, x: number, y: number, rng: Rng) {
-  const w = rng.int(30, 60), h = rng.int(18, 34);
-  for (let j = 0; j < h; j++) { const inset = Math.round(Math.abs(Math.sin(j * 0.7 + x)) * 4); p.r('1', x + inset, y + j, w - inset * 2 + rng.int(-1, 1), 1); }
-  let cx = x + 4, cy = y + rng.int(4, h - 4);
-  for (let i = 0; i < 6; i++) { const nx = cx + rng.int(5, 10), ny = Math.max(y + 2, Math.min(y + h - 2, cy + rng.int(-4, 4))); p.line('0', cx, cy, nx, ny); if (rng.chance(0.4)) p.line('0', nx, ny, nx + rng.int(-3, 3), ny + rng.int(3, 6)); cx = nx; cy = ny; }
+  let cx = x, cy = y;
+  for (let i = 0; i < 6; i++) { const nx = cx + rng.int(4, 9), ny = cy + rng.int(-4, 4); p.line('1', cx, cy, nx, ny); if (i === 2) p.line('1', nx, ny, nx + rng.int(-3, 3), ny + rng.int(4, 8)); cx = nx; cy = ny; }
 }
-function fireEscape(p: Painter, x: number, y: number, left: boolean) {
-  const w = 22, h = 48;
-  p.shRect(x, y, w, h, 18);
+/**
+ * Fire escape bolted to a building face (3/4 view from above): two grated landings with
+ * a railing and posts, joined by a diagonal stair whose treads and stringers show.
+ * wallX is the wall line; the escape hangs over the building edge, not the alley floor.
+ */
+function fireEscape(p: Painter, wallX: number, y: number, left: boolean) {
+  const w = 22; const x = left ? wallX - w : wallX; const h = 64;
+  p.shRect(x, y, w, h, 20);
   p.obj(() => {
-    p.r('0', x, y, w, h);
-    for (let j = 2; j < h - 1; j += 3) p.r('q', x + 1, y + j, w - 2, 1);
-    p.r('p', left ? x + w - 2 : x, y, 2, h); p.r('p', x, y, w, 1); p.r('p', x, y + h - 1, w, 1);
-    for (let j = 6; j < h - 6; j += 4) p.r('o', left ? x + 4 : x + w - 8, y + j, 4, 1);
+    const landing = (ly: number, lh: number) => {
+      p.r('0', x, ly, w, lh); p.r('q', x + 1, ly + 1, w - 2, lh - 2);
+      for (let j = ly + 2; j < ly + lh - 1; j += 2) p.r('1', x + 1, j, w - 2, 1);
+      const rx = left ? x : x + w - 2; // outer railing on the side away from the wall
+      p.r('0', rx, ly - 1, 2, lh + 1); p.r('o', rx, ly - 1, 1, lh);
+      p.r('0', x, ly - 1, w, 2); p.r('o', x, ly - 1, w, 1); p.r('0', x, ly + lh - 2, w, 2); p.r('p', x, ly + lh - 2, w, 1);
+      for (let j = ly + 3; j < ly + lh - 2; j += 5) p.r('o', rx, j, 2, 1);
+    };
+    landing(y, 16); landing(y + h - 16, 16);
+    for (let j = 0; j < h - 32; j++) { // stair: stringers on a diagonal with treads between them
+      const sx = left ? x + 2 + Math.round(j * 0.3) : x + w - 12 - Math.round(j * 0.3); const sy = y + 16 + j;
+      p.r('0', sx - 1, sy, 12, 1); p.r(j % 3 === 0 ? 'o' : '1', sx, sy, 10, 1); p.r('p', sx, sy, 1, 1); p.r('p', sx + 9, sy, 1, 1);
+    }
   });
 }
 const alley: LayerDef = { speed: 1, opaque: true, paint(p, z) {
   const r = z.r;
   p.r('v', 96, 0, 256, SEG);
-  for (let i = 0; i < 3; i++) cracked(p, r.int(110, 290), r.int(0, SEG - 40), r);
-  for (let i = 0; i < 30; i++) { const x = r.int(100, 340), y = r.int(0, SEG - 4); p.r('1', x, y, r.int(2, 4), 1); }
+  // concrete slab seams (very quiet) + sealed cracks
+  every(z, 48, 0, y => { if (y >= 0 && y < SEG) p.r('1', 100, y, 248, 1); });
+  for (let i = 0; i < 3; i++) cracked(p, r.int(130, 280), r.int(4, SEG - 20), r);
   // centre drain gutter + grates
   p.r('1', 222, 0, 3, SEG); for (let y = 0; y < SEG; y += 64) { p.r('0', 216, y + 20, 16, 12); for (let i = 0; i < 4; i++) p.r('q', 218 + i * 4, y + 21, 2, 10); }
-  puddle(p, r.int(140, 200), r.int(30, 220), r);
-  puddle(p, r.int(250, 310), r.int(30, 220), r);
+  puddle(p, r.int(150, 200), r.int(30, 110), r);
+  puddle(p, r.int(250, 300), r.int(140, 220), r);
   // manhole (world-spaced, steam rises from it in the anim)
   every(z, 280, 60, y => { if (y < -10 || y > SEG + 10) return; p.disc('0', 262, y, 8); p.disc('q', 262, y, 7); p.ring('1', 262, y, 5, 5, 1); for (let i = -3; i <= 3; i += 2) p.r('1', 258, y + i, 9, 1); });
   for (const side of [0, 1]) {
     const bx = side ? 352 : 0;
     let y = -(z.s * 37 % 64);
-    while (y < SEG) { const hh = r.int(80, 140); roof(p, bx, y, 96, hh, 40, r.pick(['q', 'v']), r.pick(['p', 'b', 'a'])); acUnit(p, bx + r.int(20, 50), y + r.int(20, Math.max(24, hh - 40))); y += hh; }
-    for (let fy = 20; fy < SEG - 50; fy += r.int(90, 120)) fireEscape(p, side ? 330 : 96, fy, !side);
+    while (y < SEG) { const hh = r.int(80, 140); roof(p, bx, y, 96, hh, 40, r.pick(['q', 'v']), r.pick(['p', 'b', 'a'])); acUnit(p, bx + (side ? r.int(40, 60) : r.int(14, 34)), y + r.int(20, Math.max(24, hh - 40))); y += hh; }
+    for (let fy = 10 + r.int(0, 30); fy < SEG - 64; fy += r.int(100, 130)) fireEscape(p, side ? 352 : 96, fy, !side);
   }
-  const items = r.int(4, 5);
-  for (let i = 0; i < items; i++) {
-    const left = i % 2 === (z.s & 1); const y = 10 + i * 48 + r.int(0, 16);
-    const x = left ? 122 : 286;
-    const k = r.int(0, 4);
-    if (k === 4) { p.obj(() => { p.disc('0', x + 6, y + 6, 5); p.disc('p', x + 6, y + 6, 4); p.disc('a', x + 6, y + 6, 2); p.disc('0', x + 18, y + 8, 5); p.disc('n', x + 18, y + 8, 4); p.disc('o', x + 18, y + 8, 2); p.r('9', x + 2, y + 18, 22, 14); p.r('a', x + 2, y + 25, 22, 1); p.r('b', x + 12, y + 18, 1, 14); }); }
-    else if (k === 0) dumpster(p, left ? x : x - 6, y);
-    else if (k === 1) bags(p, x, y, r);
-    else if (k === 2) { crate(p, x, y, 20, 20); crate(p, x + 6, y + 22, 18, 18, '9'); }
-    else { p.shRect(x, y, 18, 14, 6); p.obj(() => { p.r('0', x, y, 18, 14); p.r('n', x + 1, y + 1, 16, 12); for (let i2 = 3; i2 < 16; i2 += 4) p.r('2', x + i2, y + 2, 2, 10); }); }
+  // street furniture hugs the walls: dumpster with bags and boxes beside it; the centre lanes stay clear
+  for (let i = 0, y = 8 + r.int(0, 20); y < SEG - 40; i++) {
+    const left = (i + z.s) % 2 === 0; const k = r.int(0, 3);
+    if (k <= 1) { dumpster(p, left ? 98 : 306, y); bags(p, left ? 104 : 334, y + 34, r); y += 80; }
+    else if (k === 2) { crate(p, left ? 98 : 330, y, 20, 20); crate(p, left ? 100 : 326, y + 22, 18, 18, '9'); y += 60; }
+    else { const x = left ? 98 : 332; p.shRect(x, y, 18, 14, 6); p.obj(() => { p.r('0', x, y, 18, 14); p.r('n', x + 1, y + 1, 16, 12); for (let i2 = 3; i2 < 16; i2 += 4) p.r('2', x + i2, y + 2, 2, 10); }); y += 50; }
   }
-  // bodega: awning + neon sign + door light
+  // bodega: striped awning over the left wall edge + a neon CAT FOOD sign + door light
   if (z.s % 2 === 0) {
     const ay = r.int(60, 160);
-    p.shRect(96, ay, 26, 54, 12);
-    p.obj(() => { p.r('0', 96, ay, 26, 54); for (let j = 0; j < 54; j += 6) p.r(j % 12 ? '7' : 'k', 96, ay + j + 1, 25, 5); p.r('j', 96, ay + 1, 2, 52); });
-    p.obj(() => { p.r('0', 74, ay + 6, 20, 42); p.r('1', 75, ay + 7, 18, 40); });
-    p.obj(() => { const nx = 79, ny = ay + 10; for (const [dx, dy, w, h] of [[0, 0, 10, 1], [0, 0, 1, 34], [9, 0, 1, 34], [0, 33, 10, 1], [3, 6, 4, 4], [3, 16, 4, 1], [3, 22, 4, 6]]) p.glow('e', dx < 1 || dx > 8 || dy === 0 || dy === 33 ? 'd' : 'l', nx + dx, ny + dy, w, h); });
-    p.pool(134, ay + 27, 40);
+    p.shRect(80, ay, 26, 54, 12);
+    p.obj(() => { p.r('0', 80, ay, 26, 54); for (let j = 0; j < 54; j += 6) p.r(j % 12 ? '7' : 'k', 80, ay + j + 1, 25, 5); p.r('j', 80, ay + 1, 2, 52); p.r('1', 105, ay, 1, 54); });
+    p.obj(() => { p.r('0', 56, ay + 6, 22, 42); p.r('1', 57, ay + 7, 20, 40); });
+    p.obj(() => { const nx = 62, ny = ay + 10; for (const [dx, dy, w, h] of [[0, 0, 10, 1], [0, 0, 1, 34], [9, 0, 1, 34], [0, 33, 10, 1], [3, 6, 4, 4], [3, 16, 4, 1], [3, 22, 4, 6]]) p.glow('e', dx < 1 || dx > 8 || dy === 0 || dy === 33 ? 'd' : 'l', nx + dx, ny + dy, w, h); });
+    p.pool(118, ay + 27, 34);
   }
-  p.pool(r.chance(0.5) ? 112 : 336, r.int(30, 220), 32);
+  p.pool(r.chance(0.5) ? 104 : 344, r.int(30, 220), 30);
 } };
 const laundryFg: LayerDef = { speed: 1.45, paint(p, z) {
   const r = z.r;
@@ -783,7 +834,7 @@ function cafeTable(p: Painter, cx: number, cy: number, rng: Rng) {
 }
 /** round cat bed: thick bolster rim (lit top-left), sunken fleece cushion with a paw print, a fish toy beside it */
 function catBed(p: Painter, cx: number, cy: number, rim = 'n') {
-  const [lit, body, dark] = rim === 'n' ? ['m', 'n', '2'] : ['d', 'e', 'v'];
+  const [lit, body, dark] = rim === 'n' ? ['3', 'n', '2'] : ['9', 'a', 'b'];
   p.shEll(cx, cy, 14, 11, 5);
   p.obj(() => {
     p.ell('0', cx, cy, 15, 12); p.ell(dark, cx, cy, 14, 11); p.ell(body, cx - 1, cy - 1, 13, 10); p.ell(lit, cx - 3, cy - 3, 8, 5); p.ell(body, cx - 1, cy - 1, 10, 7);
@@ -795,9 +846,9 @@ function catBed(p: Painter, cx: number, cy: number, rim = 'n') {
 function catTree(p: Painter, cx: number, cy: number) {
   p.shRect(cx - 18, cy - 18, 36, 36, 26);
   p.obj(() => {
-    p.r('0', cx - 19, cy - 19, 38, 38); p.r('u', cx - 18, cy - 18, 36, 36); p.r('t', cx - 18, cy - 18, 36, 1);
+    p.r('0', cx - 19, cy - 19, 38, 38); p.r('2', cx - 18, cy - 18, 36, 36); p.r('3', cx - 18, cy - 18, 36, 1);
     p.disc('0', cx + 8, cy + 8, 8); p.disc('9', cx + 8, cy + 8, 7); p.ring('a', cx + 8, cy + 8, 5, 5, 1); p.ring('a', cx + 8, cy + 8, 3, 3, 1);
-    p.disc('0', cx - 6, cy - 6, 12); p.disc('e', cx - 6, cy - 6, 11); p.disc('u', cx - 7, cy - 7, 9); p.disc('0', cx - 6, cy - 6, 3);
+    p.disc('0', cx - 6, cy - 6, 12); p.disc('2', cx - 6, cy - 6, 11); p.disc('3', cx - 7, cy - 7, 9); p.disc('0', cx - 6, cy - 6, 3);
     p.r('c', cx - 10, cy + 6, 2, 8); p.disc('t', cx - 9, cy + 15, 2);
   });
 }
@@ -820,12 +871,12 @@ const cafe: LayerDef = { speed: 1, opaque: true, paint(p, z) {
   for (let y = 24; y < SEG; y += 52) { const sy = y; p.shEll(84, sy, 6, 6, 10); p.obj(() => { p.disc('0', 84, sy, 7); p.disc('a', 84, sy, 6); p.disc('9', 83, sy - 1, 4); p.disc('a', 84, sy, 2); }); }
   // windows on the right wall; low sun throws long beams across the floor at dawn / day
   p.obj(() => { p.r('0', SW - 30, 0, 30, SEG); p.r('a', SW - 28, 0, 28, SEG); for (let y = 8; y < SEG; y += 64) { p.r('0', SW - 26, y, 22, 48); p.glow('2', 'g', SW - 24, y + 2, 18, 44, 1); p.r('1', SW - 15, y + 2, 1, 44); } });
-  if (p.tod !== 'night') { if (p.tod === 'dusk') p.sunRamp = DUSK_SUN; for (let y = 8; y < SEG; y += 64) { const len = p.tod === 'day' ? 110 : 230; p.beam(SW - 30 - len, y + 18, len, 30, p.tod === 'day' ? 0.4 : p.tod === 'dawn' ? 0.9 : -0.9); } }
+  if (p.tod !== 'night') { if (p.tod === 'dusk') p.sunRamp = DUSK_SUN; for (let y = 8 + (z.s % 2) * 64; y < SEG; y += 128) { const len = p.tod === 'day' ? 90 : 160; p.beam(SW - 30 - len, y + 20, len, 22, p.tod === 'day' ? 0.4 : p.tod === 'dawn' ? 0.9 : -0.9); } }
   for (let y = 40; y < SEG; y += 128) { const px = SW - 46, py = y; p.shEll(px, py, 9, 9, 12); p.obj(() => { p.disc('0', px, py, 10); p.disc('a', px, py, 9); p.disc('b', px + 1, py + 1, 7); for (let i = 0; i < 6; i++) { const a = (i / 6) * 6.28; p.ell('0', px + Math.cos(a) * 7, py + Math.sin(a) * 7, 5, 3); p.ell('k', px + Math.cos(a) * 7, py + Math.sin(a) * 7, 4, 2); } p.disc('j', px - 1, py - 1, 2); }); }
   const k = (z.s + r.int(0, 2)) % 3;
-  if (k === 0) { p.ell('0', 230, 128, 92, 62); p.ell('v', 230, 128, 90, 60); p.ring('e', 230, 128, 84, 54, 1); p.ring('e', 230, 128, 78, 48, 1); cafeTable(p, 190, 110, r); cafeTable(p, 272, 150, r); catBed(p, 250, 80, 'e'); catBed(p, 150, 200); }
+  if (k === 0) { p.ell('0', 230, 128, 92, 62); p.ell('v', 230, 128, 90, 60); p.ring('b', 230, 128, 84, 54, 1); p.ring('b', 230, 128, 78, 48, 1); cafeTable(p, 190, 110, r); cafeTable(p, 272, 150, r); catBed(p, 250, 80, 'e'); catBed(p, 150, 200); }
   else if (k === 1) { for (const [tx, ty] of [[140, 50], [250, 60], [340, 150], [160, 160]]) cafeTable(p, tx + r.int(-8, 8), ty + r.int(-8, 8), r); catBed(p, 270, 210); p.pool(250, 60, 40); p.pool(160, 160, 40); }
-  else { p.r('0', 120, 40, 200, 180); p.r('v', 121, 41, 198, 178); p.frame('e', 124, 44, 192, 172); catTree(p, 180, 100); catBed(p, 270, 90, 'e'); catBed(p, 250, 180); }
+  else { p.r('0', 120, 40, 200, 180); p.r('v', 121, 41, 198, 178); p.frame('b', 124, 44, 192, 172); catTree(p, 180, 100); catBed(p, 270, 90, 'e'); catBed(p, 250, 180); }
   p.pool(200, r.int(60, 200), 38);
 } };
 /** close-to-camera pendant lamps and a ceiling fan sweeping past (fg) */
@@ -839,8 +890,8 @@ const pendantsFg: LayerDef = { speed: 1.35, paint(p, z) {
   }
   if (r.chance(0.45)) {
     const x = r.int(150, 320), y = r.int(60, 200);
-    for (let i = 0; i < 4; i++) { const a = (i / 4) * 6.28 + 0.4; const ex = x + Math.cos(a) * 34, ey = y + Math.sin(a) * 34; for (let t = 6; t < 34; t++) { const bx = x + Math.cos(a) * t, by = y + Math.sin(a) * t; p.disc('0', bx, by, 4); } for (let t = 6; t < 34; t++) { const bx = x + Math.cos(a) * t, by = y + Math.sin(a) * t; p.disc('b', bx, by, 3); } p.r('a', ex - 1, ey - 1, 2, 2); }
-    p.disc('0', x, y, 7); p.disc('q', x, y, 6); p.disc('p', x - 1, y - 1, 3);
+    for (let i = 0; i < 4; i++) { const a = (i / 4) * 6.28 + 0.4; for (let t = 4; t < 20; t++) { const bx = x + Math.cos(a) * t, by = y + Math.sin(a) * t; p.disc('0', bx, by, 2.5); } for (let t = 4; t < 20; t++) { const bx = x + Math.cos(a) * t, by = y + Math.sin(a) * t; p.disc('b', bx, by, 1.5); } }
+    p.disc('0', x, y, 5); p.disc('q', x, y, 4); p.disc('p', x - 1, y - 1, 2);
   }
 } };
 
@@ -895,14 +946,14 @@ const docks: LayerDef = { speed: 1, paint(p, z) {
   for (let x = bw + 8; x < bw + len; x += 40) { piling(p, x, fy - 2); piling(p, x, fy + 34); }
   fishCrate(p, bw + r.int(30, 60), fy + 8, r); fishCrate(p, bw + r.int(100, 140), fy + 8, r);
   if (r.chance(0.6)) { const cx = bw + r.int(160, len - 30); p.obj(() => { p.ring('0', cx, fy + 16, 9, 9, 1); p.ring('9', cx, fy + 16, 8, 8, 2); p.ring('a', cx, fy + 16, 5, 5, 1); p.ring('9', cx, fy + 16, 3, 3, 1); }); }
-  lamp(p, bw + len - 10, fy + 16, 46);
-  boat(p, bw + r.int(16, 60), fy + 46, 30, r.int(84, 110), r.pick(['p', 'a', 'k', 'n', 'e']), r, r.chance(0.5));
-  if (r.chance(0.6)) boat(p, bw + r.int(150, 200), fy + 70, 26, r.int(60, 80), r.pick(['p', 'h', 'o']), r, true, true); // under way, with wake
+  lamp(p, bw + len - 10, fy + 16, 46, [bw, fy, len, 32]);
+  boat(p, bw + r.int(16, 60), fy + 46, 30, r.int(84, 110), r.pick(['p', 'a', 'q', 'n', 'b']), r, r.chance(0.5));
+  if (r.chance(0.8)) boat(p, bw + r.int(150, 200), fy + 70, 26, r.int(60, 80), r.pick(['p', 'a', 'o']), r, true, true); // under way, with wake
   else if (r.chance(0.8)) boat(p, bw + r.int(120, 180), fy + 42, 34, r.int(90, 130), r.pick(['p', 'a', 'o']), r, false);
-  if (fy > 54 && len < 270) boat(p, bw + len + 12, 4, 22, 46, r.pick(['a', 'k', 'n']), r, true);
+  if (fy > 54 && len < 270) boat(p, bw + len + 12, 4, 22, 46, r.pick(['a', 'q', 'n']), r, true);
   for (let y = 20; y < SEG - 30; y += r.int(50, 80)) { const k = r.int(0, 2); if (k === 0) { fishCrate(p, 14, y, r); fishCrate(p, 16, y + 18, r); } else if (k === 1) { p.shEll(40, y + 10, 14, 10, 4); p.obj(() => { p.ell('0', 40, y + 10, 15, 11); p.ell('k', 40, y + 10, 14, 10); p.checker('1', 28, y + 2, 26, 18); }); } else { crate(p, 20, y, 24, 24); } }
   for (let i = 0; i < 2; i++) buoy(p, r.int(bw + 40, SW - 14), r.int(fy + 50, SEG - 8));
-  p.pool(50, r.int(40, 200), 40);
+  const ly = r.int(40, 200); p.pool(50, ly, 40, [0, 0, bw, SEG]);
 } };
 /** gulls overhead: the bird plus its soft shadow far below on the water */
 const gullsFg: LayerDef = { speed: 1.7, paint(p, z) {
@@ -938,7 +989,7 @@ function beltStrip(p: Painter, flip: boolean) {
   for (let y = 0, k = 0; y < p.h; y += BELT_P, k++) { const [d, sh, hi] = DYES[(k + (flip ? 2 : 0)) % DYES.length]; yarnBall(p, 15, y + 18, d, sh, hi); }
 }
 const factoryFx = (ctx: CanvasRenderingContext2D, scroll: number, t: number, _seed: number, tod: Tod, bg: Background) => {
-  for (const [x, dir] of [[94, 1], [322, -1]] as [number, number][]) {
+  for (const [x, dir] of [[94, 1]] as [number, number][]) {
     const strip = bg.painted('belt' + dir, 30, 360 + BELT_P, tod, p => beltStrip(p, dir < 0));
     const off = Math.floor(scroll + t * 0.5 * dir); const m = ((off % BELT_P) + BELT_P) % BELT_P;
     ctx.drawImage(strip, x + 1, m - BELT_P);
@@ -970,22 +1021,54 @@ const factoryFar: LayerDef = { speed: 0.6, opaque: true, paint(p, z) {
   }
   for (let i = 0; i < 5; i++) p.glow('1', 'g', r.int(0, SW), r.int(0, SEG), 1, 1, 0.9, r.next());
 } };
+/** muted hazard stripes (diagonal), for machine guards and floor zones */
+function hazard(p: Painter, x: number, y: number, w: number, h: number) {
+  p.r('0', x - 1, y - 1, w + 2, h + 2);
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) p.r(((i + j) >> 2) & 1 ? 'h' : '1', x + i, y + j, 1, 1);
+}
+/** raised catwalk running up the right side: grated deck, handrails with posts, a ladder down now and then */
+function catwalk(p: Painter, x: number, w: number, z: Seg) {
+  p.shRect(x, 0, w, SEG, 18);
+  p.obj(() => {
+    p.r('0', x - 1, 0, w + 2, SEG); p.r('q', x, 0, w, SEG);
+    for (let y = 0; y < SEG; y += 3) p.r('1', x + 1, y, w - 2, 1);
+    for (const rx of [x, x + w - 2]) { p.r('0', rx, 0, 2, SEG); p.r('o', rx, 0, 1, SEG); }
+    every(z, 24, 0, y => { if (y > -2 && y < SEG) { p.r('0', x - 1, y, 4, 3); p.r('0', x + w - 3, y, 4, 3); p.r('p', x, y, 2, 2); p.r('p', x + w - 2, y, 2, 2); } });
+  });
+}
+/** steam vent grate in the floor (the burst itself is a foreground flyer) */
+function steamVent(p: Painter, x: number, y: number) {
+  p.r('0', x, y, 18, 12); p.r('1', x + 1, y + 1, 16, 10); for (let i = x + 2; i < x + 17; i += 3) p.r('q', i, y + 2, 1, 8); p.r('p', x + 1, y + 1, 16, 1);
+}
+/** loose pile of yarn balls spilled on the floor */
+function yarnPile(p: Painter, x: number, y: number, n: number, rng: Rng) {
+  p.shEll(x + 10, y + 6, 16, 10, 6);
+  p.obj(() => { for (let i = 0; i < n; i++) { const [dk, sh, hi] = rng.pick(DYES); yarnBall(p, x + rng.int(0, 22), y + rng.int(-4, 12), dk, sh, hi); } });
+}
 const factory: LayerDef = { speed: 1, paint(p, z) {
   const r = z.r;
   // steel floor plates with open grate panels (machinery shows through)
   const grates = new Set<number>(); for (let i = 0; i < 3; i++) grates.add(r.int(0, 5) * 100 + r.int(0, 13));
   for (let y = 0; y < SEG; y += 32) for (let x = 0; x < SW; x += 32) {
-    if (grates.has((y / 32 | 0) % 6 * 100 + x / 32) && x > 120 && x < 300) { p.r('0', x, y, 32, 32); for (let i = 2; i < 32; i += 4) p.r('q', x + i, y + 1, 1, 30); p.r('p', x + 1, y, 30, 1); continue; }
+    if (grates.has((y / 32 | 0) % 6 * 100 + x / 32) && x > 140 && x < 300) { p.r('0', x, y, 32, 32); for (let i = 2; i < 32; i += 4) p.r('q', x + i, y + 1, 1, 30); p.r('p', x + 1, y, 30, 1); continue; }
     p.r('q', x, y, 32, 32); p.r('v', x, y, 32, 1); p.r('v', x, y, 1, 32); p.r('p', x + 3, y + 3, 1, 1); p.r('p', x + 28, y + 3, 1, 1); p.r('p', x + 3, y + 28, 1, 1); p.r('p', x + 28, y + 28, 1, 1);
   }
-  conveyor(p, 94); conveyor(p, 322);
-  for (const px0 of [6, 420]) { p.shRect(px0, 0, 20, SEG, 10); p.obj(() => { p.r('0', px0, 0, 20, SEG); p.r('p', px0 + 1, 0, 18, SEG); p.r('o', px0 + 3, 0, 2, SEG); p.r('q', px0 + 14, 0, 4, SEG); for (let y = 16; y < SEG; y += 64) { p.r('0', px0 - 2, y, 24, 8); p.r('q', px0 - 1, y + 1, 22, 6); p.r('p', px0 - 1, y + 1, 22, 1); } }); }
-  const k = (z.s + r.int(0, 2)) % 3;
-  if (k === 0) { vat(p, 224, 80, 'n', 'm'); vat(p, 224, 190, 'e', 'd'); }
-  else if (k === 1) { spinner(p, 176, 40, r); spinner(p, 176, 150, r); }
-  else { vat(p, 224, 100, 'h', 'g'); p.shRect(170, 170, 110, 40, 10); p.obj(() => { p.r('0', 170, 170, 110, 40); p.r('a', 171, 171, 108, 38); p.r('9', 171, 171, 108, 1); for (let i = 0; i < 4; i++) for (let j = 0; j < 2; j++) { const [dk, sh, hi] = r.pick(DYES); yarnBall(p, 186 + i * 26, 181 + j * 18, dk, sh, hi); } }); }
-  for (const sx of [44, 370]) { const sy = r.int(30, 200); crate(p, sx, sy, 30, 30, 'b'); p.obj(() => { for (let i = 0; i < 4; i++) { const [dk, sh, hi] = r.pick(DYES); yarnBall(p, sx + 8 + (i % 2) * 14, sy + 8 + (i >> 1) * 14, dk, sh, hi); } }); }
-  p.pool(224, r.int(40, 220), 50);
+  // left: the yarn conveyor along a wall of pipes; right: a raised catwalk over the bins (asymmetric)
+  conveyor(p, 94);
+  p.shRect(6, 0, 20, SEG, 10); p.obj(() => { p.r('0', 6, 0, 20, SEG); p.r('p', 7, 0, 18, SEG); p.r('o', 9, 0, 2, SEG); p.r('q', 20, 0, 4, SEG); for (let y = 16; y < SEG; y += 64) { p.r('0', 4, y, 24, 8); p.r('q', 5, y + 1, 22, 6); p.r('p', 5, y + 1, 22, 1); } });
+  p.obj(() => { p.r('0', 40, 0, 8, SEG); p.r('a', 41, 0, 6, SEG); p.r('9', 41, 0, 1, SEG); for (let y = 30; y < SEG; y += 90) { p.r('0', 38, y, 12, 6); p.r('q', 39, y + 1, 10, 4); } });
+  catwalk(p, 372, 30, z);
+  // under/next to the catwalk: bins of finished skeins, crates
+  for (let y = r.int(10, 40); y < SEG - 30; y += r.int(70, 100)) { if (r.chance(0.5)) { crate(p, 334, y, 30, 30, 'b'); p.obj(() => { for (let i = 0; i < 4; i++) { const [dk, sh, hi] = r.pick(DYES); yarnBall(p, 342 + (i % 2) * 14, y + 8 + (i >> 1) * 14, dk, sh, hi); } }); } else yarnPile(p, 330, y + 8, 5, r); }
+  // centre-ish machinery, offset per segment so nothing lines up in a column
+  const k = (z.s + r.int(0, 2)) % 4; const cx = r.int(170, 280);
+  if (k === 0) { vat(p, cx, r.int(60, 110), 'n', 'm'); hazard(p, cx - 40, 190, 80, 8); }
+  else if (k === 1) spinner(p, r.int(150, 220), r.int(30, 140), r);
+  else if (k === 2) { vat(p, cx, r.int(90, 160), 'h', 'g'); steamVent(p, cx + 40, 30); }
+  else { p.shRect(cx - 55, 150, 110, 40, 10); p.obj(() => { p.r('0', cx - 55, 150, 110, 40); p.r('a', cx - 54, 151, 108, 38); p.r('9', cx - 54, 151, 108, 1); for (let i = 0; i < 4; i++) for (let j = 0; j < 2; j++) { const [dk, sh, hi] = r.pick(DYES); yarnBall(p, cx - 39 + i * 26, 161 + j * 18, dk, sh, hi); } }); hazard(p, cx - 55, 196, 110, 6); }
+  if (r.chance(0.6)) steamVent(p, r.int(150, 300), r.int(10, 240));
+  if (r.chance(0.5)) yarnPile(p, r.int(150, 290), r.int(20, 230), 3, r);
+  p.pool(r.int(160, 300), r.int(40, 220), 44);
 } };
 const girdersFg: LayerDef = { speed: 1.4, paint(p, z) {
   const r = z.r;
@@ -1019,9 +1102,9 @@ function cloudBank(p: Painter, cx: number, cy: number, r: number, rng: Rng, keys
  * Bands are [colour, until-y]; each seam is a 16px ordered-dither blend.
  */
 const SKY_BANDS: Record<Tod, [string, number][]> = {
-  day: [['n', 180], ['m', 360]],
-  dawn: [['2', 130], ['3', 250], ['4', 324], ['c', 360]],
-  dusk: [['v', 96], ['2', 150], ['e', 236], ['h', 318], ['g', 360]],
+  day: [['2', 100], ['n', 360]],
+  dawn: [['2', 140], ['3', 296], ['4', 344], ['c', 360]],
+  dusk: [['v', 110], ['2', 200], ['e', 300], ['b', 360]],
   night: [['0', 120], ['1', 250], ['v', 360]],
 };
 function skyBackdrop(p: Painter, tod: Tod) {
@@ -1034,7 +1117,7 @@ function skyBackdrop(p: Painter, tod: Tod) {
   // day: pale haze streaks low down; night: a sprinkle of stars up high
   const r = new Rng(77);
   if (tod === 'night') for (let i = 0; i < 70; i++) p.r(r.pick(['2', '3', '2', '4']), r.int(0, SW - 1), r.int(0, H * 0.7), 1, 1);
-  if (tod === 'dusk') { const sx = 300, sy = H - 30; for (let j = -22; j <= 22; j++) { const hw = Math.round(Math.sqrt(22 * 22 - j * j)); p.dith('f', sx - hw, sy + j, hw * 2, 1, j > 8 ? 6 : 12); } }
+  if (tod === 'dusk') { const sx = 300, sy = H - 26; p.disc('h', sx, sy, 13); p.ell('a', sx + 2, sy + 4, 10, 6); p.r('9', sx - 6, sy - 11, 8, 1); p.r('v', sx - 20, sy - 2, 40, 2); p.r('v', sx - 14, sy + 5, 30, 1); }
 }
 /** cumulus palette for the sky tileset per time of day: [hard shadow, underside, body, lit top] (desaturated so cats pop) */
 const CLOUD: Record<Tod, string[]> = {
@@ -1093,69 +1176,69 @@ const streaksFg: LayerDef = { speed: 1.9, paint(p, z) {
 } };
 
 // ---------------------------------------------------------------- MOON
-/** a litter clump: lumpy darker blob with a lit top-left and grainy crumbs around it */
+/** a litter clump: a small lumpy pellet cluster, lit top-left (2-4px pellets, no speckle) */
 function clump(p: Painter, x: number, y: number, r: number, rng: Rng) {
-  const lobes: [number, number, number][] = [[x, y, r]];
-  for (let i = 0; i < 3; i++) lobes.push([x + rng.int(-r, r) * 0.7, y + rng.int(-r, r) * 0.5, Math.max(2, r * rng.range(0.5, 0.8))]);
-  for (const [lx, ly, lr] of lobes) p.disc('0', lx, ly + 1, lr + 1);
-  for (const [lx, ly, lr] of lobes) p.disc('o', lx, ly, lr);
-  for (const [lx, ly, lr] of lobes) p.disc('p', lx + lr * 0.3, ly + lr * 0.35, lr * 0.55);
-  for (const [lx, ly, lr] of lobes) p.r('7', lx - lr * 0.5, ly - lr * 0.5, Math.max(1, lr * 0.6), 1);
-  for (let i = 0; i < r * 3; i++) p.r(rng.pick(['o', 'p', '8']), x + rng.int(-r * 2, r * 2), y + rng.int(-r, r * 1.4), 1, 1);
+  const n = Math.max(3, Math.round(r * 1.2));
+  const pts: [number, number, number][] = [];
+  for (let i = 0; i < n; i++) pts.push([x + rng.int(-r, r), y + rng.int(-r, r) * 0.7, rng.int(1, 2)]);
+  for (const [px, py, s] of pts) p.r('q', px - 1, py, s + 3, s + 2);
+  for (const [px, py, s] of pts) { p.r('9', px, py, s + 1, s + 1); p.r('8', px, py, s, 1); }
 }
-/** crater lit from the upper left: bright rim, a shadow crescent inside, flat floor (litter-box craters hold clumps) */
+/** crater: hard light rim on the upper edge, dark inner lip below it, a flat calm floor */
 function crater(p: Painter, cx: number, cy: number, rr: number, rng: Rng, litter: boolean) {
-  const ry = rr * 0.8;
-  p.ell('o', cx - 1, cy - 1, rr + 2, ry + 2);
-  p.ell('q', cx + 1, cy + 1, rr + 1, ry + 1);
-  p.ell('v', cx, cy, rr, ry);
-  p.ell('q', cx + Math.max(1, rr * 0.12), cy + Math.max(1, rr * 0.12), rr - Math.max(1, rr * 0.1), ry - Math.max(1, rr * 0.1));
-  p.ell('p', cx - rr * 0.35, cy - ry * 0.45, rr * 0.25, ry * 0.12);
-  if (litter) { const n = Math.max(1, Math.round(rr / 9)); for (let i = 0; i < n; i++) clump(p, cx + rng.int(-rr / 2, rr / 3), cy + rng.int(-ry / 3, ry / 3), rng.int(4, 6), rng); }
+  const ry = Math.round(rr * 0.75);
+  p.ell('o', cx, cy - 1, rr + 1, ry + 1);   // outer lit rim (shows on top)
+  p.ell('q', cx, cy + 1, rr + 1, ry);       // rim shade (bottom)
+  p.ell('v', cx, cy, rr, ry);               // dark inner lip
+  p.ell('q', cx, cy + Math.max(1, Math.round(ry * 0.25)), rr - 1, ry - Math.max(1, Math.round(ry * 0.25))); // floor in shadow
+  p.ell('p', cx + 1, cy + Math.max(2, Math.round(ry * 0.4)), rr * 0.7, ry * 0.5); // sunlit floor
+  if (litter) { const n = Math.max(1, Math.round(rr / 10)); for (let i = 0; i < n; i++) clump(p, cx + rng.int(-rr / 2, rr / 3), cy + rng.int(0, ry / 3), rng.int(3, 4), rng); }
 }
-/** a giant pink litter scoop, half-buried in a crater: slotted shovel head + handle sticking out */
-function scoop(p: Painter, cx: number, cy: number) {
-  crater(p, cx, cy, 30, new Rng(cx * 7 + cy), false);
-  p.shRect(cx - 4, cy - 50, 9, 40, 10);
-  p.obj(() => {
-    // buried head: only the back half shows above the litter, slots and rim
-    p.r('0', cx - 15, cy - 9, 30, 15); p.r('e', cx - 14, cy - 8, 28, 13); p.r('d', cx - 14, cy - 8, 28, 2);
-    for (let i = cx - 11; i < cx + 11; i += 5) p.r('v', i, cy - 5, 2, 9);
-    p.r('p', cx - 15, cy + 5, 30, 2); p.checker('o', cx - 15, cy + 5, 30, 2); // litter spilling over the buried edge
-    // handle
-    p.r('0', cx - 4, cy - 52, 9, 44); p.r('e', cx - 3, cy - 51, 7, 42); p.r('d', cx - 3, cy - 51, 2, 42); p.r('v', cx + 3, cy - 51, 1, 42);
-    p.r('0', cx - 1, cy - 47, 3, 6);
-  });
+/** scoop marks: a fan of parallel curved grooves raked through the litter (each groove: dark line + lit lip) */
+function scoopMarks(p: Painter, x: number, y: number, w: number, rng: Rng) {
+  const tines = rng.int(4, 5); const len = rng.int(26, 40); const bend = rng.range(-0.4, 0.4);
+  for (let t = 0; t < tines; t++) for (let j = 0; j < len; j++) {
+    const xx = Math.round(x + t * (w / tines) + j * 0.6 + Math.sin(j / len * Math.PI) * bend * 20), yy = y + j;
+    p.r('q', xx, yy, 2, 1); p.r('o', xx + 2, yy, 1, 1);
+  }
+  // the scooped spoil heap at the end of the stroke
+  const hx = x + Math.round(w / 2 + len * 0.6), hy = y + len + 4; p.ell('q', hx, hy + 1, w * 0.6, 4); p.ell('o', hx, hy - 1, w * 0.55, 3); p.ell('p', hx, hy, w * 0.5, 3);
 }
-/** sandy litter-moon regolith: beige-grey with granules, gentle dunes */
+/** litter-moon regolith: flat dusty grey with large calm drifts of a second tone (hard-edged, no dither) */
 function regolith(p: Painter, z: Seg) {
-  field(p, ['q', 'q', 'p'], (x, y) => { const w = z.wy(y); return 0.4 + 0.22 * Math.sin(x / 53 + Math.sin(w / 71) * 2.5) + 0.12 * Math.sin(w / 37 - x / 89); }, -1, 0.35);
+  p.r('p', 0, 0, SW, SEG);
+  const ph = (z.seed % 100) / 17;
+  for (let y = 0; y < SEG; y++) {
+    const w = z.wy(y);
+    // two broad drifts per row, edges wobble slowly so the shapes stay large and calm
+    for (const [c, a] of [[110 + Math.sin(w / 83 + ph) * 50, 6 + Math.sin(w / 37) * 24 + Math.sin(w / 13) * 3], [330 + Math.sin(w / 61 + ph * 2) * 40, 2 + Math.sin(w / 41 + 1) * 22 + Math.sin(w / 11) * 3]] as [number, number][]) {
+      if (a > 4) p.r('q', Math.round(c - a), y, Math.round(a * 2), 1);
+    }
+  }
   const r = z.r;
-  // sandy grain: an ordered sprinkle of warm beige in the light sand, brown in the dark sand (regular = texture, not noise)
-  p.pixels(set => { for (let y = 0; y < SEG; y++) for (let x = 0; x < SW; x++) { const v = p.buf[y * SW + x], b = bayer(x + (y >> 2) * 3, y); if (v === 25 && b < 4) set('9', x, y); else if (v === 26 && b < 3) set('a', x, y); } });
-  for (let i = 0; i < 60; i++) { const x = r.int(0, SW - 3), y = r.int(0, SEG - 2); p.r('o', x, y, 2, 1); p.r('q', x, y + 1, 2, 1); }
+  for (let i = 0; i < 14; i++) { const x = r.int(4, SW - 6), y = r.int(2, SEG - 4); const s = r.int(2, 3); p.r('q', x, y + 1, s, s); p.r('o', x, y, s, s - 1); } // sparse 2-4px granules
 }
 const moon: LayerDef = { speed: 1, opaque: true, paint(p, z) {
   const r = z.r;
   regolith(p, z);
-  for (let i = 0; i < 4; i++) crater(p, r.int(10, SW - 10), r.int(10, SEG - 10), r.int(4, 9), r, false);
-  for (let i = 0; i < 2; i++) crater(p, r.int(20, SW - 20), r.int(20, SEG - 20), r.int(12, 18), r, true);
-  if (z.s % 3 === 0) scoop(p, r.int(100, 340), r.int(70, 190));
-  else if (r.chance(0.8)) crater(p, r.int(70, SW - 70), r.int(50, SEG - 50), r.int(26, 38), r, true);
-  for (let i = 0; i < 4; i++) clump(p, r.int(20, SW - 20), r.int(10, SEG - 10), r.int(3, 6), r);
-  for (let y = 0; y < SEG; y += 18) { const x = 300 + Math.round(Math.sin(z.wy(y) / 90) * 60) + ((y / 18) % 2 ? 6 : -6); p.r('v', x, y, 4, 3); p.r('v', x - 1, y - 3, 1, 1); p.r('v', x + 1, y - 4, 2, 1); p.r('v', x + 4, y - 3, 1, 1); }
+  for (let i = 0; i < 3; i++) crater(p, r.int(60, SW - 60), r.int(10, SEG - 10), r.int(5, 9), r, false);
+  crater(p, r.int(70, SW - 70), r.int(30, SEG - 30), r.int(14, 20), r, true);
+  if (r.chance(0.6)) crater(p, r.int(80, SW - 80), r.int(50, SEG - 50), r.int(26, 36), r, true);
+  if (z.s % 2 === 0) scoopMarks(p, r.int(90, 300), r.int(10, 120), r.int(26, 40), r);
+  for (let i = 0; i < 3; i++) clump(p, r.int(60, SW - 60), r.int(10, SEG - 10), r.int(3, 5), r);
+  for (let y = 0; y < SEG; y += 18) { const x = 300 + Math.round(Math.sin(z.wy(y) / 90) * 60) + ((y / 18) % 2 ? 6 : -6); p.r('q', x, y, 4, 3); p.r('q', x - 1, y - 3, 1, 1); p.r('q', x + 1, y - 4, 2, 1); p.r('q', x + 4, y - 3, 1, 1); }
   // the giant litter-box wall along both edges: thick plastic rim with a lit top and a shadow on the litter
   for (const [x0, dir] of [[0, 1], [SW - 44, -1]] as [number, number][]) {
     p.shRect(x0, 0, 44, SEG, 16);
     p.obj(() => { p.r('0', x0, 0, 44, SEG); p.r('2', x0 + 1, 0, 42, SEG); p.r('3', dir > 0 ? x0 + 26 : x0 + 12, 0, 6, SEG); p.r('4', dir > 0 ? x0 + 27 : x0 + 13, 0, 2, SEG); p.r('1', dir > 0 ? x0 + 39 : x0 + 1, 0, 4, SEG); p.r('1', dir > 0 ? x0 + 2 : x0 + 38, 0, 4, SEG); for (let y = 10; y < SEG; y += 64) p.r('1', x0 + 2, y, 40, 1); });
   }
-  if (z.s % 4 === 2) { const fx = r.int(80, 360), fy = r.int(60, 200); p.shRect(fx, fy, 2, 2, 24); p.obj(() => { p.r('0', fx - 1, fy - 1, 3, 3); p.r('o', fx, fy, 1, 1); p.r('0', fx + 1, fy - 1, 16, 11); p.r('7', fx + 2, fy, 14, 9); p.r('c', fx + 6, fy + 2, 6, 5); p.r('6', fx + 7, fy + 3, 4, 3); }); }
+  // a planted flag (Pom's), now and then
+  if (z.s % 4 === 2) { const fx = r.int(80, 360), fy = r.int(60, 200); p.shRect(fx, fy, 2, 2, 24); p.obj(() => { p.r('0', fx - 1, fy - 1, 3, 3); p.r('o', fx, fy, 1, 1); p.r('0', fx + 1, fy - 1, 16, 11); p.r('7', fx + 2, fy, 14, 9); p.r('a', fx + 6, fy + 2, 6, 5); p.r('9', fx + 7, fy + 3, 4, 3); }); }
 } };
 /** fg: the shadow of an orbiting probe sweeping over the regolith + a few dust motes */
 const moonFg: LayerDef = { speed: 1.6, paint(p, z) {
   const r = z.r;
-  if (r.chance(0.3)) { const x = r.int(60, 380), y = r.int(40, 200); p.checker('0', x - 10, y - 2, 20, 5); p.checker('0', x - 2, y - 10, 5, 20); p.checker('0', x - 18, y, 8, 1); p.checker('0', x + 10, y, 8, 1); }
-  for (let i = 0; i < 4; i++) { const x = r.int(0, SW - 4), y = r.int(0, SEG - 2); p.r('p', x, y, 3, 1); }
+  if (r.chance(0.25)) { const x = r.int(60, 380), y = r.int(40, 200); p.r('q', x - 10, y - 2, 20, 5); p.r('q', x - 2, y - 10, 5, 20); p.r('q', x - 18, y, 8, 1); p.r('q', x + 10, y, 8, 1); }
 } };
 
 // ---------------------------------------------------------------- STATION
@@ -1254,7 +1337,7 @@ function pawHatch(p: Painter, cx: number, cy: number) {
 /** glowing cat-eye porthole: almond eye with a slit pupil, emissive after dusk */
 function catEye(p: Painter, cx: number, cy: number) {
   for (let j = -5; j <= 5; j++) { const hw = Math.round(Math.sqrt(1 - (j / 6) ** 2) * 9 * (1 - Math.abs(j) / 14)); p.r('0', cx - hw - 1, cy + j, hw * 2 + 3, 1); }
-  for (let j = -4; j <= 4; j++) { const hw = Math.round(Math.sqrt(1 - (j / 5) ** 2) * 8 * (1 - Math.abs(j) / 14)); p.glow('k', 'i', cx - hw, cy + j, hw * 2 + 1, 1, 1.5, 0); }
+  for (let j = -4; j <= 4; j++) { const hw = Math.round(Math.sqrt(1 - (j / 5) ** 2) * 8 * (1 - Math.abs(j) / 14)); p.glow('2', j < -1 ? 't' : 'u', cx - hw, cy + j, hw * 2 + 1, 1, 1.5, 0); }
   p.lateBars.push([cx, cy - 4, 1, 9]); p.lateBars.push([cx - 1, cy - 2, 3, 5]);
 }
 /** yarn-cable conduit: two twisted strands in clamps */
@@ -1277,10 +1360,21 @@ const mothership: LayerDef = { speed: 1, paint(p, z) {
   }
   // ear-shaped fins along both hull edges (pointing forward, like a cat's ears)
   for (const [x0, dir] of [[L, -1], [R, 1]] as [number, number][]) every(z, 128, 40, y => {
-    for (let j = 0; j < 56; j++) { const out = Math.round(Math.min(j, 56 - j * 0.6) * 0.75); if (out <= 0) continue; const xa = dir > 0 ? x0 : x0 - out; p.r('0', xa - 1, y - 56 + j, out + 2, 1); p.r('v', xa, y - 56 + j, out, 1); const inner = Math.round(out * 0.45); if (j > 10 && inner > 1) p.r('e', dir > 0 ? x0 + 3 : x0 - 3 - inner, y - 56 + j, inner, 1); }
+    for (let j = 0; j < 56; j++) { const out = Math.round(Math.min(j, 56 - j * 0.6) * 0.75); if (out <= 0) continue; const xa = dir > 0 ? x0 : x0 - out; p.r('0', xa - 1, y - 56 + j, out + 2, 1); p.r('v', xa, y - 56 + j, out, 1); const inner = Math.round(out * 0.45); if (j > 10 && inner > 1) p.r('2', dir > 0 ? x0 + 3 : x0 - 3 - inner, y - 56 + j, inner, 1); }
   });
   p.r('u', L, 0, 1, SEG); p.r('u', R - 1, 0, 1, SEG);
-  yarnCable(p, 118, z); yarnCable(p, 330, z);
+  p.r('0', 326, 0, 12, SEG); p.r('q', 327, 0, 10, SEG); p.r('p', 327, 0, 1, SEG); p.r('v', 335, 0, 2, SEG); for (let y = 6; y < SEG; y += 52) { p.r('0', 324, y, 16, 8); p.r('1', 325, y + 1, 14, 6); p.glow('1', 'd', 330, y + 3, 4, 2, 1, 0.5); }
+  yarnCable(p, 118, z);
+  // hull plating seams, vent grilles and glowing conduit panels, scattered asymmetrically
+  for (let i = 0; i < 4; i++) {
+    const kx = r.int(0, 3), x = [140, 200, 268, 300][kx] + r.int(-8, 8), y = r.int(4, SEG - 40);
+    const kind = r.int(0, 2);
+    if (kind === 0) { p.r('0', x, y, 28, 16); p.r('1', x + 1, y + 1, 26, 14); for (let j = y + 3; j < y + 14; j += 3) p.r('0', x + 3, j, 22, 1); p.r('2', x + 1, y + 1, 26, 1); }
+    else if (kind === 1) { p.r('0', x, y, 10, 36); p.r('1', x + 1, y + 1, 8, 34); p.glow('2', 'u', x + 3, y + 3, 4, 30, 1.5, 0); p.lateBars.push([x + 3, y + 12, 4, 1], [x + 3, y + 23, 4, 1]); }
+    else { p.r('2', x, y, 40, 1); p.r('1', x, y + 1, 40, 1); for (let k = 0; k < 4; k++) p.r('2', x + 4 + k * 10, y + 4, 2, 2); }
+  }
+  // a long seam break so the plates do not read as a perfect grid
+  { const sy = r.int(20, SEG - 20); p.r('0', 72, sy, SW - 144, 2); p.r('2', 72, sy + 2, SW - 144, 1); }
   if (z.s % 3 === 0) {
     const cx = 224, cy = 128;
     p.ell('0', cx, cy + 6, 46, 36); p.ell('1', cx, cy + 6, 44, 34);
@@ -1293,9 +1387,60 @@ const mothership: LayerDef = { speed: 1, paint(p, z) {
     pawHatch(p, r.int(250, 280), 190);
   }
   // rows of cat-eye portholes beside the conduits
-  every(z, 96, 20, y => { if (y > 8 && y < SEG - 8) { catEye(p, 96, y); catEye(p, 352, y); } });
+  every(z, 160, 20, y => { if (y > 8 && y < SEG - 8) catEye(p, 96, y); });
+  every(z, 224, 130, y => { if (y > 8 && y < SEG - 8) catEye(p, 352, y); });
 } };
 
+// ---------------------------------------------------------------- fast foreground flyers
+/**
+ * Rare, short-lived foreground silhouettes drawn every frame (fast parallax: they
+ * cross the playfield in a second or two, then nothing for several seconds).
+ * Dark and sparse; drawn with the background, so they never cover cats.
+ */
+type FlyKind = 'birds' | 'leaves' | 'steam' | 'wisps' | 'debris';
+const flyers = (kind: FlyKind, period = 520) => (px: Px, _scroll: number, t: number, seed: number, tod: Tod) => {
+  const ev = Math.floor(t / period), lt = t - ev * period; const r = new Rng(seed * 31 + ev * 977 + 7);
+  const dur = kind === 'steam' ? 150 : kind === 'wisps' ? 110 : 100;
+  if (ev === 0 || lt >= dur) return;
+  const f = lt / dur;
+  const dark = tod === 'night' ? '0' : '1';
+  if (kind === 'birds') { // a small flock crossing diagonally, wings flapping
+    const fromLeft = r.chance(0.5); const y0 = r.int(40, 300), dy = r.int(-90, 90);
+    const n = r.int(3, 5);
+    for (let i = 0; i < n; i++) {
+      const lag = i * 0.05, ff = f - lag; if (ff < 0) continue;
+      const x = Math.round(fromLeft ? -20 + ff * 500 : 470 - ff * 500) + (i % 2) * 8, y = Math.round(y0 + dy * ff + i * 7 - (i % 2) * 12);
+      const up = ((t >> 3) + i) & 1;
+      px(dark, x - 1, y, 3, 2); // body
+      if (up) { px(dark, x - 5, y - 2, 4, 1); px(dark, x + 2, y - 2, 4, 1); px(dark, x - 3, y - 1, 2, 1); px(dark, x + 2, y - 1, 2, 1); }
+      else { px(dark, x - 5, y + 1, 4, 1); px(dark, x + 2, y + 1, 4, 1); }
+    }
+  } else if (kind === 'leaves') { // a gust of a few leaves tumbling across
+    const n = r.int(4, 7); const ks = tod === 'night' ? ['0', '1'] : ['1', 'b', 'k'];
+    for (let i = 0; i < n; i++) {
+      const sx = r.int(-40, 100), sy = r.int(20, 300), sp = r.range(380, 520);
+      const x = Math.round(sx + f * sp), y = Math.round(sy + f * r.int(40, 120) + Math.sin(f * 12 + i) * 6);
+      const k = ks[i % ks.length]; const ph = ((t >> 2) + i) & 3;
+      if (ph === 0) px(k, x, y, 3, 2); else if (ph === 1) px(k, x, y, 2, 3); else if (ph === 2) { px(k, x, y, 3, 1); px(k, x + 1, y + 1, 2, 1); } else px(k, x, y, 1, 3);
+    }
+  } else if (kind === 'steam') { // a vent burst drifting up and sideways, solid dark puffs (no halftone)
+    const x0 = r.int(100, 330), y0 = r.int(120, 340); const ks = tod === 'night' ? ['1', 'v'] : ['q', 'v'];
+    for (let i = 0; i < 5; i++) {
+      const ff = f - i * 0.08; if (ff < 0 || ff > 0.85) continue;
+      const rr = Math.round(3 + ff * 9); const x = Math.round(x0 + ff * 40 + Math.sin(ff * 6 + i) * 5), y = Math.round(y0 - ff * 90 - i * 4);
+      for (let j = -rr; j <= rr; j++) { const hw = Math.round(Math.sqrt(rr * rr - j * j)); px(ks[ff > 0.5 ? 1 : 0], x - hw, y + j, hw * 2, 1); }
+    }
+  } else if (kind === 'wisps') { // a fast cloud wisp streaking past one edge
+    const left = r.chance(0.5); const x0 = left ? r.int(30, 90) : r.int(330, 400); const y = Math.round(-80 + f * 560);
+    const ks = tod === 'night' ? ['1', '2'] : tod === 'dusk' ? ['v', 'e'] : ['3', '4'];
+    for (let i = 0; i < 4; i++) { const w = 26 - i * 5, x = x0 + i * 3 - (i & 1) * 6, yy = y + i * 9; px(ks[0], x, yy, w, 3); px(ks[1], x + 2, yy, w - 6, 1); }
+  } else { // debris: a couple of tumbling rocks / hull scraps
+    for (let i = 0; i < r.int(2, 4); i++) {
+      const sx = r.int(70, 370), dx = r.int(-60, 60); const x = Math.round(sx + dx * f), y = Math.round(-20 + f * r.int(400, 520) - i * 30);
+      const ph = ((t >> 3) + i) & 1; px('0', x - 1, y - 1, 6, 5); px(ph ? 'q' : 'v', x, y, 4, 3); px('p', x + (ph ? 0 : 2), y, 2, 1);
+    }
+  }
+};
 // ---------------------------------------------------------------- anims
 const twinkle = (keys: string[]) => (px: Px, scroll: number, t: number, seed: number) => {
   for (let i = 0; i < 9; i++) {
@@ -1316,27 +1461,28 @@ const navLights = (xs: number[], period: number, keys: string[]) => (px: Px, scr
 const both = (...fs: ((px: Px, scroll: number, t: number, seed: number, tod: Tod) => void)[]) => (px: Px, scroll: number, t: number, seed: number, tod: Tod) => { for (const f of fs) f(px, scroll, t, seed, tod); };
 
 export const TILESETS: Record<string, Tileset> = {
-  backyard: { id: 'backyard', speed: 0.4, base: 'k', main: backyard, fg: yardFg(['1', 'k', 'j'], 0.6, 0.1) },
-  street: { id: 'street', speed: 0.6, base: 'v', main: street, fg: yardFg(['1', 'k', 'j'], 0.7, 0.12), ramps: { night: NIGHT_PAVED }, anim: steamAnim(188, 300, 120) },
-  park: { id: 'park', speed: 0.45, base: 'k', main: park, fg: yardFg(['1', 'k', 'j'], 0.5, 0) },
-  alley: { id: 'alley', speed: 0.5, base: 'v', ramps: { night: NIGHT_PAVED }, main: alley, fg: laundryFg, anim: steamAnim(262, 280, 60) },
-  rooftops: { id: 'rooftops', speed: 0.55, base: '1', far: cityBelow, main: rooftops, fg: pigeonsFg },
+  backyard: { id: 'backyard', speed: 0.4, base: 'k', main: backyard, fg: yardFg(['1', 'k', 'j'], 0.6, 0), anim: both(flyers('birds', 460), flyers('leaves', 610)) },
+  street: { id: 'street', speed: 0.6, base: 'v', main: street, fg: yardFg(['1', 'k', 'j'], 0.7, 0.12), anim: both(steamAnim(188, 300, 120), flyers('birds', 540)) },
+  park: { id: 'park', speed: 0.45, base: 'k', main: park, fg: yardFg(['1', 'k', 'j'], 0.5, 0), anim: both(flyers('leaves', 430), flyers('birds', 700)) },
+  alley: { id: 'alley', speed: 0.5, base: 'v', main: alley, fg: laundryFg, anim: both(steamAnim(262, 280, 60), flyers('steam', 380)) },
+  rooftops: { id: 'rooftops', speed: 0.55, base: '1', far: cityBelow, main: rooftops, fg: pigeonsFg, anim: flyers('birds', 420) },
   cafe: { id: 'cafe', speed: 0.4, base: 'v', indoor: true, main: cafe, fg: pendantsFg },
-  docks: { id: 'docks', speed: 0.5, base: 'n', ramps: { dusk: ramp('n:v 2:e m:e', TOD_RAMP.dusk) }, far: water, main: docks, fg: gullsFg,
+  docks: { id: 'docks', speed: 0.5, base: 'n', ramps: { dusk: ramp('n:v 2:1 m:e', TOD_RAMP.dusk) }, far: water, main: docks, fg: gullsFg, anim: flyers('birds', 500),
     fxAfter: 'far', fx: (ctx, scroll, t, _s, tod) => {
-      // slow swells: a few ripple marks drift sideways and breathe on the water, under the piers and boats
-      const [k0, k1] = tod === 'night' ? ['2', '3'] : tod === 'dusk' ? ['e', 'u'] : ['m', '4'];
-      for (let i = 0; i < 9; i++) {
-        const ph = (t / 110 + i * 0.37) % 1; const x = 112 + ((i * 97) % 320) + Math.round(Math.sin(t / 70 + i) * 6), y = Math.floor((i * 71 + scroll * 0.72) % 380) - 10;
-        const len = Math.round(2 + Math.sin(ph * Math.PI) * 7); ctx.fillStyle = col(ph < 0.5 ? k0 : k1); ctx.fillRect(x - (len >> 1), y, len, 1);
+      // sparse 2-3px wave glints drifting at their own parallax speed (slower than the planks, faster than the swell lattice)
+      const [k0, k1] = tod === 'night' ? ['3', '4'] : tod === 'dusk' ? ['d', 'c'] : tod === 'dawn' ? ['4', 'c'] : ['m', '4'];
+      for (let i = 0; i < 26; i++) {
+        const ph = (t / 90 + i * 0.37) % 1; if (ph > 0.7) continue;
+        const x = 110 + ((i * 97 + Math.floor(t / 6) * (i % 3 === 0 ? 1 : 0)) % 334), y = Math.floor((i * 53 + scroll * 0.82) % 380) - 10;
+        const len = ph < 0.2 || ph > 0.5 ? 2 : 3; ctx.fillStyle = col(ph < 0.35 ? k1 : k0); ctx.fillRect(x, y, len, 1);
+        if (len === 3) ctx.fillRect(x + 1, y - 1, 1, 1);
       }
     } },
-  factory: { id: 'factory', speed: 0.6, base: '1', far: factoryFar, main: factory, fg: girdersFg, fx: factoryFx, rim: false,
-    ramps: { night: ramp('q:q2/6 p:q o:p 1:1 v:1 7:8 6:5 5:4 4:3 3:2 9:a 8:9') } },
-  sky: { id: 'sky', speed: 0.8, base: 'n', backdrop: skyBackdrop, rim: false, far: skyFar, main: skyMain, fg: wispsFg, ramps: SKY_RAMPS },
-  nebula: { id: 'nebula', speed: 0.7, space: true, base: '0', far: starFar('0', 80), main: nebulaMain, fg: streaksFg, anim: twinkle(['4', 't', 'l']) },
-  moon: { id: 'moon', speed: 0.35, space: true, base: 'q', ramps: { dusk: ramp('o:8 5:c 4:t 6:7 9:h 7:8'), night: ramp('o:p 5:4 6:5 4:3 3:2 8:9 7:8 9:a') }, main: moon, fg: moonFg },
-  station: { id: 'station', speed: 0.5, space: true, base: '0', far: starFar('0', 90), main: station, anim: both(twinkle(['4', 'l']), earLights) },
-  mothership: { id: 'mothership', speed: 0.7, space: true, base: '0', far: motherFar, main: mothership, anim: navLights([74, 374], 96, ['r', 'l', 'd']) },
+  factory: { id: 'factory', speed: 0.6, base: '1', far: factoryFar, main: factory, fg: girdersFg, fx: factoryFx, rim: false, anim: flyers('steam', 300) },
+  sky: { id: 'sky', speed: 0.8, base: 'n', backdrop: skyBackdrop, rim: false, far: skyFar, main: skyMain, fg: wispsFg, ramps: SKY_RAMPS, anim: both(flyers('wisps', 200), flyers('birds', 650)) },
+  nebula: { id: 'nebula', speed: 0.7, space: true, base: '0', far: starFar('0', 80), main: nebulaMain, fg: streaksFg, anim: both(twinkle(['4', 't', 'l']), flyers('debris', 480)) },
+  moon: { id: 'moon', speed: 0.35, space: true, base: 'q', ramps: { dusk: ramp('o:8 5:c 4:t 6:7 9:a 8:9 7:8 p:q'), night: ramp('5:4 6:5 4:3 3:2 8:9 7:8') }, main: moon, fg: moonFg, anim: flyers('debris', 560) },
+  station: { id: 'station', speed: 0.5, space: true, base: '0', far: starFar('0', 90), main: station, anim: both(twinkle(['4', 'l']), earLights, flyers('debris', 600)) },
+  mothership: { id: 'mothership', speed: 0.7, space: true, base: '0', far: motherFar, main: mothership, anim: both(navLights([74, 374], 96, ['r', 'l', 'd']), flyers('debris', 450)) },
 };
 TILESETS.space = TILESETS.nebula;
