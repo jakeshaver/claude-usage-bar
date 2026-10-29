@@ -53,41 +53,72 @@ function triggerProblem(t: any, what: string): string | null {
   return null;
 }
 
-/** Validate one quest entry. Returns the normalized quest, or the reason it was rejected. */
-export function normalizeQuest(q: any): { quest: NQuest } | { error: string } {
+/**
+ * Validate one quest entry. The entry is skipped (error) only when it cannot work at all: not an object, no id,
+ * or an unusable start / complete trigger. Every other bad field falls back field by field (a bad reward score
+ * becomes 0, a bad item count is dropped, a bad count becomes 1, ...) and is listed in `warnings`, so a typo in
+ * a reward never deletes a quest from the game.
+ */
+export function normalizeQuest(q: any): { quest: NQuest; warnings: string[] } | { error: string } {
   if (!q || typeof q !== 'object' || Array.isArray(q)) return { error: 'entry is not an object' };
   if (typeof q.id !== 'string' || !q.id.trim()) return { error: 'missing id' };
   const sp = triggerProblem(q.start, 'start') ?? triggerProblem(q.complete, 'complete');
   if (sp) return { error: sp };
+  const warnings: string[] = [];
   let count = q.complete.count ?? 1;
-  if (typeof count !== 'number' || !Number.isFinite(count) || count < 1) return { error: `complete.count must be a number >= 1 (got ${JSON.stringify(q.complete.count)})` };
+  if (typeof count === 'string' && count.trim() && Number.isFinite(+count)) count = +count;
+  if (typeof count !== 'number' || !Number.isFinite(count) || count < 1) { warnings.push(`complete.count ${JSON.stringify(q.complete.count)} is not a number >= 1; using 1`); count = 1; }
   count = Math.floor(count);
-  const r = q.reward ?? {};
-  if (typeof r !== 'object' || Array.isArray(r)) return { error: 'reward must be an object' };
-  if (r.flags !== undefined && (!Array.isArray(r.flags) || r.flags.some((f: any) => typeof f !== 'string' || !f))) return { error: 'reward.flags must be a list of flag names' };
-  if (r.items !== undefined && (typeof r.items !== 'object' || Array.isArray(r.items) || Object.values(r.items).some(v => typeof v !== 'number' || !Number.isFinite(v)))) return { error: 'reward.items must map item ids to numbers' };
-  if (r.score !== undefined && (typeof r.score !== 'number' || !Number.isFinite(r.score))) return { error: 'reward.score must be a number' };
-  if (q.dialogue !== undefined && typeof q.dialogue !== 'string') return { error: 'dialogue must be a dialogue id' };
-  const ex = q.expire === undefined ? [] : Array.isArray(q.expire) ? q.expire : [q.expire];
-  for (let i = 0; i < ex.length; i++) { const e = triggerProblem(ex[i], `expire[${i}]`); if (e) return { error: e }; }
+  let r = q.reward ?? {};
+  if (!r || typeof r !== 'object' || Array.isArray(r)) { warnings.push('reward is not an object; no reward'); r = {}; }
+  let flags: string[] = [];
+  if (r.flags !== undefined) {
+    const list = Array.isArray(r.flags) ? r.flags : typeof r.flags === 'string' ? [r.flags] : null;
+    if (!list) warnings.push('reward.flags is not a list of flag names; dropped');
+    else { flags = list.filter((f: any) => typeof f === 'string' && f.trim()); if (flags.length !== list.length) warnings.push('reward.flags: non-string entries dropped'); }
+  }
+  const items: Record<string, number> = {};
+  if (r.items !== undefined) {
+    if (!r.items || typeof r.items !== 'object' || Array.isArray(r.items)) warnings.push('reward.items is not a map of item ids to counts; dropped');
+    else for (const [k, v] of Object.entries(r.items)) {
+      const n = typeof v === 'string' && v.trim() ? +v : v;
+      if (typeof n === 'number' && Number.isFinite(n) && n >= 1) items[k] = Math.floor(n);
+      else warnings.push(`reward.items.${k} = ${JSON.stringify(v)} is not a count >= 1; dropped`);
+    }
+  }
+  let score = 0;
+  if (r.score !== undefined) {
+    const n = typeof r.score === 'string' && r.score.trim() ? +r.score : r.score;
+    if (typeof n === 'number' && Number.isFinite(n) && n >= 0) score = Math.round(n);
+    else warnings.push(`reward.score ${JSON.stringify(r.score)} is not a number >= 0; using 0`);
+  }
+  let dialogue: string | undefined;
+  if (q.dialogue !== undefined) { if (typeof q.dialogue === 'string' && q.dialogue) dialogue = q.dialogue; else warnings.push('dialogue is not a dialogue id; dropped'); }
+  const ex0 = q.expire === undefined ? [] : Array.isArray(q.expire) ? q.expire : [q.expire];
+  const ex: Trigger[] = [];
+  ex0.forEach((t: any, i: number) => { const e = triggerProblem(t, `expire[${i}]`); if (e) warnings.push(`${e}; dropped`); else ex.push(t); });
   let track: NQuest['track'] = null;
   if (q.track !== undefined) {
-    if (!q.track || typeof q.track !== 'object' || !Number.isFinite(q.track.memories) || q.track.memories < 1) return { error: 'track must be {"memories": N} with N >= 1' };
-    track = { memories: Math.floor(q.track.memories) };
+    if (!q.track || typeof q.track !== 'object' || !Number.isFinite(q.track.memories) || q.track.memories < 1) warnings.push('track must be {"memories": N} with N >= 1; dropped');
+    else track = { memories: Math.floor(q.track.memories) };
   }
-  return {
-    quest: {
-      ...q,
-      name: typeof q.name === 'string' && q.name.trim() ? q.name : q.id,
-      desc: typeof q.desc === 'string' ? q.desc : '',
-      start: q.start, complete: { ...q.complete, count },
-      reward: { flags: r.flags ?? [], items: r.items ?? {}, score: Math.max(0, r.score ?? 0) },
-      expire: ex, track, derived: [],
-    },
+  if (q.name !== undefined && (typeof q.name !== 'string' || !q.name.trim())) warnings.push('name is not a string; using the id');
+  const quest: NQuest = {
+    ...q,
+    name: typeof q.name === 'string' && q.name.trim() ? q.name : q.id,
+    desc: typeof q.desc === 'string' ? q.desc : '',
+    start: q.start, complete: { ...q.complete, count },
+    reward: { flags, items, score },
+    expire: ex, track, derived: [],
   };
+  if (dialogue === undefined) delete (quest as any).dialogue; else quest.dialogue = dialogue;
+  return { quest, warnings };
 }
 
-/** Normalize a quest list; rejected entries are passed to `report` and dropped, duplicates keep the first. */
+/**
+ * Normalize a quest list. Unusable entries are reported and dropped, duplicates keep the first; field-level
+ * fallbacks are reported too (the quest stays in the game).
+ */
 export function normalizeQuests(list: unknown, report: (msg: string) => void): NQuest[] {
   if (!Array.isArray(list)) { report('quest list is not an array; no quests loaded'); return []; }
   const out: NQuest[] = []; const seen = new Set<string>();
@@ -96,6 +127,7 @@ export function normalizeQuests(list: unknown, report: (msg: string) => void): N
     const label = `quest ${(q as any)?.id ?? '#' + i}`;
     if ('error' in r) { report(`${label} skipped: ${r.error}`); return; }
     if (seen.has(r.quest.id)) { report(`${label} skipped: duplicate id`); return; }
+    for (const w of r.warnings) report(`${label}: ${w}`);
     seen.add(r.quest.id); out.push(r.quest);
   });
   return out;

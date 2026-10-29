@@ -217,3 +217,118 @@ Ranked by what the player sees. The quest module did everything it could alone (
   RESPECT 3/11 next to WAVE 4/11 (shots/q3-park.png, shots/q3-alley.png). `park_pals` finishes on clearing the park.
 - One press finishes a typing page at once; holding stays x4 (asserted in the check).
 - Dialogue review sheet (`showSheet()`, src/quest/sheet.ts).
+
+## Round 4 (builder)
+
+Ranked by what the player and the critics see. "Done in src/quest (round 4)" at the end lists what the quest
+module fixed on its own.
+
+1. **player (BLOCKING, 4th request): Pom is invisible during every briefing.** Not one dialogue capture shows the
+   poodle. `respawn()` sets `invuln = 120`; `update()` returns early outside play/bonus, so in `'dialogue'` the
+   counter never drops and `render()` stays on the blink-off frame. src/player/index.ts render:
+   `const blink = g.state.scene !== 'dialogue' && this.invuln > 0 && Math.floor(this.invuln / 4) % 2 === 0;`
+   (or decrement `invuln` while the scene is `'dialogue'`). Galaga never hides the ship.
+2. **ui (BLOCKING, 3rd request): dock the comm box away from Pom.** The box covers y 296-360, exactly Pom's spawn
+   band (y=316). In `dialogueBox`: `const y = g.mods.quest?.dock?.(h + 3) === 'top' ? 4 : H - h - 1;`.
+   `dock()` returns `'top'` while Pom is in the band the box covers. Items 1 and 2 are both needed: either alone
+   still shows no poodle.
+3. **vite.config.ts / verify (4th request): the quest check never runs in CI.** `test.include` is
+   `['tests/**/*.test.ts']`, so `src/quest/quest.test.ts` is ignored (`npx vitest run src/quest`: "No test
+   files found"). One-line fix: `include: ['tests/**/*.test.ts', 'src/**/*.test.ts']`, or copy the file to
+   `tests/quest.test.ts` with `import { runQuestCheck } from '../src/quest/check';`. About 35 s. `npx tsx
+   src/quest/check.ts` passes on this branch (round 4 added staged-briefing input, the tool's skip loop,
+   deep-link seeding, HUD reveal timing, boss banter and field-level fallback cases).
+4. **content/quests.json `park_pals` (4th request):** still `count: 7`. Replace its `complete` with
+   `{ "on": "area:clear", "match": { "areaId": "park" } }`. The engine already behaves that way and prints a NOTE
+   until the content matches.
+5. **ui HUD quest panel (4th request): read `tracked()` and `goal()`.** src/ui/index.ts ~446:
+   ```ts
+   const Q = g.mods.quest;
+   const q = Q?.tracked ? Q.tracked() : g.content.quests.find(q => s.quests[q.id] === 'active');
+   ...
+   else { text(ctx, Q?.goal?.(q) || 'IN PROGRESS', x1 + 10, 128, C.dim); }
+   ```
+   Do NOT fall back to the `find()` when `tracked()` returns null: null is how the engine holds back a quest
+   whose NEW QUEST toast has not landed yet (critic R3-6; `revealed(id)` is also exposed). Deep links now seed
+   the route's quests (`seedRoute`, automatic), so docks/cafe/moon/factory links show LOST PUPS 0/6, BIG CAT
+   TAMER 5/10 etc. instead of NO ACTIVE QUEST.
+6. **content: boss banter, the engine path is ready** (critic R3-7). The engine now plays, when present:
+   `taunt-<bossId>` when the boss arrives (`boss:start`), and `defeat-<bossId>` as the first word of the
+   sector outro (before Biscuit's outro line, so it never cuts the boss explosion). Missing ids are silently
+   skipped. Voices already map to these names (Duchess/Madame regal, the rest meow). Suggested nodes for
+   content/dialogue.json (portraits exist for every breed):
+   ```json
+   { "id": "taunt-boss_whiskers", "speaker": "Sergeant Whiskers", "portrait": "portrait_tabby", "text": "This yard is Armada turf now, poodle. Ten-hut!" },
+   { "id": "defeat-boss_whiskers", "speaker": "Sergeant Whiskers", "portrait": "portrait_tabby", "text": "Retreat! Regroup! ...Is that a sunbeam?" },
+   { "id": "taunt-boss_tom", "speaker": "Tuxedo Tom", "portrait": "portrait_tuxedo", "text": "Black tie only, Captain. You are underdressed." },
+   { "id": "defeat-boss_tom", "speaker": "Tuxedo Tom", "portrait": "portrait_tuxedo", "text": "My cummerbund! You will pay for the dry cleaning." },
+   { "id": "taunt-boss_duchess", "speaker": "Duchess Fluffbottom", "portrait": "portrait_persian", "text": "A commoner. In MY park. How perfectly ghastly." },
+   { "id": "defeat-boss_duchess", "speaker": "Duchess Fluffbottom", "portrait": "portrait_persian", "text": "Fetch my groomer. And my fainting couch." },
+   { "id": "taunt-boss_sal", "speaker": "Big Sal", "portrait": "portrait_bengal", "text": "Nobody flies through my alley without paying the tuna tax." },
+   { "id": "defeat-boss_sal", "speaker": "Big Sal", "portrait": "portrait_bengal", "text": "Okay, okay. You got moxie, kid. Sal respects moxie." },
+   { "id": "taunt-boss_mau", "speaker": "Madame Mau", "portrait": "portrait_siamese", "text": "The rooftops belong to the night, darling. And the night is mine." },
+   { "id": "defeat-boss_mau", "speaker": "Madame Mau", "portrait": "portrait_siamese", "text": "Hmph. The moon will remember this, little poodle." },
+   { "id": "taunt-boss_patches", "speaker": "Barista Patches", "portrait": "portrait_calico", "text": "One extra-hot latte, coming right at your face!" },
+   { "id": "defeat-boss_patches", "speaker": "Barista Patches", "portrait": "portrait_calico", "text": "We are closed! CLOSED! ...Tip jar is by the door." },
+   { "id": "taunt-boss_mainsail", "speaker": "Captain Mainsail", "portrait": "portrait_mainecoon", "text": "Arr! This catch is mine, ye soggy little mop!" },
+   { "id": "defeat-boss_mainsail", "speaker": "Captain Mainsail", "portrait": "portrait_mainecoon", "text": "Abandon ship! Save the sardines first!" },
+   { "id": "taunt-boss_fold", "speaker": "Foreman Fold", "portrait": "portrait_scottishfold", "text": "Shift starts now. Every ball of yarn rolls for the Empress." },
+   { "id": "defeat-boss_fold", "speaker": "Foreman Fold", "portrait": "portrait_scottishfold", "text": "I am clocking out. Forever. Tell the union." },
+   { "id": "taunt-boss_ace", "speaker": "Ace Pilot Sphynx", "portrait": "portrait_sphynx", "text": "No fur, no drag, no mercy. Try to keep up, fluffball." },
+   { "id": "defeat-boss_ace", "speaker": "Ace Pilot Sphynx", "portrait": "portrait_sphynx", "text": "Mayday! Mayday! Somebody get me a sweater!" },
+   { "id": "taunt-boss_blue", "speaker": "Commodore Blue", "portrait": "portrait_russianblue", "text": "Welcome to the Litter Moon. Mind the craters. They are not craters." },
+   { "id": "defeat-boss_blue", "speaker": "Commodore Blue", "portrait": "portrait_russianblue", "text": "Tactical withdrawal. Very tactical. Extremely withdrawn." },
+   { "id": "taunt-boss_kingpin", "speaker": "The Catnip Kingpin", "portrait": "portrait_tabby", "text": "Whoa, duuude. Have you ever, like, really looked at a toy mouse?" },
+   { "id": "defeat-boss_kingpin", "speaker": "The Catnip Kingpin", "portrait": "portrait_tabby", "text": "Bummer, man. I am gonna go stare at a wall for a while." },
+   { "id": "taunt-boss_admiral", "speaker": "Admiral Floof", "portrait": "portrait_persian", "text": "Battle stations! And someone brush my tail, it is a mess." },
+   { "id": "defeat-boss_admiral", "speaker": "Admiral Floof", "portrait": "portrait_persian", "text": "The station is yours. The hairballs in the vents are a gift." },
+   { "id": "taunt-boss_empress", "speaker": "Empress Fluffington", "portrait": "portrait_empress", "text": "So the poodle finally comes to kneel. How adorable." },
+   { "id": "defeat-boss_empress", "speaker": "Empress Fluffington", "portrait": "portrait_empress", "text": "Fine. FINE. Take your silly pups. I wanted a nap anyway." }
+   ```
+   `npx tsx src/quest/check.ts` covers the taunt on `boss:start` and the defeat line opening the outro (with
+   the outro callback kept).
+7. **'Night Owl' and time of day** (critic R3-10): no change needed in quests. content/areas.json already sets
+   rooftops `"tod": "night"` and `enterArea` applies it, so in play the quest always runs at night; the critic's
+   'DAY' capture came from the tool's `--tod=day` override. (The navy palette at an overridden 'DAY'/'DAWN' is
+   a world bug, already forwarded.) Conditions have no time-of-day key, so a `when` gate is not possible anyway.
+8. **content: outro-sky-1 says "Ace is out of the fight."** The player never met Ace by name. Change to
+   "The Sky Ace is out of the fight." (with item 6, Ace introduces itself with the taunt).
+9. **showcase (3rd request): `?showcase=dialogue` should reach the typewriter and the review sheet.** Replace the
+   `case 'quest': case 'dialogue':` line in src/showcase/index.ts with:
+   ```ts
+   case 'quest': case 'dialogue': W_.enterArea(area, 0); W_.titleCard = 0; quiet();
+     if (p.get('sheet')) g.mods.quest.showSheet();
+     else { const at = p.get('at') ?? p.get('advance'); g.mods.quest.stage(p.get('node') ?? W_.area(area).intro ?? 'intro-backyard-1', at === null ? undefined : +at); }
+     break;
+   ```
+   and `if (g.mods.quest?.overlay) ...` is already called by the renderer. `--at=30` shows typing with the cursor,
+   `--at=60` a punctuation beat, `--sheet=1` the 5-state review sheet (the screenshot tool must forward `sheet`:
+   add it to the param list at tools/screenshot.mjs:22).
+10. **tools/screenshot.mjs `--skipDialogue`**: works again on this branch with no tool change (see Done). The
+    one-liner `g.mods.quest?.skipAll?.();` before the loop is still the clearer fix.
+11. **ui: 'TAP OR PRESS A KEY FOR SOUND'** (repeat): show it on the title screen or in the side panel, or wait
+    until `!g.mods.quest?.briefingPending?.() && !g.mods.world.titleCard`.
+12. **ui pause menu (optional):** `pauseItems()` and the 'BRIEFING ON HOLD' line already work for a staged
+    briefing (reading `quest.dlg` promotes it). If ui ever stops reading `dlg` before pausing, use
+    `g.mods.quest.briefingPending()` instead.
+13. **ARCHITECTURE.md quest section:** `dlg` read outside the frame painter promotes a briefing waiting on the
+    title card; staged briefings answer confirm/fire/tap (open now, card cut) and back (skip); new API
+    `briefingPending()`, `revealed(id)`, `seedRoute(areaId)` (runs automatically on a deep-link
+    `area:enter`: nothing cleared and not the start sector), `routeTo(areaId)`, `hasNode(id)`; boss banter ids
+    `taunt-<bossId>` / `defeat-<bossId>`; quest validation falls back field by field (only unusable start /
+    complete triggers skip an entry).
+
+### Done in src/quest (round 4)
+- `--skipDialogue` captures gameplay again (critic R3-1): the `dlg` getter promotes a staged briefing for any
+  caller except the frame painter (render-phase flag), so the tool's `advance()` loop and ui's skip loop close
+  it. `--area=docks --skipDialogue --advance=600` gives scene=play, Flight Time 00:11 (shots/q4-docks.png).
+  No production code reads the URL.
+- Staged briefing input (critic R3-2): Enter / Space / tap opens the briefing at once and cuts the title card
+  (shots/q4-enter-staged.png), X / gamepad B skips it, Esc pauses with SKIP BRIEFING and BRIEFING ON HOLD
+  (shots/q4-pause-staged.png).
+- Deep links seed the route (critic R3-5): `seedRoute(areaId)` starts or finishes the quests the shortest flight
+  would have (quietly: no toasts, no score). Docks shows LOST PUPS 0/6.
+- `tracked()` hides a quest until its NEW QUEST toast is shown (critic R3-6), `revealed(id)` exposed.
+- Field-level quest validation (critic R3-9): `reward.score: 'abc'` becomes 0, bad item counts and flags are
+  dropped one by one, a bad count becomes 1, bad expire/track/dialogue fields are dropped; each is reported.
+- Boss banter hooks (critic R3-7) waiting on content item 6.

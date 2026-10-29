@@ -117,6 +117,7 @@ const bad: any[] = [
   { id: 'bad_count', name: 'x', desc: 'x', start: { on: 'area:enter' }, complete: { on: 'cat:boop', count: -3 }, reward: {} },
   { id: 'bad_cond', name: 'x', desc: 'x', start: { on: 'area:enter', when: { banana: 1 } }, complete: { on: 'cat:boop' }, reward: {} },
   { id: 'bad_reward', name: 'x', desc: 'x', start: { on: 'area:enter' }, complete: { on: 'cat:boop' }, reward: { items: { treat: 'lots' } } },
+  { id: 'bad_score', name: 'x', desc: 'x', start: { on: 'area:enter' }, complete: { on: 'cat:boop' }, reward: { score: 'abc', items: { treat: -2, bone: 2 }, flags: ['ok', 7] } },
   { id: 'bad_match', name: 'x', desc: 'x', start: { on: 'area:enter', match: { areaId: { deep: 1 } } }, complete: { on: 'cat:boop' }, reward: {} },
 ];
 const good = { id: 'probe', name: 'Probe', desc: 'probe', start: { on: 'probe:go', match: { n: 1 } }, complete: { on: 'probe:hit', count: 3 }, reward: { score: 7, flags: ['probed'] } };
@@ -125,14 +126,20 @@ const good = { id: 'probe', name: 'Probe', desc: 'probe', start: { on: 'probe:go
   try { g = createGame({ headless: true, content: { ...RAW, quests: [...bad, good, { ...good }] } }); } catch (e) { problems.push('createGame threw on malformed quests: ' + e); }
   if (g) {
     const Q = g.mods.quest;
-    ok(Q.quests().length === 1, `malformed quests: expected 1 valid quest, got ${Q.quests().length}`);
+    // only unusable triggers skip an entry; bad counts and reward fields fall back field by field (and are reported)
+    const kept = Q.quests().map((q: any) => q.id).sort().join(',');
+    ok(kept === 'bad_count,bad_reward,bad_score,probe', `malformed quests: expected bad_count,bad_reward,bad_score,probe kept, got ${kept}`);
+    const qd = (id: string) => Q.quests().find((q: any) => q.id === id);
+    ok(qd('bad_count')?.complete.count === 1, 'bad count did not fall back to 1');
+    ok(qd('bad_score')?.reward.score === 0 && JSON.stringify(qd('bad_score')?.reward.items) === '{"bone":2}' && qd('bad_score')?.reward.flags.join() === 'ok', `bad reward fields not dropped one by one: ${JSON.stringify(qd('bad_score')?.reward)}`);
+    ok(JSON.stringify(qd('bad_reward')?.reward.items) === '{}', 'bad reward item count not dropped');
     // content problems go to the quiet channel (contentIssues), never to g.errors (= the crash toast)
     ok(!g.errors.some((e: any) => e.module === 'quest'), 'malformed quests reported through g.errors (shows the crash toast)');
     ok(!g.mods.ui.toasts.some((t: any) => /KNOCKED OVER/i.test(t.text)), 'malformed quests raised the crash toast');
     const qerr = g.contentIssues.filter((e: any) => /^\[quest\]/.test(e.msg)).map((e: any) => ({ message: e.msg }));
     ok(qerr.length >= 5, `malformed quests: expected each bad entry reported, got ${qerr.length}`);
     // loader drops the non-objects itself; the rest must be reported by us
-    for (const id of ['no_triggers', 'bad_count', 'bad_cond', 'bad_reward', 'bad_match']) ok(qerr.some((e: any) => e.message.includes(id)), `malformed quest ${id} not reported`);
+    for (const id of ['no_triggers', 'bad_count', 'bad_cond', 'bad_reward', 'bad_score', 'bad_match']) ok(qerr.some((e: any) => e.message.includes(id)), `malformed quest ${id} not reported`);
     g.bus.emit('probe:go', { n: 2 }); ok(g.state.quests.probe === undefined, 'match filter ignored');
     g.bus.emit('probe:go', { n: '1' }); ok(g.state.quests.probe === 'active', 'match filter (numeric string) failed to start quest');
     g.bus.emit('probe:hit', {}); g.bus.emit('probe:hit', {});
@@ -216,9 +223,9 @@ for (const d of content.dialogue) for (const p of paginate(d.text)) ok(revealLin
   W.enterArea(content.start, 0);
   const intro = W.area(content.start)?.intro;
   if (intro) {
-    ok(g.state.scene === 'dialogue' && !Q.dlg && Q.dlgEngine.staged, 'briefing did not wait for the sector title card');
-    let n = 0; while (!Q.dlg && n++ < 400) g.step();
-    ok(Q.dlg && W.titleCard <= 8, `briefing opened while the title card still had ${W.titleCard} ticks`);
+    ok(g.state.scene === 'dialogue' && !Q.dlgEngine.dlg && Q.dlgEngine.staged, 'briefing did not wait for the sector title card');
+    let n = 0; while (!Q.dlgEngine.dlg && n++ < 400) g.step();
+    ok(Q.dlgEngine.dlg && W.titleCard <= 8, `briefing opened while the title card still had ${W.titleCard} ticks`);
     ok(!UI.toasts.some((t: any) => /NEW QUEST/.test(t.text)) && Q.heldToasts().some((t: string) => /NEW QUEST/.test(t)), 'NEW QUEST toast shown on top of the briefing');
     // the closing press is held: fire stays down, the scene does not return to play until it is released
     for (let i = 0; i < 20; i++) g.step();
@@ -234,11 +241,70 @@ for (const d of content.dialogue) for (const p of paginate(d.text)) ok(revealLin
     for (let i = 0; i < 200; i++) g.step();
     ok(UI.toasts.some((t: any) => /NEW QUEST/.test(t.text)) || !Q.heldToasts().length, 'held NEW QUEST toast never released after the briefing');
   }
+  // the staged briefing (waiting on the title card) answers every input
+  {
+    const mk = () => { const g6: any = createGame({ headless: true }); g6.autopilot = false; g6.mods.world.enterArea('park', 0); return g6; };
+    const press = (g6: any, a: string) => { g6.input.synthetic.add(a); g6.step(); g6.input.synthetic.clear(); g6.step(); };
+    let g6 = mk(); ok(g6.mods.quest.dlgEngine.staged, 'park briefing not staged behind the title card');
+    press(g6, 'confirm'); ok(g6.mods.quest.dlgEngine.dlg && !g6.mods.quest.dlgEngine.staged && g6.mods.world.titleCard <= 8, 'confirm during the title card did not open the briefing');
+    g6 = mk(); press(g6, 'fire'); ok(g6.mods.quest.dlgEngine.dlg, 'fire / tap during the title card did not open the briefing');
+    g6 = mk(); press(g6, 'back'); ok(g6.state.scene === 'play' && !g6.mods.quest.briefingPending(), 'back during the title card did not skip the briefing');
+    g6 = mk(); press(g6, 'pause');
+    ok(g6.mods.ui.menuOpen === 'pause' && g6.mods.ui.heldDlg && g6.mods.ui.pauseItems().includes('SKIP BRIEFING'), 'pause during the title card: no BRIEFING ON HOLD / SKIP BRIEFING');
+    g6.mods.ui.closeMenus(false); ok(g6.mods.quest.dlgEngine.dlg, 'briefing lost after pausing during the title card');
+    // tools/screenshot.mjs --skipDialogue: `while (scene === 'dialogue' && quest.dlg) advance()` must skip a staged briefing
+    g6 = mk(); const Qs = g6.mods.quest;
+    for (let k = 0; k < 60 && g6.state.scene === 'dialogue' && Qs.dlg; k++) Qs.advance();
+    ok(g6.state.scene === 'play' && !Qs.briefingPending(), 'tool skip loop left the staged briefing open');
+    // ui's skip loop does the same
+    g6 = mk(); g6.mods.ui.skipDialogue(g6); ok(g6.state.scene === 'play' && !g6.mods.quest.briefingPending(), 'ui skipDialogue left the staged briefing open');
+  }
+  // deep links seed the quest log a pilot would have on the shortest route
+  {
+    const g7: any = createGame({ headless: true }); g7.autopilot = false; const Q7 = g7.mods.quest;
+    g7.mods.world.enterArea('docks', 0); Q7.skipAll();
+    const route = Q7.routeTo('docks'); ok(route[0] === content.start && route[route.length - 1] === 'docks', `routeTo(docks) = ${route.join('>')}`);
+    for (const q of Q7.quests()) {
+      const certain = ['area:enter', 'wave:clear', 'boss:start', 'boss:defeat', 'area:clear'].includes(q.start.on) && (!q.start.match?.areaId || route.slice(0, -1).includes(q.start.match.areaId));
+      if (certain && !q.start.match?.areaId && q.start.on === 'area:enter') continue;
+      if (certain) ok(g7.state.quests[q.id] === 'active' || g7.state.quests[q.id] === 'done', `deep link to docks: quest ${q.id} (starts on ${q.start.on}) not seeded`);
+    }
+    ok(Q7.tracked(), 'deep link to docks: HUD has no quest to track');
+    ok(!g7.errors.length, 'seedRoute raised errors: ' + g7.errors.map((e: any) => e.message).join('; '));
+  }
+  // the HUD does not spoil a NEW QUEST toast that is still held behind the briefing
+  {
+    const g8: any = createGame({ headless: true }); g8.autopilot = false; const Q8 = g8.mods.quest;
+    g8.mods.world.enterArea('alley', 0);
+    const pend = Q8.quests().find((q: any) => g8.state.quests[q.id] === 'active' && !Q8.revealed(q.id));
+    if (pend) {
+      ok(Q8.tracked()?.id !== pend.id, `tracked() shows ${pend.id} before its NEW QUEST toast`);
+      Q8.skipAll(); for (let i = 0; i < 400 && !Q8.revealed(pend.id); i++) g8.step();
+      ok(Q8.revealed(pend.id) && Q8.tracked()?.id === pend.id, `tracked() never switched to ${pend.id} after its toast`);
+    }
+  }
+  // boss banter: optional taunt-<bossId> on arrival, defeat-<bossId> opens the outro
+  {
+    const extra = [
+      { id: 'taunt-boss_whiskers', speaker: 'Sergeant Whiskers', portrait: 'cat_tabby', text: 'Probe taunt.' },
+      { id: 'defeat-boss_whiskers', speaker: 'Sergeant Whiskers', portrait: 'cat_tabby', text: 'Probe defeat.' },
+    ];
+    const g9: any = createGame({ headless: true, content: { ...RAW, dialogue: [...(RAW.dialogue as any[]), ...extra] } }); g9.autopilot = false; const Q9 = g9.mods.quest;
+    g9.mods.world.enterArea('backyard', 1); Q9.skipAll(); g9.mods.world.titleCard = 0;
+    g9.bus.emit('boss:start', { bossId: 'boss_whiskers' }); ok(Q9.dlg?.node.id === 'taunt-boss_whiskers', 'boss taunt not played on boss:start');
+    Q9.skipAll(); let fin = 0;
+    const outro = W.area('backyard')?.outro;
+    if (outro) {
+      Q9.dialogue(outro, () => fin++); ok(Q9.dlg?.node.id === 'defeat-boss_whiskers', 'boss defeat line does not open the outro');
+      Q9.advance(); Q9.advance(); ok(Q9.dlg?.node.id === outro, 'outro did not follow the boss defeat line');
+      Q9.skipAll(); ok(fin === 1 && !Q9.briefingPending(), 'outro callback lost after the boss defeat line');
+    }
+  }
   // tracked(): the sector's own quest wins over long-running ones; goal() gives a readable line
   const ids = content.quests.map(q => q.id);
   if (ids.includes('night_owl') && ids.includes('boop_brigade')) {
     const g2: any = createGame({ headless: true }); g2.autopilot = true;
-    g2.mods.world.enterArea('rooftops', 0); g2.mods.quest.skipAll();
+    g2.mods.world.enterArea('rooftops', 0); g2.mods.quest.skipAll(); g2.mods.world.titleCard = 0; for (let i = 0; i < 3; i++) g2.step();
     g2.mods.quest.start('boop_brigade');
     ok(g2.mods.quest.tracked()?.id === 'night_owl', `tracked() in rooftops is ${g2.mods.quest.tracked()?.id}, not night_owl`);
     ok(g2.mods.quest.goal({ id: 'night_owl' }) === 'CLEAR ROOFTOPS', `goal(night_owl) = ${g2.mods.quest.goal({ id: 'night_owl' })}`);

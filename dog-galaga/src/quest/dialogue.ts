@@ -166,8 +166,17 @@ export class DialogueEngine {
     this.g.bus.emit('dialogue:open', { nodeId: node.id });
   }
 
-  /** Promote a staged briefing now (title card done, a skip, or a forced open). */
-  private unstage() {
+  /** The reader asked to go on: shorten the sector title card to its last fade-out frames. */
+  private cutCard() {
+    const W = this.g.mods.world; if (!W || !Number.isFinite(Number(W.titleCard))) return;
+    if (W.titleCard > CARD_GATE) W.titleCard = CARD_GATE;
+  }
+
+  /** A briefing is waiting behind the sector title card. */
+  isStaged() { return !!this.staged; }
+
+  /** Promote a staged briefing now (title card done, a skip, a press, a pause, or any caller asking for `dlg`). */
+  unstage() {
     const s = this.staged; if (!s) return;
     this.staged = null; this.show(s.node, s.prev, s.done);
   }
@@ -248,6 +257,12 @@ export class DialogueEngine {
       return;
     }
     if (this.staged) {
+      // the reader is in charge even while the sector card plays: back skips the whole briefing, confirm / fire /
+      // a playfield tap ("got it") drops the card and opens the briefing now. Pause is ui's: reading `quest.dlg`
+      // promotes the staged briefing, so the pause menu parks it ('BRIEFING ON HOLD', SKIP BRIEFING).
+      const I = g.input;
+      if (!g.autopilot && I?.pressed('back')) { this.skipAll(); return; }
+      if (!g.autopilot && (I?.pressed('confirm') || I?.pressed('fire'))) { this.cutCard(); this.unstage(); return; }
       if (g.autopilot || this.card() <= CARD_GATE || ++this.staged.t > CARD_MAX) this.unstage();
       return;
     }

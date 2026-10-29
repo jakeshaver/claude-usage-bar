@@ -34,7 +34,9 @@ class Quest implements Module {
   /** quest dialogues waiting for a scene that can host them (not bonus/title/ending) */
   private deferred: string[] = [];
   /** quest toasts held until nothing else is being read (no dialogue, no sector title card) */
-  private toastQ: string[] = [];
+  private toastQ: { t: string; reveal?: string }[] = [];
+  /** quests started whose NEW QUEST toast has not been shown yet: the HUD keeps them hidden until it lands */
+  private unrevealed = new Set<string>();
   private toastT = 0;
   /** tick each quest was last started or reached a milestone (drives tracked()) */
   private touched: Record<string, number> = {};
@@ -49,7 +51,11 @@ class Quest implements Module {
     this.quests();
     g.bus.on('*', (p: any) => this.onEvent(p.evt, p));
     g.bus.on('scene:change', (p: any) => { this.dlgEngine.onSceneChange(p.from, p.to); this.flushDeferred(); });
-    g.bus.on('game:new', () => { this.dlgEngine.reset(); this.deferred = []; this.toastQ = []; this.touched = {}; this.check(); });
+    g.bus.on('game:new', () => { this.dlgEngine.reset(); this.deferred = []; this.toastQ = []; this.unrevealed.clear(); this.touched = {}; this.check(); });
+    // deep links (tools, showcases, tests) land mid-route: start the quests the skipped sectors would have started
+    g.bus.on('area:enter', (p: any) => { try { if (this.isDeepLink(p?.areaId)) this.seedRoute(p.areaId); } catch (e) { g.reportError('quest', e); } });
+    // boss banter: optional content nodes taunt-<bossId> (boss arrives) and defeat-<bossId> (opens the outro)
+    g.bus.on('boss:start', (p: any) => { const id = `taunt-${p?.bossId}`; if (p?.bossId && this.hasNode(id)) this.dialogue(id); });
     g.bus.on('state:set', () => this.check());
   }
 
@@ -80,11 +86,41 @@ class Quest implements Module {
   }
 
   // ---------------- dialogue (ui reads `dlg`; ui's pause menu parks it by setting dlg = null and back) ----------------
-  get dlg(): DlgState | null { return this.dlgEngine?.dlg ?? null; }
-  set dlg(v: DlgState | null) { if (this.dlgEngine) this.dlgEngine.dlg = v; }
+  /**
+   * The open conversation. A briefing that is still waiting behind the sector title card is invisible to the
+   * frame painter (nothing is drawn over the card), but any other caller asking for `dlg` (ui's skip key and
+   * pause menu, tools that advance or skip, tests) wants to act on it, so the read promotes it at once.
+   */
+  get dlg(): DlgState | null {
+    const E = this.dlgEngine; if (!E) return null;
+    if (!E.dlg && E.isStaged() && !this.painting) E.unstage();
+    return E.dlg ?? null;
+  }
+  set dlg(v: DlgState | null) { if (!this.dlgEngine) return; if (!v) this.dlgEngine.staged = null; this.dlgEngine.dlg = v; }
+  /** True while the renderer is drawing a frame (set by render(), cleared once the frame's task is over). */
+  private painting = false;
+  render() {
+    if (this.painting) return;
+    this.painting = true;
+    const clear = () => { this.painting = false; };
+    if (typeof queueMicrotask === 'function') queueMicrotask(clear); else Promise.resolve().then(clear);
+  }
+  /** A briefing is open, waiting on the title card, or parked by the pause menu (ui: pause items / hints). */
+  briefingPending() { return this.dlgEngine.busy(); }
 
   /** Open a dialogue chain. Pauses play; `done` runs after the last node closes. Missing ids show a friendly fallback. */
-  dialogue(nodeId: string, done?: () => void) { this.dlgEngine.open(nodeId, done); }
+  dialogue(nodeId: string, done?: () => void) {
+    // the sector boss gets the first word of the outro when content gives it one (defeat-<bossId>)
+    const a = this.g.content.areas?.find?.(x => x?.id === this.g.state.areaId);
+    const line = a?.boss ? `defeat-${a.boss}` : '';
+    if (a && nodeId === a.outro && line && this.hasNode(line)) {
+      this.dlgEngine.open(line, () => this.dlgEngine.open(nodeId, done, true));
+      return;
+    }
+    this.dlgEngine.open(nodeId, done);
+  }
+  /** Does content have a dialogue node with this id (no issue reported when it does not)? */
+  hasNode(id: string) { const d = this.g.content.dialogue; return Array.isArray(d) && d.some(n => n && n.id === id); }
   advance() { this.dlgEngine.advance(); }
   /** Fast-forward the whole open conversation. */
   skipAll() { this.dlgEngine.skipAll(); }
@@ -116,7 +152,7 @@ class Quest implements Module {
   }
 
   // ---------------- toasts (one thing to read at a time) ----------------
-  private say(t: string) { this.toastQ.push(t); this.flushToasts(); }
+  private say(t: string, reveal?: string) { this.toastQ.push({ t, reveal }); this.flushToasts(); }
   /** Release held quest toasts one by one once no conversation or sector title card is on screen. */
   private flushToasts() {
     if (!this.toastQ.length || this.g.paused) return;
@@ -126,10 +162,13 @@ class Quest implements Module {
     if (sc === 'play' && Number(g.mods.world?.titleCard ?? 0) > 0) return;
     if (g.tick - this.toastT < TOAST_GAP && !g.headless) return;
     this.toastT = g.tick;
-    const t = this.toastQ.shift()!; g.mods.ui?.toast(t);
+    const t = this.toastQ.shift()!; g.mods.ui?.toast(t.t);
+    if (t.reveal) { this.unrevealed.delete(t.reveal); this.touched[t.reveal] = g.tick + 0.5; }
   }
   /** Quest toasts not shown yet (tests). */
-  heldToasts() { return [...this.toastQ]; }
+  heldToasts() { return this.toastQ.map(x => x.t); }
+  /** False while a just-started quest's NEW QUEST toast is still held (the HUD should not spoil it). */
+  revealed(id: string) { return !this.unrevealed.has(id); }
 
   // ---------------- quests ----------------
   private matches(t: NQuest['start'], evt: string, p: any) {
@@ -172,7 +211,8 @@ class Quest implements Module {
   private begin(q: NQuest) {
     this.g.ops.setQuest(q.id, 'active');
     this.touched[q.id] = this.g.tick + 0.5;
-    this.say('NEW QUEST: ' + q.name.toUpperCase());
+    this.unrevealed.add(q.id);
+    this.say('NEW QUEST: ' + q.name.toUpperCase(), q.id);
     if (q.dialogue) { this.deferred.push(q.dialogue); this.flushDeferred(); }
   }
 
@@ -248,7 +288,7 @@ class Quest implements Module {
   tracked(): NQuest | null {
     const s = this.g.state; let best: NQuest | null = null; let bestScore = -Infinity;
     this.quests().forEach((q, i) => {
-      if (this.st(q.id) !== 'active' || this.missed(q.id)) return;
+      if (this.st(q.id) !== 'active' || this.missed(q.id) || this.unrevealed.has(q.id)) return;
       const here = q.complete.match?.areaId === s.areaId || q.start.match?.areaId === s.areaId;
       const score = (here ? 1e12 : 0) + (this.touched[q.id] ?? -1) * 1000 - i;
       if (score > bestScore) { bestScore = score; best = q; }
@@ -288,6 +328,65 @@ class Quest implements Module {
       default: s = need > 1 ? `${have}/${need}` : 'KEEP FLYING';
     }
     return s.length > max ? s.slice(0, max) : s;
+  }
+
+  /**
+   * Was this area entered through a deep link (tool, showcase, test) rather than flown to? Normal play reaches a
+   * later sector only after clearing the ones before it, so nothing cleared and not the start sector means a jump.
+   */
+  private isDeepLink(areaId: unknown) {
+    const s = this.g.state; const c = this.g.content;
+    return typeof areaId === 'string' && areaId !== c.start && (!Array.isArray(s.areasCleared) || s.areasCleared.length === 0) && !this.g.autopilot;
+  }
+
+  /** Shortest flight from the start sector to `areaId` through the sector graph (exits), start first. */
+  routeTo(areaId: string): string[] {
+    const areas = Array.isArray(this.g.content.areas) ? this.g.content.areas : [];
+    const start = this.g.content.start; if (!areas.some(a => a?.id === areaId)) return [];
+    const prev: Record<string, string | null> = { [start]: null }; const q = [start];
+    while (q.length) {
+      const id = q.shift()!; if (id === areaId) break;
+      const a = areas.find(x => x?.id === id);
+      for (const e of Array.isArray(a?.exits) ? a!.exits : []) if (e?.to && !(e.to in prev)) { prev[e.to] = id; q.push(e.to); }
+    }
+    if (!(areaId in prev)) return [];
+    const out: string[] = []; for (let id: string | null = areaId; id; id = prev[id]) out.unshift(id);
+    return out;
+  }
+
+  /**
+   * Deep-link helper: put the quest log where a pilot flying the shortest route to `areaId` would have it.
+   * Events every such flight is certain to produce in the sectors before it (enter, each wave cleared, the boss
+   * arriving and booped, sector clear) start the quests they would have started, and finish the one-shot quests
+   * they would have finished; counted quests get the certain part of their count. Quests that hang on luck
+   * (memories, pups, a perfect bonus) are left alone. Quiet: no toasts, no rewards, no dialogue. Returns the ids
+   * it started (finished ones included).
+   */
+  seedRoute(areaId: string): string[] {
+    const route = this.routeTo(areaId); if (route.length < 2) return [];
+    const areas = this.g.content.areas;
+    const evts: { evt: string; p: any }[] = [{ evt: 'game:new', p: {} }];
+    for (const id of route.slice(0, -1)) {
+      const a = areas.find(x => x.id === id); if (!a) continue;
+      evts.push({ evt: 'area:enter', p: { areaId: id, waveIndex: 0 } });
+      (Array.isArray(a.waves) ? a.waves : []).forEach((_w, i) => evts.push({ evt: 'wave:clear', p: { areaId: id, waveIndex: i } }));
+      if (a.boss) { evts.push({ evt: 'boss:start', p: { bossId: a.boss } }); evts.push({ evt: 'boss:defeat', p: { bossId: a.boss } }); }
+      evts.push({ evt: 'area:clear', p: { areaId: id } });
+    }
+    const s = this.g.state; const seeded: string[] = [];
+    const hit = (t: NQuest['start'], e: { evt: string; p: any }) => t.on === e.evt && matchPayload(t.match, e.p);
+    for (const q of this.quests()) {
+      if (this.st(q.id) !== 'locked') continue;
+      const i0 = evts.findIndex(e => hit(q.start, e)); if (i0 < 0) continue;
+      if (q.expire.some(t => evts.slice(i0).some(e => hit(t, e)))) continue;
+      const n = evts.slice(i0).filter(e => hit(q.complete, e)).length;
+      seeded.push(q.id); this.touched[q.id] = this.g.tick - 1;
+      if (n >= q.complete.count && !q.track) {
+        s.inventory[PKEY(q.id)] = q.complete.count; this.g.ops.setQuest(q.id, 'done');
+        for (const f of q.reward.flags) this.g.ops.setFlag(f);
+      } else { if (n > 0) s.inventory[PKEY(q.id)] = n; this.g.ops.setQuest(q.id, 'active'); }
+    }
+    return seeded;
   }
 
   /** Finish a quest and pay its reward (idempotent). */
