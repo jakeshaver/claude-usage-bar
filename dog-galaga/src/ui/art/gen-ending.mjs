@@ -199,18 +199,109 @@ function pupFly(f) {
   return g;
 }
 
-// ---------------- the Empress's hedgehog in a party hat, 12x10 ----------------
-function hedgehog() {
-  const W = 12, H = 10, g = new Grid(W, H);
-  const b = new Grid(W, H).ellipse(5.5, 7, 4.6, 2.8, 'a'); b.relight('a', { hi: '9', lo: 'b' });
-  for (let x = 2; x <= 9; x += 2) b.px(x, 5, 'b'); b.outline('0'); g.over(b);
-  const f = new Grid(W, H).poly([[8, 6], [11.5, 7.5], [8, 9.5]], '8'); f.outline('0'); g.over(f);
-  g.px(11, 7, '0'); g.px(9, 7, '0');
-  const hat = new Grid(W, H).poly([[3, 4.5], [7, 4.5], [5, 0.5]], 'l'); hat.px(5, 3, 'c'); hat.px(4, 4, 'f'); hat.outline('0'); g.over(hat);
+// ---------------- the Empress's hedgehog (side view, facing right), 16x14, 2 frames (sniff) ----------------
+// A readable hedgehog silhouette at 2x: a saw-toothed crown of spines, a pale pointed snout, little feet, party hat.
+function hedgehog(f, hat = true) {
+  const W = 18, H = 14, g = new Grid(W, H);
+  // spiny back: a dome of dark quills with spikes fanning out from the body (alternating long / short, lit tips), so
+  // the silhouette is saw-toothed at 1x and 2x
+  // quills: a dome whose top edge is a back-leaning saw (period 3), lit tips, darker shafts raked toward the tail
+  const sp = new Grid(W, H);
+  for (let x = 0; x <= 12; x++) {
+    const dome = 9.5 - Math.sqrt(Math.max(0, 1 - ((x - 6.5) / 6.8) ** 2)) * 5.2;
+    const top = Math.round(dome - [2.6, 1.3, 0][x % 3]);
+    for (let y = Math.max(0, top); y <= 12; y++) {
+      if (x < y - 10 || (x === 0 && y % 3 !== 1)) continue; // rounded rump, quill tips along the back edge too
+      const d = y - top; sp.px(x, y, d === 0 ? '9' : d === 1 && x % 3 === 0 ? '9' : (x + y) % 3 === 0 && d < 5 ? 'a' : 'b');
+    }
+  }
+  sp.outline('0'); g.over(sp);
+  // pale face + pointed snout tipped with a black nose; eye, blush, two feet
+  const sn = new Grid(W, H).poly([[10, 7.4], [17.6, 10 - f * 0.5], [16.4, 11.6], [10, 13]], '8'); sn.relight('8', { hi: '7', lo: '9' }); sn.outline('0'); g.over(sn);
+  g.px(17, 10 - f, '0'); g.px(12, 9, '0'); g.px(13, 11, 'c');
+  g.rect(5, 13, 2, 1, '0'); g.rect(10, 13, 2, 1, '0');
+  if (hat) { const ht = new Grid(W, H).poly([[8.6, 5.6], [12.6, 5.6], [10.6, 0.6]], 'l'); ht.px(10, 4, 'c'); ht.px(11, 5, 'f'); ht.px(9, 5, 'c'); ht.outline('0'); g.over(ht); g.px(10, 0, 'f'); }
   return g;
 }
 
-const defs = { end_pom_fly: [pomFly(0), pomFly(1)], end_pom_sit: [pomSit(0), pomSit(1)], end_pup_sit: [pupSit(0), pupSit(1)], end_pup_fly: [pupFly(0), pupFly(1)], end_hedgehog: hedgehog() };
+// ---------------- Empress Fluffington sitting (side view, facing right), 32x36, 2 frames (tail flick + blink) -------
+// A white Persian in her purple cape and gold crown: same part() rim light as Pom, but warm cream shading (never Pom's
+// cool lavender), a huge flat-faced head and a plume tail wrapped round her paws.
+function empressSit(f) {
+  const W = 32, H = 36, g = new Grid(W, H); const add = (p) => g.over(p);
+  const COAT = { hi: '6', mid: '6', lo: '7', lo2: '8' };
+  // plume tail curled forward along the ground (flicks its tip)
+  add(part(W, H, puff(10, 32.4, 8.4, 3, 10, 0.5, 0.2), COAT));
+  add(part(W, H, puff(19.5, 31.6 - f, 3.4, 2.6, 6, 0.5), COAT));
+  // haunch
+  add(part(W, H, puff(11.5, 24.5, 7.6, 7.4, 11, 0.6, 0.4), COAT));
+  // cape over the back: purple with a gold hem
+  const cp = part(W, H, polyIn([[12, 12.5], [21, 13.5], [15, 29], [3.5, 29], [4.5, 21]]), { hi: 't', mid: 'u', lo: '2', lo2: '1' });
+  for (let x = 3; x <= 16; x++) for (let y = 26; y <= 29; y++) if (cp.g[y][x] !== '.' && cp.g[y][x] !== '0' && (cp.g[y + 1]?.[x] === '0' || cp.g[y + 1]?.[x] === '.')) cp.g[y][x] = 'f';
+  add(cp);
+  // front legs + paws
+  add(part(W, H, polyIn([[19.6, 23], [23.8, 23], [23.8, 32], [19.6, 32]]), COAT));
+  add(part(W, H, puff(22.2, 32.6, 3.2, 1.9, 6, 0.3), COAT));
+  // chest ruff
+  add(part(W, H, puff(21, 20.5, 5, 6, 10, 0.7, 0.3), COAT));
+  // head: big round Persian head, ear, flat face
+  add(part(W, H, puff(21.6, 11.6, 6.4, 5.6, 12, 0.6, 0.2), COAT));
+  const ear = part(W, H, polyIn([[16, 8.5], [17.2, 3.4], [21.4, 6.8]]), COAT); ear.px(18, 6, 'c'); ear.px(18, 7, 'c'); add(ear);
+  // crown: gold band with three points and a red jewel
+  const cr = new Grid(W, H);
+  cr.rect(18, 4, 7, 2, 'f'); cr.rect(18, 5, 7, 1, 'g');
+  for (const x of [18, 21, 24]) { cr.px(x, 3, 'f'); cr.px(x, 2, 'f'); } cr.px(21, 1, 'f'); cr.px(21, 4, 'r');
+  cr.outline('0'); add(cr);
+  g.outline('0');
+  // face: violet eye (blinks), pink nose, a small satisfied mouth, whisker dots
+  if (f) { g.px(24, 11, '0'); g.px(25, 11, '0'); } else { g.rect(24, 10, 2, 2, 't'); g.px(25, 11, '0'); g.px(24, 10, '6'); }
+  g.rect(27, 12, 2, 1, 'c'); g.px(28, 13, '0'); g.px(27, 14, '0');
+  g.px(26, 14, '8'); g.px(25, 13, '8');
+  return g;
+}
+
+// ---------------- Commander Biscuit sitting (side view, facing right), 32x34, 2 frames (radio blink) -------------
+// The bulldog in his navy coat with gold epaulettes and a radio headset, holding a flashlight up and ahead (the beam is
+// drawn by ui from the lens at the top right).
+function biscuitSit(f) {
+  const W = 32, H = 34, g = new Grid(W, H); const add = (p) => g.over(p);
+  const BR = { hi: '9', mid: 'a', lo: 'b', lo2: 'b' }, WH = { hi: '6', mid: '7', lo: '8', lo2: '8' }, NAVY = { hi: 'm', mid: 'n', lo: '2', lo2: '1' };
+  // stubby tail, brown haunch
+  add(part(W, H, polyIn([[3, 27], [6, 26], [6, 28.6], [3, 29]]), BR));
+  add(part(W, H, puff(10.5, 27, 7, 5.6, 9, 0.3, 0.4), BR));
+  // navy coat on the torso, gold buttons
+  const coat = part(W, H, polyIn([[10, 13.5], [21, 13.5], [23.5, 28], [8, 28.5]]), NAVY);
+  for (const y of [18, 21, 24]) coat.px(20, y, 'f');
+  add(coat);
+  // front leg + white paw
+  add(part(W, H, polyIn([[17.5, 26], [22, 26], [22, 31], [17.5, 31]]), BR));
+  add(part(W, H, puff(20.2, 32, 3, 1.8, 6, 0.3), WH));
+  // gold epaulette on the shoulder
+  const ep = new Grid(W, H); ep.rect(11, 13, 7, 2, 'f'); for (let x = 11; x <= 17; x += 2) ep.px(x, 15, 'g'); ep.outline('0'); add(ep);
+  // raised sleeve + paw holding the flashlight up and ahead
+  add(part(W, H, polyIn([[15, 17], [18, 16], [25, 12.5], [26.4, 15.4], [19, 20.5], [15.5, 20.5]]), NAVY));
+  add(part(W, H, puff(26.2, 13.6, 2.4, 2.4, 6, 0.2), WH));
+  const fl = new Grid(W, H); fl.poly([[25.5, 11], [29, 8], [30.6, 9.8], [27, 13]], 'p'); fl.px(27, 11, 'o'); fl.px(28, 10, 'o'); fl.px(30, 8, '7'); fl.px(31, 9, '7'); fl.px(30, 9, '6'); fl.outline('0'); add(fl);
+  // head: broad skull, white blaze + jowly muzzle, folded ear
+  add(part(W, H, puff(16.6, 8.4, 6.2, 5.4, 9, 0.3, 0.3), BR));
+  add(part(W, H, polyIn([[19.5, 8], [25, 8.6], [25.4, 13.4], [21, 14.6], [18.6, 12.4]]), WH));
+  add(part(W, H, polyIn([[11.6, 4], [15.4, 3.4], [14.6, 7.4], [11.4, 6.6]]), { hi: 'a', mid: 'b', lo: 'b', lo2: 'b' }));
+  // headset: band over the skull, ear cup, mic boom to the jowls (tip blinks on air)
+  const hs = new Grid(W, H);
+  for (let x = 12; x <= 19; x++) hs.px(x, x < 14 || x > 17 ? 3 : 2, 'q');
+  hs.rect(12, 7, 3, 4, 'q'); hs.px(13, 8, 'p');
+  for (let x = 15; x <= 20; x++) hs.px(x, 11 + (x > 17 ? 1 : 0), 'q');
+  hs.px(21, 12, f ? 'r' : 'q');
+  add(hs);
+  g.outline('0');
+  // face: eye under a heavy brow, nose, underbite tooth
+  g.rect(19, 6, 3, 1, 'b'); g.rect(20, 7, 2, 2, '0'); g.px(20, 7, '6');
+  g.rect(24, 8, 2, 2, '0'); g.px(24, 8, 'q');
+  g.px(23, 13, '6'); g.rect(21, 12, 3, 1, '0');
+  return g;
+}
+
+const defs = { end_pom_fly: [pomFly(0), pomFly(1)], end_pom_sit: [pomSit(0), pomSit(1)], end_pup_sit: [pupSit(0), pupSit(1)], end_pup_fly: [pupFly(0), pupFly(1)], end_hedgehog: [hedgehog(0), hedgehog(1)], end_empress_sit: [empressSit(0), empressSit(1)], end_biscuit_sit: [biscuitSit(0), biscuitSit(1)] };
 const out = ['// generated by src/ui/art/gen-ending.mjs: change the generator and re-run, do not hand-edit', "import type { SpriteDef } from '../art/sprite';", 'export const ENDING_ART: Record<string, SpriteDef> = {'];
 for (const [k, fr] of Object.entries(defs)) {
   const fs = Array.isArray(fr) ? fr : [fr];
