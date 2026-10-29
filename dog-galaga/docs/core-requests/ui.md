@@ -122,3 +122,13 @@
    Earlier phases can be staged by setting `g.mods.ui.endingT` (e.g. 150 = flight, 900 = cast parade).
 4. **effects (FYI, critic #5e):** 'HEART BISCUI' was a ui toast caught mid-unfold (the label was clipped with the
    pill). Toasts are now always drawn whole (a 4px drop-in instead of a horizontal unfold); nothing needed elsewhere.
+
+### Polish 1, round 2
+5. **audio: remove the `audio-hint` overlay (repeat of item 1, now blocking critic #5c).** It still paints a blinking
+   speaker at x 611..632, y 5..20 over ui's sound chip. ui now parks it at init with
+   `g.disabled.add('audio-hint:overlay')` (core's per-module isolation switch, keyed exactly as `render.ts` calls
+   `g.safe(m.id + ':overlay')`), so there is a single static widget today. Please delete the
+   `g.register({ id: 'audio-hint', ... })` line and `hint()` in `src/audio/index.ts`; ui's line then becomes a no-op
+   and can be dropped. The ui chip moved to the SECTOR header row (x 613, y 7, 17x11) and reads `audio.running()`.
+6. **world (FYI):** the HUD wave counter now uses the same N as world's `WAVE n / N` banner (regular waves only; the
+   Big Cat has its own strip cell and BIG CAT WAVE plate). No change needed.

@@ -78,14 +78,37 @@ function checkMark(ctx: CanvasRenderingContext2D, x: number, y: number) {
 
 /** 9x7 sound chip glyphs: '#' speaker, 'w' sound waves, 'x' the red cross. */
 const SND_ON = ['...#...w.', '..##.w..w', '####..w.w', '####..w.w', '####..w.w', '..##.w..w', '...#...w.'];
+/** pom_nap recolor for the ending (red strap -> pale lavender shading). */
+const NAP_SOFT: Record<string, string> = { r: '5', e: '4' };
+/** Sound chip rect origin (17x11): one widget, one place, on every scene. */
+const SND_X = 613, SND_Y = 7;
 const SND_OFF = ['...#.....', '..##.....', '####.x.x.', '####..x..', '####.x.x.', '..##.....', '...#.....'];
 /** Ending timeline: Pom's flight takes END_FLY ticks, each pup trails END_LAG ticks behind the previous one. */
-const END_FLY = 330, END_LAG = 15, END_MAX_PUPS = 16, END_WIN = 190, END_LINE = 24, END_GATE = 183;
+const END_FLY = 330, END_LAG = 15, END_MAX_PUPS = 16, END_WIN = 182, END_LINE = 24, END_GATE = 183;
 /** Settings rows: label, icon, settings key ('' = BACK). */
 const SETTINGS_ROWS: [string, string, 'music' | 'sfx' | 'amb' | 'shake' | 'flash' | 'reduceMotion' | 'touch' | ''][] = [
   ['MUSIC', 'note', 'music'], ['SFX', 'speaker', 'sfx'], ['AMBIENCE', 'speaker', 'amb'], ['SCREEN SHAKE', 'shake', 'shake'],
   ['FLASHES', 'bolt', 'flash'], ['REDUCE MOTION', 'wave', 'reduceMotion'], ['TOUCH CONTROLS', 'hand', 'touch'], ['BACK', 'back', ''],
 ];
+
+/** A sprite turned a quarter turn clockwise (its top-down head, at the bottom of the sheet, now leads to the left):
+ *  exact 90-degree pixel copy, cached per frame, so the flight home reads as flying, not sliding sideways. */
+const turned = new Map<string, HTMLCanvasElement | null>();
+function drawTurned(ctx: CanvasRenderingContext2D, name: string, cx: number, cy: number, fr = 0) {
+  const key = name + '|' + fr; let c = turned.get(key);
+  if (c === undefined) {
+    const src = spriteCanvas(name, fr); c = null;
+    if (src && typeof document !== 'undefined') {
+      c = document.createElement('canvas'); c.width = src.height; c.height = src.width;
+      const x = c.getContext('2d')!; x.imageSmoothingEnabled = false;
+      x.translate(src.height, 0); x.rotate(Math.PI / 2); x.drawImage(src, 0, 0);
+    }
+    turned.set(key, c);
+  }
+  if (!c) { drawSprite(ctx, name, cx, cy, { frame: fr }); return; }
+  ctx.drawImage(c, Math.round(cx - c.width / 2), Math.round(cy - c.height / 2));
+}
+const smooth = (v: number) => { const e = v < 0 ? 0 : v > 1 ? 1 : v; return e * e * (3 - 2 * e); };
 
 /** UI shell: HUD panels, title, sector map, pause, settings, dialogue box, ending, recovery, toasts. */
 class UI implements Module {
@@ -108,6 +131,9 @@ class UI implements Module {
   init(g: Game) {
     this.g = g;
     g.toastFn = (s) => this.toast(s);
+    // one sound widget only: audio's legacy blinking corner hint ('audio-hint' overlay) painted over this module's
+    // static sound chip. Park it through core's isolation switch until audio drops it (core request, Polish 1).
+    g.disabled.add('audio-hint:overlay');
     g.bus.on('scene:change', (p: any) => {
       this.sel = p.to === 'title' && !this.g.mods.save?.hasSave() ? 1 : 0; this.mapSel = 0;
       if (p.to === 'ending') { this.endingT = 0; this.plan = null; }
@@ -453,8 +479,10 @@ class UI implements Module {
       const idx = g.content.areas.indexOf(A);
       // the header stops short of the sound chip that lives in the panel's top-right corner
       header(ctx, `SECTOR ${String(idx + 1).padStart(2, '0')}`, x1, 10, w0 - 26, accR, t, true);
-      this.areaTitle(ctx, A, x1, 21, w0);
-      const tot = A.waves.length + (A.boss ? 1 : 0); const cur = Math.min(tot, s.waveIndex + 1);
+      this.areaTitle(ctx, A, x1, 23, w0);
+      // one source of truth with world's 'WAVE n / N' banner: N counts regular waves only; the Big Cat gets its own
+      // strip cell (with a pip) and the BIG CAT WAVE plate, never a number
+      const nw = A.waves.length; const tot = nw + (A.boss ? 1 : 0); const cur = Math.min(nw, s.waveIndex + 1);
       const MB = g.state.scene === 'bonus' && !B0 ? g.mods.minigames?.def : null;
       header(ctx, MB ? `BONUS STAGE ${String(g.content.bonus.indexOf(MB) + 1).padStart(2, '0')}` : 'WAVE', x1, 60, w0, MB ? C.gold : C.hot, t);
       const wy = 71;
@@ -465,7 +493,7 @@ class UI implements Module {
         arrow(ctx, x1 + w0 - 8, wy + 5, 'l', 3, C.text);
       } else {
         const aw = num(ctx, String(cur), x1, wy, C.line, { hi: C.ice, shadow: C.ink });
-        const bw = num(ctx, `/${tot}`, x1 + aw + 2, wy, C.dim, { hi: C.pale, shadow: C.ink });
+        const bw = num(ctx, `/${nw}`, x1 + aw + 2, wy, C.dim, { hi: C.pale, shadow: C.ink });
         // wave strip on the same row: done cells cyan, the current one blinks, the boss cell carries a pip
         const sx0 = x1 + aw + bw + 8, avail = x1 + w0 - sx0;
         const cw = Math.max(3, Math.min(9, Math.floor((avail - (tot - 1)) / Math.max(1, tot))));
@@ -491,7 +519,11 @@ class UI implements Module {
       text(ctx, this.lines(q.name, 18, 1)[0], x1, 133, C.violet, { shadow: C.ink });
       icon(ctx, 'flag', x1, 144, C.violet);
       const pr = g.mods.quest?.progress?.(q);
-      if (pr && pr.need > 1) { segBar(ctx, x1 + 10, 145, 10, 5, 4, pr.have / pr.need, C.violet); text(ctx, `${pr.have}/${pr.need}`, x1 + w0, 144, C.text, { align: 'right' }); }
+      if (pr && pr.need > 1) {
+        // the counter keeps its width; the bar takes what is left with a 4px gap (never runs into the numbers)
+        const lbl = `${Math.min(pr.have, pr.need)}/${pr.need}`; const cells = Math.max(3, Math.min(10, Math.floor((w0 - 10 - textWidth(lbl) - 5) / 6)));
+        segBar(ctx, x1 + 10, 145, cells, 5, 4, pr.have / pr.need, C.violet); text(ctx, lbl, x1 + w0, 144, C.text, { align: 'right' });
+      }
       else { text(ctx, Q?.goal?.(q) || 'IN PROGRESS', x1 + 10, 144, C.dim); if (!Q?.goal) for (let i = 0; i < 3; i++) rect(ctx, x1 + 78 + i * 4, 149, 2, 2, ((t >> 4) % 4) > i ? C.violet : C.peri); }
     } else { text(ctx, 'NO ACTIVE QUEST', x1, 133, C.dim); icon(ctx, 'flag', x1, 144, C.peri); text(ctx, 'FLY ON, CAPTAIN', x1 + 10, 144, C.peri); }
     // threat slot: fixed 64px (boss armor, bonus tally, live breed roster, or the next formation preview)
@@ -592,61 +624,65 @@ class UI implements Module {
     list.slice(0, rows).forEach((e, i) => {
       const cy = y + i * 9;
       icon(ctx, 'cat', x, cy, breedColor(e.sprite), C.ink);
-      const nm = e.name.toUpperCase(); text(ctx, nm.length <= 13 ? nm : nm.split(' ')[0].slice(0, 13), x + 10, cy, C.pale);
+      let nm = e.name.toUpperCase(); while (nm.length > 13 && nm.includes(' ')) nm = nm.slice(0, nm.lastIndexOf(' '));
+      text(ctx, nm.slice(0, 13), x + 10, cy, C.pale);
       text(ctx, String(e.n), x + w, cy, C.text, { align: 'right' });
     });
     for (let i = Math.min(3, list.length); i < 3; i++) dither(ctx, x + 10, y + i * 9 + 3, w - 10, 1, C.indigo, 'check');
     if (list.length > 3) { const rest = list.slice(2).reduce((a, e) => a + e.n, 0); text(ctx, `+${list.length - 2} MORE BREEDS`, x + 10, y + 18, C.dim); text(ctx, String(rest), x + w, y + 18, C.text, { align: 'right' }); }
-    const ly = y + 28;
+    const ly = y + 31;
     const tot = Math.max(1, this.waveCats, cats.length);
     text(ctx, 'CATS LEFT', x, ly, C.dim); text(ctx, `${cats.length}/${tot}`, x + w, ly, C.hot, { align: 'right' });
     segBar(ctx, x, ly + 10, 18, 5, 4, cats.length / tot, C.hot);
   }
-  /** Mini preview of the formation about to fly in: one blip per cat, tinted by breed, in a holo box. */
+  /** Next-wave preview: up to three breed portraits (most numerous first) with their head counts, in a holo box. */
   formationPreview(g: Game, ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, live: boolean) {
-    const t = this.t; const A = g.mods.world?.area();
+    const A = g.mods.world?.area();
     chamferFill(ctx, x, y, w, h, C.ink, 3); chamferLine(ctx, x, y, w, h, live ? C.plum : C.indigo, 3);
-    for (let gx = x + 6; gx < x + w - 3; gx += 6) dither(ctx, gx, y + 2, 1, h - 4, C.night, 'sparse');
     const wid = A?.waves?.[g.state.waveIndex]; const wave = g.content.waves.find(v => v.id === wid);
     if (!wave) { text(ctx, 'ALL CLEAR', x + w / 2, y + h / 2 - 3, C.peri, { align: 'center' }); return; }
-    const { cols, rows } = wave.formation; const cw = Math.min(9, Math.floor((w - 8) / cols)), ch = Math.min(6, Math.floor((h - 12) / rows));
-    const ox = Math.round(x + w / 2 - (cols * cw) / 2), oy = y + 4;
-    const drop = live ? Math.max(0, 6 - ((t >> 2) % 40)) : 0;
-    for (const c of wave.cats) {
-      const e = g.content.enemies.find(en => en.id === c.breed); const col0 = e ? breedColor(e.sprite) : C.hot;
-      for (let ci = 0; ci < cols; ci++) {
-        if (c.cols && !c.cols.includes(ci)) continue;
-        const bx = ox + ci * cw + ((cw - 5) >> 1), byy = oy + c.row * ch - drop;
-        if (byy < y + 2) continue;
-        rect(ctx, bx, byy, 5, 3, col0); rect(ctx, bx, byy, 1, 1, C.ink); rect(ctx, bx + 4, byy, 1, 1, C.ink);
-      }
-    }
-    text(ctx, 'NEXT', x + 4, y + h - 9, C.peri); text(ctx, `${wave.cats.reduce((a, c) => a + (c.cols ? c.cols.length : cols), 0)} CATS`, x + w - 4, y + h - 9, live ? C.pink : C.dim, { align: 'right' });
+    const cols = wave.formation.cols; const by: Record<string, number> = {};
+    for (const c of wave.cats) by[c.breed] = (by[c.breed] ?? 0) + (c.cols ? c.cols.length : cols);
+    const list = Object.entries(by).sort((p, q) => q[1] - p[1]);
+    const shown = list.slice(0, 3); const cw = Math.floor(w / 3); const ox = Math.round(x + (w - cw * shown.length) / 2);
+    shown.forEach(([breed, n], i) => {
+      const e = g.content.enemies.find(en => en.id === breed); const cx = ox + i * cw + (cw >> 1);
+      // portrait well, then the breed's own sprite cropped to its face (a hop on the live INCOMING beat)
+      chamferFill(ctx, cx - 13, y + 3, 26, 21, C.night, 2);
+      if (e && SHEETS[e.sprite]) {
+        const hop = live && ((this.t >> 3) + i) % 6 === 0 ? -1 : 0;
+        ctx.save(); ctx.beginPath(); ctx.rect(cx - 13, y + 3, 26, 21); ctx.clip();
+        drawSprite(ctx, e.sprite, cx, y + 14 + hop, { frame: frameCount(e.sprite) > 1 ? ((this.t >> 4) + i) % 2 : 0 });
+        ctx.restore();
+      } else icon(ctx, 'cat', cx - 3, y + 10, C.hot);
+      const more = i === 2 && list.length > 3 ? list.slice(2).reduce((a, q) => a + q[1], 0) : n;
+      text(ctx, `X${more}${i === 2 && list.length > 3 ? '+' : ''}`, cx, y + h - 9, live ? C.pink : C.pale, { align: 'center' });
+    });
   }
 
   /**
-   * Sector name + subtitle in a fixed 4-line slot (y .. y+35): the name takes 1-2 lines, the subtitle the rest,
-   * word-wrapped so it reads in full. Only a subtitle that still does not fit scrolls its last line slowly.
+   * Sector name + subtitle in a fixed 3-line slot (y .. y+25): the name takes 1-2 lines, the subtitle the rest,
+   * word-wrapped; a subtitle that still does not fit runs its last line as a slow marquee so it reads in full.
    */
   areaTitle(ctx: CanvasRenderingContext2D, A: { name: string; subtitle?: string }, x: number, y: number, w: number) {
+    const ROWS = 3;
     const nl = this.lines(A.name, 18);
     nl.forEach((l, i) => text(ctx, l, x, y + i * 9, C.text, { shadow: C.ink }));
-    const sub = A.subtitle ? wrap(A.subtitle.toUpperCase(), 18) : []; const room = 4 - nl.length;
+    const sub = A.subtitle ? wrap(A.subtitle.toUpperCase(), 18) : []; const room = ROWS - nl.length;
     if (!sub.length) return;
     if (sub.length <= room) { sub.forEach((l, i) => text(ctx, l, x, y + (nl.length + i) * 9, C.dim)); return; }
     sub.slice(0, room - 1).forEach((l, i) => text(ctx, l, x, y + (nl.length + i) * 9, C.dim));
-    this.marquee(ctx, sub.slice(room - 1).join(' '), x, y + 3 * 9, w, C.dim);
+    this.marquee(ctx, sub.slice(room - 1).join(' '), x, y + (ROWS - 1) * 9, w, C.dim);
   }
-  /** One line of text that ping-pongs slowly inside w px when it is too long (pauses at both ends), else static. */
+  /** One line of text that ping-pongs slowly inside w px when it is too long (pauses at both ends), else static.
+   *  It steps a whole glyph at a time and draws only the glyphs that fit, so no letter is ever cut in half. */
   marquee(ctx: CanvasRenderingContext2D, s: string, x: number, y: number, w: number, c: string, shadow?: string) {
-    const tw = textWidth(s);
-    if (tw <= w) { text(ctx, s, x, y, c, shadow ? { shadow } : {}); return; }
-    const over = tw - w; const hold = 90; const run = over * 3; const cyc = 2 * (hold + run);
-    const p = this.t % cyc;
-    const off = p < hold ? 0 : p < hold + run ? Math.floor((p - hold) / 3) : p < 2 * hold + run ? over : over - Math.floor((p - 2 * hold - run) / 3);
-    ctx.save(); ctx.beginPath(); ctx.rect(x, y - 1, w, 10); ctx.clip();
-    text(ctx, s, x - off, y, c, shadow ? { shadow } : {});
-    ctx.restore();
+    const o = shadow ? { shadow } : {};
+    const n = Math.floor((w + 1) / 6); const over = s.length - n;
+    if (over <= 0) { text(ctx, s, x, y, c, o); return; }
+    const hold = 100, step = 14, run = over * step, cyc = 2 * (hold + run); const p = this.t % cyc;
+    const k = p < hold ? 0 : p < hold + run ? Math.floor((p - hold) / step) : p < 2 * hold + run ? over : over - Math.floor((p - 2 * hold - run) / step);
+    text(ctx, s.slice(k, k + n), x, y, c, o);
   }
   /** Sectors whose waves carry a capturer hold one lost pup (flag pup_<area> once rescued); cached per area. */
   private pupHere = new Map<string, boolean>();
@@ -697,10 +733,11 @@ class UI implements Module {
     const A = g.mods.audio as any; const st = g.state.settings;
     let running = false; try { running = !!A?.running?.(); } catch { running = false; }
     const on = running && (st.music > 0 || st.sfx > 0);
-    const x = 611, y = 5, w = 22, h = 16;
-    chamferFill(ctx, x - 1, y - 1, w + 2, h + 2, C.ink, 4);
-    chamferFill(ctx, x, y, w, h, C.night, 3); chamferLine(ctx, x, y, w, h, on ? C.deep : C.mag, 3);
-    const art = on ? SND_ON : SND_OFF; const ox = x + 6, oy = y + 4;
+    // sits on the SECTOR header row, inside the panel frame (clear of its chamfered corner and the title below)
+    const x = SND_X, y = SND_Y, w = 17, h = 11;
+    chamferFill(ctx, x - 1, y - 1, w + 2, h + 2, C.ink, 3);
+    chamferFill(ctx, x, y, w, h, C.night, 2); chamferLine(ctx, x, y, w, h, on ? C.deep : C.mag, 2);
+    const art = on ? SND_ON : SND_OFF; const ox = x + 4, oy = y + 2;
     art.forEach((r, yy) => { for (let xx = 0; xx < r.length; xx++) { const ch = r[xx]; if (ch === '.') continue; rect(ctx, ox + xx, oy + yy, 1, 1, ch === '#' ? (on ? C.line : C.dim) : ch === 'w' ? C.ice : C.red); } });
   }
   /** Portrait sprite: prefer portrait_<name>, then the named sheet, then poodle for Pom or pup. */
@@ -989,15 +1026,23 @@ class UI implements Module {
       if (sel) { chamferFill(ctx, x + 4, yy - 2, w - 8, 11, C.plum, 2); chamferLine(ctx, x + 4, yy - 2, w - 8, 11, C.burnt, 2); }
       const c = sel ? C.gold : here ? C.hot : cleared ? C.line : reach ? C.pink : C.peri;
       text(ctx, String(i + 1).padStart(2, '0'), x + 9, yy, c);
-      // names read in full: one that overflows the column scrolls slowly inside it
-      const nm = secret ? '? ? ?' : a.name.toUpperCase();
-      this.marquee(ctx, nm, x + 25, yy, w - 25 - 18, sel ? C.gold : here ? C.text : cleared ? C.pale : reach ? C.text : C.dim);
-      const ix = x + w - 15;
+      // the status icon owns a reserved column at the right; a long name is abbreviated to whole glyphs before it
+      // (the NEXT HOP panel always shows the full name of the selected sector)
+      const ix = x + w - 15; const tw = ix - 6 - (x + 25);
+      const nm = secret ? '? ? ?' : this.fitName(a.name, tw);
+      text(ctx, nm, x + 25, yy, sel ? C.gold : here ? C.text : cleared ? C.pale : reach ? C.text : C.dim);
       if (here) icon(ctx, 'paw', ix, yy, (t >> 4) % 2 ? C.hot : C.pink);
       else if (cleared) checkMark(ctx, ix, yy - 1);
       else if (reach) arrow(ctx, ix + 5, yy + 3, 'l', 4, sel ? C.gold : C.pink);
       else icon(ctx, 'lock', ix, yy, C.indigo);
     });
+  }
+  /** A sector name that fits `px` wide in whole glyphs: drop a leading 'THE', then cut the tail and end in '.'. */
+  fitName(name: string, px: number) {
+    let s = name.toUpperCase(); const n = Math.floor((px + 1) / 6);
+    if (s.length > n && s.startsWith('THE ')) s = s.slice(4);
+    if (s.length > n) s = s.slice(0, n - 1).replace(/[\s-]+$/, '') + '.';
+    return s;
   }
   /** Constellation layout: columns by graph depth, rows spread vertically and offset per column so the route zig-zags across the chart. */
   layout(g: Game): Record<string, [number, number]> {
@@ -1110,12 +1155,19 @@ class UI implements Module {
   /** Pom napping on her cushion at the garden gate, in front of the fence (the in-game pom_nap sprite). */
   napPom(ctx: CanvasRenderingContext2D, HZ: number, t: number) {
     const spr = SHEETS.pom_nap ? 'pom_nap' : SHEETS.poodle_nap ? 'poodle_nap' : 'pom';
-    drawSprite(ctx, spr, END_GATE, HZ - 9, { frame: Math.floor(t / 40) % Math.max(1, frameCount(spr)) });
+    // the nap sheet's red goggle strap reads as a red eye at this size: soften it to fur shading
+    drawSprite(ctx, spr, END_GATE, HZ - 9, { frame: Math.floor(t / 40) % Math.max(1, frameCount(spr)), recolor: spr === 'pom_nap' ? NAP_SOFT : undefined });
   }
-  /** Where pup i sits on the fence once home: alternating right / left of the gate. */
+  /** Where pup i sits on the lawn line once home (same baseline as Pom's cushion): alternating right / left of the gate. */
   pupSpot(i: number, HZ: number): [number, number] {
     const side = i % 2 ? -1 : 1, k = i >> 1;
-    return [END_GATE + side * (30 + k * 20), HZ - 13];
+    return [END_GATE + side * (26 + k * 18), HZ - 7];
+  }
+  /** Pup i in flight (u 0..1): Pom's path home, easing over the last 40% straight onto its own lawn slot. */
+  pupPath(i: number, u: number, HZ: number): [number, number] {
+    const [px, py] = this.homePath(u, HZ); const [sx, sy] = this.pupSpot(i, HZ); const [gx, gy] = this.homePath(1, HZ);
+    const w = smooth((u - 0.6) / 0.4);
+    return [Math.round(px + (sx - gx) * w), Math.round(py + (sy - gy) * w)];
   }
   /** Flight path home (u 0..1): in from the right high over the sky, a lazy wave across the sun, down to the gate. */
   homePath(u: number, HZ: number): [number, number] {
@@ -1162,20 +1214,25 @@ class UI implements Module {
       } });
     } else small('AND EVERY PUP STILL ON THE WAY HOME');
     gap(26); title('THE FELINE ARMADA', C.hot, C.pink, C.mag); gap(8);
-    const grid = (list: { sprite: string; name: string }[], cell: number, sh: number) => {
+    // every cast entry: a name line (wrapped in one colour) and, for the Big Cats, one dim role line (their sector)
+    const grid = (list: { sprite: string; lines: string[]; role?: string }[], cell: number, sh: number) => {
       for (let r = 0; r < list.length; r += 3) {
         const row = list.slice(r, r + 3);
         items.push({ h: sh + 26, draw: (ctx, y, t) => row.forEach((e, i) => {
           const x = cx + (i - (row.length - 1) / 2) * cell;
           drawSprite(ctx, e.sprite, x, y + sh / 2, { frame: frameCount(e.sprite) > 1 ? ((t >> 4) + i) % 2 : 0 });
-          wrap(e.name.toUpperCase(), 20).slice(0, 2).forEach((l, k) => text(ctx, l, x, y + sh + 3 + k * 9, k ? C.dim : C.text, { align: 'center', shadow: C.ink }));
+          e.lines.forEach((l, k) => text(ctx, l, x, y + sh + 3 + k * 9, C.text, { align: 'center', shadow: C.ink }));
+          if (e.role) text(ctx, e.role, x, y + sh + 3 + e.lines.length * 9, C.dim, { align: 'center', shadow: C.ink });
         }) });
       }
     };
     const ens = g.content.enemies.filter(e => SHEETS[e.sprite]);
-    grid(ens.filter(e => e.behavior !== 'boss'), 124, 34);
+    grid(ens.filter(e => e.behavior !== 'boss').map(e => ({ sprite: e.sprite, lines: wrap(e.name.toUpperCase(), 20).slice(0, 2) })), 124, 34);
     gap(22); title('THE BIG CATS', C.gold, C.cream, C.burnt); gap(10);
-    grid(ens.filter(e => e.behavior === 'boss'), 128, 66);
+    grid(ens.filter(e => e.behavior === 'boss').map(e => {
+      const home = g.content.areas.find(a => a.boss === e.id);
+      return { sprite: e.sprite, lines: [this.fitName(e.name.split(',')[0], 122)], role: home ? this.fitName(home.name, 122) : 'BIG CAT' };
+    }), 128, 66);
     gap(30); small('THANK YOU FOR FLYING', C.text); gap(4);
     items.push({ h: 30, draw: (ctx, y) => headline(ctx, 'GOOD GIRL, POM.', cx, y + 6, C.gold, C.cream, C.burnt) });
     return items;
@@ -1185,32 +1242,44 @@ class UI implements Module {
     // the title's sunset set piece, framing the home yard Pom and the pups fly back to
     this.synthSet(ctx, T, HZ, 62, W / 2, [C.cream, C.gold, C.orange, C.hot, C.mag], 70);
     this.homeYard(ctx, HZ, T);
-    // ---- the flight home: Pom banks across the sky, every rescued pup trailing her along the same path
+    // ---- the flight home: Pom flies nose-first across the sky, every rescued pup trailing her along the same path,
+    // each one peeling off onto its own lawn slot. Everything in the yard is y-sorted.
     const u = T / END_FLY;
+    const PUP = SHEETS.pom_pup ? 'pom_pup' : 'pup';
+    const draws: { y: number; f: () => void }[] = [];
     let home = 0;
-    for (let i = P.shown - 1; i >= 0; i--) {
+    for (let i = 0; i < P.shown; i++) {
       const ui = (T - (i + 1) * END_LAG) / END_FLY; if (ui <= 0) continue;
-      const [sx, sy] = this.pupSpot(i, HZ);
-      if (ui < 1) { const [x, y] = this.homePath(ui, HZ); drawSprite(ctx, SHEETS.pom_pup_l ? 'pom_pup_l' : 'pup', x + 4, y + 10, { frame: ((T >> 2) + i) % 2 }); continue; }
-      // hop from the gate to its spot on the fence, then sit and look at the sunset
-      const h = Math.min(1, (T - (i + 1) * END_LAG - END_FLY) / 20); const [gx, gy] = this.homePath(1, HZ);
-      const x = Math.round(gx + (sx - gx) * h), y = Math.round(gy + 10 + (sy - gy - 10) * h - Math.sin(h * Math.PI) * 14);
-      if (h >= 1) home++;
-      drawSprite(ctx, SHEETS.pom_pup ? 'pom_pup' : 'pup', x, y - (h >= 1 && ((T >> 3) + i * 5) % 37 === 0 ? 1 : 0), { frame: h < 1 ? (T >> 2) % 2 : 0 });
+      if (ui < 1) {
+        const [x, y] = this.pupPath(i, ui, HZ); const fr = ((T >> 2) + i) % Math.max(1, frameCount(PUP));
+        // turned while cruising, upright for the last stretch of the glide down onto the lawn
+        draws.push({ y, f: () => ui < 0.82 ? drawTurned(ctx, PUP, x, y, fr) : drawSprite(ctx, PUP, x, y, { frame: fr }) });
+        continue;
+      }
+      home++;
+      // landed: a little bounce on touch-down, then sit and watch the sunset (an occasional blink-bob)
+      const since = T - (i + 1) * END_LAG - END_FLY; const [sx, sy] = this.pupSpot(i, HZ);
+      const bob = since < 8 ? -Math.round(Math.sin(since / 8 * Math.PI) * 3) : ((T >> 3) + i * 5) % 37 === 0 ? -1 : 0;
+      draws.push({ y: sy, f: () => drawSprite(ctx, PUP, sx, sy + bob) });
     }
     if (u < 1) {
-      // jet trail: twin sparks along the path behind her, cooling from cream to plum
-      for (let k = 1; k <= 6; k++) {
-        const [tx, ty] = this.homePath(u - k * 0.012, HZ); if (u - k * 0.012 <= 0) break;
-        const c = k < 2 ? C.cream : k < 4 ? C.gold : k < 5 ? C.orange : C.plum;
-        if ((k + (T >> 1)) % 3) { rect(ctx, tx - 7, ty + 10, 2, 1, c); rect(ctx, tx + 6, ty + 10, 2, 1, c); }
-      }
-      const [x, y] = this.homePath(u, HZ); const spr = u > 0.88 ? 'pom' : SHEETS.pom_bank_l ? 'pom_bank_l' : 'pom';
-      drawSprite(ctx, SHEETS[spr] ? spr : 'poodle', x, y);
+      const [x, y] = this.homePath(u, HZ);
+      draws.push({ y, f: () => {
+        if (u < 0.88) {
+          // jet trail: sparks streaming off her tail (to the right while she flies nose-first), cooling cream to plum
+          for (let k = 1; k <= 6; k++) {
+            const [tx, ty] = this.homePath(u - k * 0.012, HZ); if (u - k * 0.012 <= 0) break;
+            const c = k < 2 ? C.cream : k < 4 ? C.gold : k < 5 ? C.orange : C.plum;
+            if ((k + (T >> 1)) % 3) { rect(ctx, tx + 10, ty - 7, 2, 1, c); rect(ctx, tx + 10, ty + 6, 2, 1, c); }
+          }
+          drawTurned(ctx, SHEETS.pom ? 'pom' : 'poodle', x, y, (T >> 3) % Math.max(1, frameCount('pom')));
+        } else drawSprite(ctx, SHEETS.pom ? 'pom' : 'poodle', x, y);
+      } });
     } else if (T < END_FLY + 24) {
       // touch-down beat: a little settle before she curls up
-      drawSprite(ctx, SHEETS.pom ? 'pom' : 'poodle', END_GATE, HZ - 26 + Math.round(Math.min(1, (T - END_FLY) / 24) * 10));
-    } else this.napPom(ctx, HZ, T);
+      draws.push({ y: HZ - 9, f: () => drawSprite(ctx, SHEETS.pom ? 'pom' : 'poodle', END_GATE, HZ - 26 + Math.round(Math.min(1, (T - END_FLY) / 24) * 10)) });
+    } else draws.push({ y: HZ - 9, f: () => this.napPom(ctx, HZ, T) });
+    draws.sort((a, b) => a.y - b.y).forEach(d => d.f());
     if (T < P.fly) {
       const tw = numWidth('HOMEWARD BOUND') + 36;
       chamferFill(ctx, W / 2 - tw / 2, 10, tw, 26, C.ink, 6); chamferLine(ctx, W / 2 - tw / 2, 10, tw, 26, C.burnt, 6);
@@ -1219,14 +1288,12 @@ class UI implements Module {
       chamferFill(ctx, W / 2 - lw / 2, 40, lw, 13, C.night, 3); chamferLine(ctx, W / 2 - lw / 2, 40, lw, 13, C.burnt, 3);
       icon(ctx, 'paw', W / 2 - lw / 2 + 6, 43, C.gold); text(ctx, lbl, W / 2 - lw / 2 + 16, 43, C.gold);
     } else if (T < P.card) {
-      // ---- credits roll in the sky window above the rooftops; dithered bands soften both edges
-      const top = 6, bot = HZ - 66; const off = Math.round((T - P.fly) * P.travel / P.rollTicks);
+      // ---- credits roll in the sky window, hard-clipped at both edges, ending well above the roof, chimney and tree
+      const top = 4, bot = HZ - 76; const off = Math.round((T - P.fly) * P.travel / P.rollTicks);
       ctx.save(); ctx.beginPath(); ctx.rect(0, top, W, bot - top); ctx.clip();
       let y = bot - off;
       for (const it of P.credits) { if (y + it.h > top - 80 && y < bot + 10) it.draw(ctx, y, t); y += it.h; }
       ctx.restore();
-      for (let k = 0; k < 6; k++) { dither(ctx, 0, top + k * 2, W, 2, C.bg, k < 3 ? 'check' : 'sparse'); dither(ctx, 0, bot - 2 - k * 2, W, 2, C.bg, k < 3 ? 'check' : 'sparse'); }
-      rect(ctx, 0, 0, W, top, C.bg);
       const k = keys(this.dev()); hintRow(ctx, [[k.ok, 'SKIP']], W / 2, 346, C.dim);
     } else this.endingCard(g, ctx, P, T - P.card, HZ);
   }
