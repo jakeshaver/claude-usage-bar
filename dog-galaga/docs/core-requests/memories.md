@@ -104,3 +104,16 @@ Art helpers in `src/memories/art.ts`: `photo(id, blink?)` (56x44 canvas),
 - 7: owner journal.
 - 9a forwarded to ui (subtitle wrap/marquee). 9b applied: the sound hint only appears on calm play/map screens with no menu open.
 - 13 applied: stages listed in ARCHITECTURE section 9 and in the showcase comment.
+
+## Polish 1
+
+Fairness fix for the reveal card (whole-game critic issue #1). No core change is required; these are doc updates.
+
+15. **ARCHITECTURE.md, memories line**: after "Catching it starts a ~2.2 s cozy beat (`g.paused` held, ..." add:
+    "The card docks to the top edge of the playfield (y 4..68; y 22.. under the boss armor bar), so the field around
+    Pom stays readable, and it waits for a calm moment: never over a sector title card, in the first 90 ticks of a
+    wave, or while a boss is in `enter` / `tell` / `attack` / `phase` (the photo is in the album at once; play goes
+    on until the card goes up)." And add `showing()` (card on screen) and `calm()` to the memories API list.
+    `revealing()` is unchanged (true while a card is up or waiting), so ui keeps holding toasts for the whole span.
+16. **ui (optional)**: if the ui toast hold should only cover the card while it is on screen, switch
+    `toastsHeld()` from `memories.revealing()` to `memories.showing()`.

@@ -25,6 +25,8 @@ export interface Pending extends Carry { more: Carry[] }
  * Reveal timing (ticks). The reveal is a cozy beat: the playfield freezes and dims one step while the card
  * slides in, the photo develops and the cats go "aww"; then the card slides away and play resumes. No bullet
  * ever moves under the card. A fresh FIRE / confirm press after the photo has developed skips ahead.
+ * The card docks to the top edge of the playfield (never over Pom's lower field) and only goes up at a calm
+ * moment: see calm().
  */
 const IN = 14, HOLD = 112, HOLD_QUEUED = 80, OUT = 12;
 /** a bundle card (3+ photos at once) stays up ~3 s in all, and says how to skip */
@@ -37,9 +39,20 @@ const SKIP_AT = IN + 20;
 const DEV = 34;
 /** the polaroid pops up out of the cat, hangs for a beat, then drifts */
 const POP = 40;
-const CARD_W = 340, CARD_H = 74;
-/** centred in the playfield, well below the toast stack (y 8.. / 24..) and the boss bar */
-const CARD_Y = Math.round((H - CARD_H) / 2) - 6;
+const CARD_W = 340, CARD_H = 64;
+/**
+ * Docked to the top edge of the playfield (bottom at y 68), so the lower 4/5 where Pom fights stays in plain
+ * view during the beat: every cat and shot near her is still readable when play resumes. Toasts are held while
+ * the card is up, so the top strip is free; in a boss fight it sits just under the boss armor bar (y 3..19).
+ */
+const CARD_Y = 4, CARD_Y_BOSS = 22;
+/**
+ * The card waits (the photo is already safe in the album) instead of going up at an unfair moment: during a
+ * sector title card, in the first WAVE_GRACE ticks of a wave (cats are still flying in), or while a boss is
+ * entering, winding up a telegraphed attack, attacking or changing phase.
+ */
+const WAVE_GRACE = 90;
+const BOSS_BUSY = new Set(['enter', 'tell', 'attack', 'phase']);
 
 /**
  * Memories: polaroids of Pom's human Maya. In the wave content/memories.json names, one cat glows gold and
@@ -75,10 +88,14 @@ class Memories implements Module {
   private stageFrozen = false;
   private staged = false;
   private lostIds = new Set<string>();
+  /** g.tick when the current wave (or boss) started */
+  private waveAt = -1e9;
 
   init(g: Game) {
     this.g = g;
+    g.bus.on('boss:start', () => { this.waveAt = g.tick; });
     g.bus.on('wave:start', (p: any) => {
+      this.waveAt = g.tick;
       this.pending = this.offer(p.areaId, p.waveIndex);
       this.clearGlow();
       if (this.pending) g.mods.interaction?.markGlow?.();
@@ -180,8 +197,21 @@ class Memories implements Module {
     if (!this.heldToasts.length || this.holdingToasts(g) || !this.toastOut) return;
     const q = this.heldToasts; this.heldToasts = []; for (const s of q) this.toastOut(s);
   }
-  /** True while a reveal card is up (other modules may keep toasts out of its way). */
+  /** True while a reveal card is up or waiting for a calm moment (other modules may keep toasts out of its way). */
   revealing() { return this.reveals.length > 0; }
+  /** True while a reveal card is actually on screen (the game is held for it). */
+  showing() { const r = this.reveals[0]; return !!r && r.t > 0; }
+  /**
+   * May a waiting card go up now? Never over a sector title card, while a wave is still flying in, or during a
+   * boss entrance / telegraph / attack / phase change. The bonus scene has no hazards, so it is always calm.
+   */
+  calm(g: Game = this.g): boolean {
+    if (g.state.scene !== 'play') return true;
+    if ((g.mods.world?.titleCard ?? 0) > 0) return false;
+    if (g.tick - this.waveAt < WAVE_GRACE) return false;
+    const b = g.mods.interaction?.boss;
+    return !(b && BOSS_BUSY.has(b.st));
+  }
   /**
    * Stage a moment for screenshots and freeze it there: carrier | drop | boop | reveal | lost | bundle, for memory #index,
    * `at` ticks into the moment (defaults: carrier 40, drop 88, reveal/lost 80 = photo fully developed).
@@ -275,6 +305,7 @@ class Memories implements Module {
     const menu = (g.mods.ui?.menuOpen ?? 'none') !== 'none';
     if (!staged) {
       if (menu) return;                                   // the pause menu owns the clock; resume afterwards
+      if (r.t === 0 && !this.calm(g)) { this.release(); return; }   // wait for a fair moment (play goes on)
       if (sc === 'play') { this.holding = true; g.paused = true; }
       const I = g.input;
       if (r.t >= SKIP_AT && r.t < IN + r.hold && (I?.pressed?.('fire') || I?.pressed?.('confirm'))) r.t = IN + r.hold;
@@ -402,8 +433,12 @@ class Memories implements Module {
   // ------------------------------------------------------------------ reveal card (screen space, over the playfield)
   overlay(g: Game, ctx: Ctx) {
     const r = this.reveals[0]; const sc = g.state.scene;
-    if (!r || (sc !== 'play' && sc !== 'bonus')) return;   // parked during dialogue, resumes after
+    if (!r || r.t <= 0 || (sc !== 'play' && sc !== 'bonus')) return;   // parked during dialogue (or waiting), resumes after
     const m = g.content.memories.find(x => x.id === r.id); if (!m) return;
+    ctx.save(); ctx.beginPath(); ctx.rect(PF_X, 0, PF_W, H); ctx.clip();   // the slide never crosses the HUD panels
+    try { this.overlayIn(g, ctx, r, m, sc); } finally { ctx.restore(); }
+  }
+  private overlayIn(g: Game, ctx: Ctx, r: Reveal, m: MemoryDef, sc: string) {
     const reduce = !!g.state.settings.reduceMotion;
     const end = IN + r.hold;
     // the cozy beat: the playfield dims one step while the card is up, eased in and out through two ordered-dither
@@ -421,8 +456,10 @@ class Memories implements Module {
       else if (r.t < IN + 5) x = cx + 3 - Math.round((r.t - IN) * 0.6);
       else if (r.t >= end) { const f = (r.t - end) / OUT; x = Math.round(cx + (PF_X + PF_W - cx + 8) * f * f); }
     } else if (r.t >= end) return;
-    this.card(g, ctx, m, r, x, CARD_Y);
+    this.card(g, ctx, m, r, x, this.cardY(g));
   }
+
+  private cardY(g: Game) { return g.mods.ui?.bossBarOn || g.mods.interaction?.boss ? CARD_Y_BOSS : CARD_Y; }
 
   /** the frozen cats go "aww": little hearts pop over a few of them, one after another */
   private aww(g: Game, ctx: Ctx, rt: number) {
@@ -433,7 +470,8 @@ class Memories implements Module {
       const t0 = 6 + ((i * 7) % 11) * 3; const k = rt - t0; if (k < 0) return;
       const x = Math.round(PF_X - cam + c.x + ((i & 1) ? 7 : -8)), y = Math.round(c.y - 14 - Math.min(4, k >> 1));
       if (x < PF_X + 2 || x > PF_X + PF_W - 8) return;
-      if (y > CARD_Y - 8 && y < CARD_Y + CARD_H + 4 && x > PF_X + 30 && x < PF_X + PF_W - 30) return;
+      const cy = this.cardY(g);
+      if (y > cy - 8 && y < cy + CARD_H + 4 && x > PF_X + 30 && x < PF_X + PF_W - 30) return;
       pixelHeart(ctx, x, y, k < 4 ? 'c' : 'd');
     });
   }
@@ -455,14 +493,14 @@ class Memories implements Module {
     const blink = dev >= 1 && (r.t - IN) % 64 >= 56;
     if (bundle) {
       // a fanned stack: two more frames peek out behind, offset and staggered (pixel-exact, no rotation)
-      for (const [ox, oy, k] of [[14, -6, '4'], [9, -2, '5']] as [number, number, string][]) {
+      for (const [ox, oy, k] of [[14, -3, '4'], [9, 0, '5']] as [number, number, string][]) {
         rect(x + ox - 1, y + oy - 1, 66, 64, '0'); rect(x + ox, y + oy, 64, 62, k); rect(x + ox + 63, y + oy, 1, 62, '3');
         rect(x + ox + 4, y + oy + 4, 56, 44, '1'); rect(x + ox + 5, y + oy + 5, 54, 2, '2');
       }
-      polaroid(ctx, m.id, x + 4, y + 3, dev, 1, blink, r.lost);
+      polaroid(ctx, m.id, x + 4, y + 1, dev, 1, blink, r.lost);
       // a little count tag pinned to the stack
       const tag = `x${r.ids.length}`; const tw = textWidth(tag) + 4;
-      rect(x + 64 - tw, y + 48, tw + 2, 11, '0'); rect(x + 65 - tw, y + 49, tw, 9, rimK); text(ctx, tag, x + 67 - tw, y + 51, col('0'));
+      rect(x + 64 - tw, y + 46, tw + 2, 11, '0'); rect(x + 65 - tw, y + 47, tw, 9, rimK); text(ctx, tag, x + 67 - tw, y + 49, col('0'));
     } else {
       polaroid(ctx, m.id, x + 8, y - 2, dev, 1, blink, r.lost);
       if (r.lost && dev >= 0.5) recoveredStamp(ctx, x + 8, y + 33, (c, str, sx, sy) => text(c, str, sx, sy, col('0')));
@@ -472,29 +510,29 @@ class Memories implements Module {
     const n = r.ids.length;
     const head = bundle ? (r.lost ? 'FOUND AT LAST' : 'A HANDFUL OF PHOTOS') : r.lost ? 'LOST MEMORY FOUND' : 'MEMORY FOUND';
     const hb = r.t - IN; const flash = hb >= 0 && hb < 48 && ((hb >> 3) & 1) === 1;   // three calm blinks
-    text(ctx, head, tx, y + 6, col(flash ? '6' : rimK), { shadow: col('0') });
+    text(ctx, head, tx, y + 5, col(flash ? '6' : rimK), { shadow: col('0') });
     const count = `${r.n}/${g.content.memories.length}`;
     const cw = textWidth(count); const gx = right - cw - 10;   // a little photo glyph before the count
-    rect(gx - 1, y + 5, 9, 9, '0'); rect(gx, y + 6, 7, 7, '6'); rect(gx + 1, y + 7, 5, 3, 'm'); rect(gx + 1, y + 10, 5, 1, 'j');
-    text(ctx, count, right, y + 6, col('5'), { align: 'right' });
-    rect(tx, y + 16, right - tx, 1, rimK2); for (let xx = tx; xx < right; xx += 2) rect(xx, y + 17, 1, 1, '1');
+    rect(gx - 1, y + 4, 9, 9, '0'); rect(gx, y + 5, 7, 7, '6'); rect(gx + 1, y + 6, 5, 3, 'm'); rect(gx + 1, y + 9, 5, 1, 'j');
+    text(ctx, count, right, y + 5, col('5'), { align: 'right' });
+    rect(tx, y + 14, right - tx, 1, rimK2); for (let xx = tx; xx < right; xx += 2) rect(xx, y + 15, 1, 1, '1');
     const cols = Math.floor((right - tx + 1) / 6);
     const title = bundle ? `${n} ${r.lost ? 'LOST ' : ''}MEMORIES` : m.title;
     const big = textWidth(title.toUpperCase(), 2) <= right - tx;
-    if (big) text(ctx, title, tx, y + 21, col('6'), { scale: 2, shadow: col('0') });
-    else text(ctx, wrap(title.toUpperCase(), cols)[0] ?? '', tx, y + 25, col('6'), { shadow: col('0') });
+    if (big) text(ctx, title, tx, y + 18, col('6'), { scale: 2, shadow: col('0') });
+    else text(ctx, wrap(title.toUpperCase(), cols)[0] ?? '', tx, y + 22, col('6'), { shadow: col('0') });
     const body = bundle
       ? r.ids.map(id => g.content.memories.find(x => x.id === id)?.title ?? '').filter(Boolean).join(', ').toUpperCase()
       : cardText(m.text, cols);
-    bodyLines(body, cols).forEach((ln, i) => text(ctx, ln, tx, y + 40 + i * 9, col(i === 0 ? '7' : '5')));
+    bodyLines(body, cols).forEach((ln, i) => text(ctx, ln, tx, y + 34 + i * 8, col(i === 0 ? '7' : '5')));
     // footer: always there, so every card has the same layout; with more to come (or a bundle) it teaches the skip
-    rect(tx, y + 58, right - tx, 1, 'v');
+    rect(tx, y + 51, right - tx, 1, 'v');
     const canSkip = r.t >= SKIP_AT && r.t < IN + r.hold;
     const skipHint = bundle || (this.reveals.length > 1 && canSkip);
     const foot = skipHint ? 'TOOT TO CONTINUE' : bundle ? '' : 'KEPT IN YOUR JOURNAL';
     const footK = skipHint ? (canSkip && ((r.t >> 4) & 1) ? '6' : '4') : r.t > IN + 30 ? '4' : '3';
-    text(ctx, foot, right, y + 61, col(footK), { align: 'right' });
-    for (let i = 0; i < 3; i++) rect(tx + i * 4, y + 63, 2, 2, i === 0 ? (r.lost ? 'l' : 'd') : '3');
+    text(ctx, foot, right, y + 53, col(footK), { align: 'right' });
+    for (let i = 0; i < 3; i++) rect(tx + i * 4, y + 55, 2, 2, i === 0 ? (r.lost ? 'l' : 'd') : '3');
   }
 }
 

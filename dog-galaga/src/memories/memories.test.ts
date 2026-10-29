@@ -115,6 +115,34 @@ describe('memories: reveal freeze', () => {
     expect(bursts).toContain('hearts');
   });
 
+  it('the card never goes up right as a wave starts: it waits (play goes on), then holds the game', () => {
+    const { g, M } = fresh();
+    playing(g);
+    g.bus.emit('wave:start', { areaId: 'street', waveIndex: 1, count: 0 });
+    M.collect('mem_03');
+    expect(g.state.memories).toContain('mem_03');                 // safe in the album straight away
+    g.step();
+    expect(g.paused).toBe(false);
+    expect(M.showing()).toBe(false);
+    for (let i = 0; i < 400 && !M.showing(); i++) g.step();   // (the director starts the real wave meanwhile)
+    expect(M.showing()).toBe(true);
+    expect(g.paused).toBe(true);
+  });
+
+  it('the card waits out a boss telegraph or attack', () => {
+    const { g, M } = fresh();
+    playing(g);
+    const boss: any = { st: 'tell' };
+    g.mods.interaction.boss = boss;
+    M.collect('mem_04');
+    for (let i = 0; i < 10; i++) g.step();
+    expect(M.showing()).toBe(false);
+    expect(g.paused).toBe(false);
+    g.mods.interaction.boss = null;
+    g.step();
+    expect(M.showing()).toBe(true);
+  });
+
   it('a scene change mid-reveal (dialogue) releases the pause instead of softlocking', () => {
     const { g, M } = fresh();
     playing(g);
