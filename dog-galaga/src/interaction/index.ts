@@ -515,7 +515,12 @@ class Interaction implements Module {
     }
   }
 
-  markGlow() { const c = this.cats.find(c => !c.pup && !c.glow && c.def.behavior !== 'capturer'); if (c) c.glow = true; }
+  /** memories' carrier: any wave cat, preferring a non-escort in a Big Cat fight (a glowing polaroid on a wing slot
+   *  beside the Big Cat read as a stray white orb); an escort carries only when nothing else is out */
+  markGlow() {
+    const ok = (c: Cat) => !c.pup && !c.glow && c.def.behavior !== 'capturer';
+    const c = this.cats.find(c => ok(c) && c.eslot === undefined) ?? this.cats.find(ok); if (c) c.glow = true;
+  }
 
   spawnPickup(kind: string, x: number, y: number) {
     const pup = kind === 'pup';
