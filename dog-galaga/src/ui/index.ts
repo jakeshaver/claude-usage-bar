@@ -224,7 +224,7 @@ const TOAST_PARTNER_WAIT = 42;
 /**
  * Right HUD rows (y): SECTOR (10), WAVE, QUEST and the threat slot (HUD_TY, 72px: boss armor / bonus / HOSTILES /
  * NEXT WAVE) are the essentials. Under them one compact RESCUED line (pup count, album count, this sector's photo
- * boxes: icons only, no header). The panel foot (y 245..356) is the memory card's own slot: the stage flags and the
+ * boxes: icons only, no header). The panel foot (y 231..356) is the memory card's own slot: the stage flags and the
  * DAY + flight clock footer live there only while no card is up (nothing else is ever drawn in the slot).
  */
 const HUD_Y = { wave: 54, quest: 88, rescued: 210, flags: 292, foot: 336 };
@@ -232,16 +232,15 @@ const HUD_TY = 128;
 /** compact RESCUED line chips (x offsets from the panel's text column): pup | album | this sector's photos */
 const RES_PUP = 0, RES_ALB = 35, RES_ALB_W = 50, RES_BOX = 88, RES_BOX_R = 112, RES_H = 16;
 /**
- * Anchors other modules draw against (ui.hudSlots()): the memory card's own slot is the panel foot (y 245..356, the
- * compact 111px card), so QUEST, the threat slot (..200) and the RESCUED line (210..226, with the album chip the
+ * Anchors other modules draw against (ui.hudSlots()): the memory card's own slot is the panel foot (y 231..356, the
+ * compact 125px card), so QUEST, the threat slot (..200) and the RESCUED line (210..226, with the album chip the
  * photo files into) stay in view. `strip` describes the photo boxes on the RESCUED line (boxes right-aligned at
- * x + w - 5, row - 1); its x sits past the panel's right edge so memories' 'MEMORIES' label repaint (x + 15) lands
- * outside its own clip: the compact line has no label, only the boxes pulse.
+ * x + w - 5, row - 1); `label: false` tells memories the compact line has no 'MEMORIES' label, only the boxes pulse.
  */
 const HUD_SLOTS = {
-  card: { x: PF_X + PF_W + 5, y: 245, w: 118, h: 111 },
+  card: { x: PF_X + PF_W + 5, y: 231, w: 118, h: 125 },
   album: { x: PF_X + PF_W + 10 + RES_ALB + 8, y: HUD_Y.rescued + 8, tx: PF_X + PF_W + 10 + RES_ALB + 17, ty: HUD_Y.rescued + 5 },
-  strip: { x: W + 20, w: PF_X + PF_W + 10 + RES_BOX_R - (W + 20), row: HUD_Y.rescued + 5 },
+  strip: { x: PF_X + PF_W + 10, w: RES_BOX_R, row: HUD_Y.rescued + 5, label: false },
 };
 /** News that costs the player something: drawn with a peri frame and a pink cross, never the gold star. */
 const BAD_NEWS = /MISSED|EXPIRED|CLOSED|CLOSES|FORFEIT|SEALED|LOCKED|BLOCKED|CONTENT ISSUE|CHEWED/;

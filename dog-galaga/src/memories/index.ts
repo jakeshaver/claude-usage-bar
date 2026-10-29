@@ -50,7 +50,7 @@ const DEV = 34, DEV_PAGE = 16;
 /** the polaroid pops up out of the cat, hangs for a beat, then drifts */
 const POP = 40;
 /**
- * right HUD panel: the card is 120 wide at x RX+4 and lives strictly inside ui's card slot (ui.hudSlots().card, the
+ * right HUD panel: the card sits at ui's card x / w (RX+5, 118 wide) and lives strictly inside ui's card slot (ui.hudSlots().card, the
  * panel foot under RESCUED) so QUEST, the threat slot, the album chip and the memory strip above it stay in view. It
  * takes whatever height ui gives that slot. Keyboard layout: kicker row, then the title (left column, top-aligned to
  * the photo, up to three lines) beside the 40x38 polaroid (a 1:1 crop of the photo, right column, so its filing route
@@ -60,15 +60,17 @@ const POP = 40;
  * half polaroid, the kicker and the title (the text lives in the journal). It never covers HOSTILES / CATS LEFT.
  */
 const RX = PF_X + PF_W;
-const CARD_X = RX + 4, CARD_W = 120;
+/** card box: ui's hudSlots().card x / w (falls back to RX+5, 118) */
+let CARD_X = RX + 5, CARD_W = 118;
 /** touch fallback slot (no hudSlots().cardTouch): between the threat block and the ACTION deck */
 const TOUCH_Y = 197, TOUCH_H = 38;
-let CARD_Y = 245, CARD_H = 111;
+let CARD_Y = 231, CARD_H = 125;
 /** a slot lower than this gets the strip layout (half polaroid, kicker, title) */
 const STRIP_BELOW = 80;
 let STRIP = false;
 /** the mid polaroid (40x38) in the card's right column, its top-left offset */
-const POL_DX = CARD_W - 6 - MID_W, POL_DY = 19;
+let POL_DX = CARD_W - 6 - MID_W;
+const POL_DY = 19;
 /** strip layout: the half polaroid (32x31) at the left, the words column right of it */
 const SPOL_DX = 4, SPOL_DY = 3, STRIP_TX = 40;
 /** title column (left of the polaroid): 11 glyphs, up to three lines; body: 18 glyphs a line from BODY_DY */
@@ -79,6 +81,8 @@ let ALBUM_X = RX + 75, ALBUM_Y = 232;
 let ALBUM_TX = RX + 86, ALBUM_TY = 228;
 /** ui's memory strip (y 239..256, ui.hudSlots().strip): label at x+15, polaroid boxes right-aligned at row-1 */
 let GOALS_X = RX + 10, GOALS_W = 108, GOALS_ROW = 259;
+/** ui's strip has a 'MEMORIES' label to pulse (hudSlots().strip.label !== false) */
+let GOALS_LABEL = true;
 /** the filing route's top row and waypoints (rebuilt by useSlots) */
 let FLY_TOP = CARD_Y - 2;
 let ROUTE: [number, number, number][] = [];
@@ -89,13 +93,16 @@ function useSlots(g: Game): Lay {
   const touch = !!g.mods.ui?.touch?.visible?.(g);
   let sl: any = null; try { sl = g.mods.ui?.hudSlots?.() ?? null; } catch { sl = null; }
   const card = touch ? sl?.cardTouch : sl?.card, album = sl?.album, strip = sl?.strip;
-  const fy = touch ? TOUCH_Y : 245, fh = touch ? TOUCH_H : 111;
+  const fy = touch ? TOUCH_Y : 231, fh = touch ? TOUCH_H : 125;
   CARD_Y = typeof card?.y === 'number' ? card.y : fy;
   CARD_H = typeof card?.h === 'number' ? Math.max(TOUCH_H, Math.min(H - 2 - CARD_Y, card.h)) : fh;
   STRIP = CARD_H < STRIP_BELOW;
   if (album) { ALBUM_X = album.x; ALBUM_Y = album.y; ALBUM_TX = album.tx; ALBUM_TY = album.ty; }
   else { ALBUM_X = RX + 75; ALBUM_Y = 232; ALBUM_TX = RX + 86; ALBUM_TY = 228; }
-  if (strip) { GOALS_X = strip.x; GOALS_W = strip.w; GOALS_ROW = strip.row; }
+  if (strip) { GOALS_X = strip.x; GOALS_W = strip.w; GOALS_ROW = strip.row; GOALS_LABEL = strip.label !== false; }
+  const box = card ?? sl?.card;
+  CARD_X = typeof box?.x === 'number' ? box.x : RX + 5; CARD_W = typeof box?.w === 'number' ? Math.min(124, Math.max(100, box.w)) : 118;
+  POL_DX = CARD_W - 6 - MID_W; FLY_X = CARD_X + POL_DX + (MID_W >> 1);
   TOUCH = touch;
   buildRoute();
   return { touch, h: CARD_H, strip: STRIP };
@@ -698,7 +705,7 @@ class Memories implements Module {
     const mems = this.placed(g.state.areaId); const n = mems.length; if (!n) return;
     const on = p.t < GOAL_PULSE - 8 || (p.t & 2) === 0; if (!on) return;
     const k = (p.t >> 3) & 1 ? 'f' : '6';
-    text(ctx, 'MEMORIES', GOALS_X + 15, GOALS_ROW, col(k));
+    if (GOALS_LABEL) text(ctx, 'MEMORIES', GOALS_X + 15, GOALS_ROW, col(k));
     mems.forEach((m, i) => {
       if (!p.ids.includes(m.id)) return;
       const bx = GOALS_X + GOALS_W - 5 - (n - i) * 9 + 1, by = GOALS_ROW - 1;
@@ -720,7 +727,7 @@ function bundleHold(n: number) { const { shown, pages } = bundlePages(n); return
  * album chip: a tall touch card rises to its own top-right corner, the strip card shrinks the photo away in its slot.
  * Waypoints after the slot centre, with the eased fraction each one is reached.
  */
-const FLY_X = CARD_X + POL_DX + (MID_W >> 1);
+let FLY_X = CARD_X + POL_DX + (MID_W >> 1);
 /** the photo's slot centre and how far it may lift before it travels (never past the header rule) */
 function slot() {
   return STRIP ? { sx: CARD_X + SPOL_DX + 16, sy: CARD_Y + SPOL_DY + 15, lift: 0 }
