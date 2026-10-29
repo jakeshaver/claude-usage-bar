@@ -33,39 +33,106 @@ export const SHADE_TOD: Record<Tod, Ramp> = {
   day: SHADE,
   night: ramp('2:1 q:1 3:2 k:1 n:1 p:2 4:3 u:2 o:q 9:b a:v 8:p', SHADE),
   dawn: ramp('k:2 j:k q:2 p:3 o:4 7:5 8:4 9:3 a:2 b:1 h:a v:1 i:m 3:2', SHADE),
-  dusk: ramp('k:v j:v q:v p:q o:p 8:a 9:b a:v b:v h:b g:h 4:u 3:2 2:v n:v m:n 1:0', SHADE),
+  dusk: ramp('k:vk/8 j:k q:v p:q o:p 8:a 9:b a:v b:v h:b g:h 4:u 3:2 2:v n:v m:n 1:0', SHADE),
 };
+// ---------------------------------------------------------------- lighting
+// Time of day is LIGHT, not a recolour: every palette entry is multiplied by a
+// coloured light (and lifted by a coloured ambient) in linear RGB, and the result is
+// matched back to the palette by perceptual distance (OKLab, hue weighted). So each
+// material keeps its hue family (grass stays green-to-olive, regolith stays grey,
+// brick stays brick) and only value and temperature move. A material whose lit
+// colour falls between two palette entries gets a 50/50 or 25/75 ordered dither of
+// two entries that are close in value (never a speckle of far-apart colours).
+const lin = (c: number) => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+const LIN: [number, number, number][] = RGB.map(([r, g, b]) => [lin(r), lin(g), lin(b)]);
+function oklab([r, g, b]: [number, number, number]): [number, number, number] {
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+}
+const LAB = LIN.map(oklab);
+/** hue-weighted perceptual distance: a hue or chroma error costs more than a value error */
+function dE(a: [number, number, number], b: [number, number, number]) { const dl = a[0] - b[0], da = (a[1] - b[1]) * 2.6, db = (a[2] - b[2]) * 2.6; return Math.sqrt(dl * dl + da * da + db * db); }
+const dist = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+/** every single palette entry and every allowed two-entry dither blend, with its OKLab colour and its dither cost (built once) */
+let MIX: [number, number, number, [number, number, number], number][] | null = null;
+function mixes() {
+  if (MIX) return MIX;
+  MIX = [];
+  for (let p = 0; p < 32; p++) for (let q = p; q < 32; q++) {
+    const pq = p === q ? 0 : dist(LAB[p], LAB[q]);
+    if (pq > 0.22) continue; // only blend neighbours in value / hue
+    for (const f of p === q ? [0] : [0.25, 0.5, 0.75]) {
+      const m: [number, number, number] = [0, 1, 2].map(k => LIN[p][k] * (1 - f) + LIN[q][k] * f) as [number, number, number];
+      MIX.push([p, q, f, oklab(m), f ? 0.03 + pq * 0.45 * (f === 0.5 ? 1 : 1.25) : 0]);
+    }
+  }
+  return MIX;
+}
+/** a light: multiply (linear RGB), then add ambient; `hi` adds a tint to bright colours only (sky glow on pale tones) */
+export interface Light { mul: [number, number, number]; add?: [number, number, number]; hi?: [number, number, number]; sat?: number }
+/** Pixel keys a light leaves alone (emissives, sky windows...) */
+export function lightRamp(L: Light, keep = '', override = ''): Ramp {
+  const a = new Uint8Array(32), b = new Uint8Array(32), lv = new Uint8Array(32);
+  const add = L.add ?? [0, 0, 0], hi = L.hi ?? [0, 0, 0], sat = L.sat ?? 1;
+  for (let i = 0; i < 32; i++) {
+    a[i] = b[i] = i; lv[i] = 0;
+    if (keep.includes(KEY[i])) continue;
+    const c = LIN[i]; const y = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    const t = [0, 1, 2].map(k => { const v = y + (c[k] - y) * sat; return Math.max(0, v * L.mul[k] + add[k] + hi[k] * y * y); }) as [number, number, number];
+    const T = oklab(t);
+    let best = 1e9;
+    for (const [p, q, f, lab, cost] of mixes()) { const e = dE(lab, T) + cost; if (e < best) { best = e; a[i] = p; b[i] = q; lv[i] = Math.round(f * 16); } }
+  }
+  const r: Ramp = { a, b, lv, id: false };
+  return override ? ramp(override, r) : r;
+}
+/** outdoor light per time of day (day is identity: backgrounds are authored in muted day colours, the brightest key) */
+export const LIGHT: Record<Exclude<Tod, 'day'>, Light> = {
+  // first light: pale, low contrast, cool lavender ambient with a peach-pink glow on pale tones
+  dawn: { mul: [0.74, 0.72, 0.86], add: [0.03, 0.022, 0.045], hi: [0.16, 0.04, 0.05], sat: 0.85 },
+  // sunset: one step darker, amber light, plum ambient in the shadows
+  dusk: { mul: [0.78, 0.46, 0.32], add: [0.012, 0.002, 0.016], sat: 1.05 },
+  // moonlight: navy, about 40% lower value
+  night: { mul: [0.17, 0.22, 0.4], add: [0.003, 0.004, 0.012], sat: 0.8 },
+};
+const ID = ramp('');
 /**
- * Time-of-day palette ramps, remapped per material (asphalt greys, grass greens, brick browns, ...),
- * one palette entry to one palette entry: no dither on large flat areas.
- * Day is identity (backgrounds are authored in muted day colours) and is the brightest key.
+ * Outdoor ramps. The overrides pin the big ground materials so each time of day reads at a glance
+ * while keeping the material: dewy grey-green lawn at dawn, olive lawn at dusk, blue-green lawn at night.
  */
 export const TOD_RAMP: Record<Tod, Ramp> = {
-  day: ramp(''),
-  // blue hour: neutrals go periwinkle / lavender (a touch lighter than the night navy so it never reads as night),
-  // lawns go a cool dewy teal, pale tones catch the pink sky. Peach rim light on top edges does the rest.
-  dawn: ramp('6:7 7:c 5:c s:5 o:5 p:4 q:3 v:2 1:1 8:c 9:a a:a b:b j:m i:j k:n l:m m:4 n:3 f:8 g:9 h:a r:d d:e t:4 e:e u:u'),
-  // sunset: one step darker and warm; greys go brown / plum, lawns go golden olive, greens' tufts catch amber.
-  // Purples stay in the shadows; warm accents come from rim light on west faces and lit windows.
-  dusk: ramp('6:8 7:8 5:t 4:u 3:2 2:v o:9 p:a q:v v:v 8:9 9:a a:b b:b j:h i:g k:b l:m m:n s:t f:g c:d t:u n:2 g:h r:h'),
-  // moonlight: navy / indigo, roughly 30% lower value than day; grass goes indigo, asphalt near-black.
-  night: ramp('1:1 2:1 3:2 4:3 5:4 6:5 7:o 8:p 9:a a:b b:v c:u d:e e:v f:9 g:a h:b i:j j:k k:2 l:m m:n n:2 o:p p:q q:2 r:e s:4 t:u u:3 v:1'),
+  day: ID,
+  dawn: lightRamp(LIGHT.dawn, '', 'k:k4/6 j:j5/4 0:v 1:v q:q3/4 o:oc/4 v:v 7:c'),
+  dusk: lightRamp(LIGHT.dusk, '', 'k:kb/4 j:h i:g'),
+  night: lightRamp(LIGHT.night, '', 'k:2k/8 j:k i:k'),
 };
 /** Low sun on the sunward faces: warm amber at dusk (west faces), peach-pink at dawn (top / east edges). */
 export const RIM_RAMP: Partial<Record<Tod, Ramp>> = {
   dusk: ramp('q:h p:g o:f v:a 1:b 2:e 3:d 4:c 5:7 a:g b:h 9:g 8:f 7:f k:a j:9 i:f n:e m:d 6:7 u:d t:c e:d'),
   dawn: ramp('q:p p:8 o:c v:q 1:v 2:3 3:4 4:c 5:c a:9 b:a 9:8 8:c 7:c k:j j:8 n:m m:4 h:g e:d u:t'),
 };
-/** Inside a lamp pool at night: warm sodium light (applied to day colours) so the pool reads as a hard warm cone. */
-export const LAMP_RAMP = ramp('0:0 1:b v:a 2:a q:9 p:8 o:7 3:9 4:8 n:a m:9 k:k j:j b:a a:9 9:8 8:7 7:7 6:7 5:7 e:h u:h');
+/** Inside a lamp pool at night: warm sodium light (applied to day colours), so lit grass stays green but goes golden. */
+export const LAMP_RAMP = lightRamp({ mul: [1.0, 0.72, 0.34], add: [0.01, 0.006, 0] }, '', '0:0 1:b v:b 2:a 3:9 q:a p:9 o:8 n:a k:ka/4 j:j9/4 m:9 b:a a:9 9:8');
 /** Outer falloff ring of a lamp pool: halfway between sodium light and moonlight. */
-export const LAMP_EDGE = ramp('0:0 1:v v:b 2:b q:a p:9 o:9 3:a 4:9 n:b m:a k:k j:k b:b a:a 9:9 8:9 7:8 6:8 5:8 e:b u:b');
-/** Interiors: lamps are on after dark, so the room only warms up instead of going dark. */
+export const LAMP_EDGE = lightRamp({ mul: [0.5, 0.42, 0.38], add: [0.005, 0.004, 0.008] }, '', '0:0 1:v v:b 2:b 3:b q:b p:a o:9 n:b k:k2/4 j:k m:n');
+/** Interiors: the lights are on after dark, so the room dims and warms instead of going black (pendant pools stay at day colours). */
+export const INDOOR_LIGHT: Record<Exclude<Tod, 'day'>, Light> = {
+  // early sun through the windows: pale, soft and peach (lifted shadows, warm highlights)
+  dawn: { mul: [0.9, 0.8, 0.72], add: [0.05, 0.03, 0.026], hi: [0.12, 0.04, 0.0], sat: 0.8 },
+  // golden hour: amber room, plum shadows
+  dusk: { mul: [0.82, 0.55, 0.36], add: [0.01, 0.002, 0.012] },
+  // closing time: the room drops to a dim plum-navy and only the pendant pools stay warm
+  night: { mul: [0.24, 0.22, 0.34], add: [0.004, 0.003, 0.01], sat: 0.8 },
+};
 export const INDOOR_RAMP: Record<Tod, Ramp> = {
-  day: ramp(''),
-  dawn: ramp('0:1 1:v 5:c 6:7 7:c o:8 n:3 m:4 4:t'),
-  dusk: ramp('5:c 6:7 7:8 o:8 4:t 3:u s:c p:q q:v n:e'),
-  night: ramp('5:4 6:5 7:8 o:p 4:3 3:2 s:4 p:q q:v 2:1 9:a a:b b:v 8:9 n:2 m:n e:v u:2 c:d'),
+  day: ID,
+  // pale honey floor, lifted shadows
+  dawn: lightRamp(INDOOR_LIGHT.dawn, '', 'b:a v:b a:9 9:8 0:v 1:v 2:3 3:4 q:p n:3'),
+  // the floor sinks into warm shade so the low amber beams and the first lamp pools read
+  dusk: lightRamp(INDOOR_LIGHT.dusk, '', 'b:bv/4 v:v'),
+  night: lightRamp(INDOOR_LIGHT.night),
 };
 /** Sunbeams through windows (interiors by day/dawn): warm lift. */
 export const SUN_RAMP = ramp('0:1 1:v v:b b:a a:a 9:9 8:8 q:p p:p 2:3 3:3 e:e u:u n:n k:k');
@@ -90,7 +157,8 @@ const KI = new Uint8Array(128); for (let i = 0; i < 32; i++) KI[KEY.charCodeAt(i
 const ci = (k: string) => KI[k.charCodeAt(0)];
 const CLEAR = 255;
 
-export interface Pool { x: number; y: number; r: number; clip?: [number, number, number, number] }
+/** spill: the light source is world-spaced (painted in both neighbouring segments), so the pool may cross the segment edge */
+export interface Pool { x: number; y: number; r: number; clip?: [number, number, number, number]; spill?: boolean }
 
 /**
  * Painter over one segment. Everything is drawn into a palette-index buffer
@@ -168,7 +236,7 @@ export class Painter {
   /** Shadow offset per unit of object height for the current time of day (long and low at dawn / dusk). */
   cast(height: number): [number, number] {
     const t = this.tod;
-    const [ax, ay] = t === 'dawn' ? [-1.1, 1.0] : t === 'dusk' ? [2.4, 0.5] : t === 'night' ? [0.2, 0.25] : [0.45, 0.55];
+    const [ax, ay] = t === 'dawn' ? [-1.1, 1.0] : t === 'dusk' ? [1.7, 0.45] : t === 'night' ? [0.2, 0.25] : [0.45, 0.55];
     return [Math.round(ax * height), Math.round(ay * height)];
   }
   private sm(x: number, y: number, w: number, h: number) {
@@ -203,7 +271,7 @@ export class Painter {
   /** a sunbeam: parallelogram lit with SUN_RAMP (only shown when the caller decides it is daytime) */
   beam(x: number, y: number, w: number, h: number, skew: number) { this.beams.push({ x, y, w, h, skew }); }
   /** a light source: lamp pool at night */
-  pool(x: number, y: number, r: number, clip?: [number, number, number, number]) { this.pools.push({ x, y, r, clip }); }
+  pool(x: number, y: number, r: number, clip?: [number, number, number, number], spill = false) { this.pools.push({ x, y, r, clip, spill }); }
   /** emissive rect: shows `day` normally, `lit` (unaffected by darkness) when the light is on */
   glow(day: string, lit: string, x: number, y: number, w: number, h: number, chance = 1, roll = 0) {
     const t = this.tod; const p = t === 'night' ? chance : t === 'dusk' ? chance * 0.7 : t === 'dawn' ? chance * 0.3 : 0;
@@ -230,7 +298,11 @@ export class Painter {
       // small hard-edged lamp cones: a solid warm core, then a 2-step ordered-dither falloff
       mask = mask ?? new Uint8Array(w * h);
       for (const p of this.pools) {
-        const R = Math.max(6, Math.round(p.r * this.poolScale)), rin = R * 0.62, rmid = R * 0.82;
+        let R = Math.max(6, Math.round(p.r * this.poolScale));
+        // a pool whose source lives in this segment only must not be cut by the segment edge: it shrinks to fit instead
+        if (!p.spill) R = Math.min(R, Math.floor(Math.min(p.y, h - 1 - p.y) * 1.2));
+        if (R < 5) continue;
+        const rin = R * 0.62, rmid = R * 0.82;
         for (let y = Math.max(0, p.y - R); y < Math.min(h, p.y + R + 1); y++) for (let x = Math.max(0, p.x - R); x < Math.min(w, p.x + R + 1); x++) {
           if (p.clip && (x < p.clip[0] || y < p.clip[1] || x >= p.clip[0] + p.clip[2] || y >= p.clip[1] + p.clip[3])) continue;
           const d = Math.hypot((x - p.x), (y - p.y) * 1.2); if (d > R) continue;
