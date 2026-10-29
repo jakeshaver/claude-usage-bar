@@ -9,6 +9,12 @@ export interface NQuest extends QuestDef {
   start: Trigger;
   complete: Trigger & { count: number };
   reward: { flags: string[]; items: Record<string, number>; score: number };
+  /** optional: events that close the quest as missed (e.g. taking the other branch past a secret exit) */
+  expire: Trigger[];
+  /** optional: a state goal shown as progress while the completion event has not happened yet */
+  track: { memories: number } | null;
+  /** how `expire` / `track` / count were filled in: 'content' or a note when the engine derived them */
+  derived: string[];
 }
 
 const COND_KEYS = ['flag', 'notFlag', 'quest', 'item', 'cleared', 'memories', 'all', 'any', 'not'];
@@ -62,6 +68,13 @@ export function normalizeQuest(q: any): { quest: NQuest } | { error: string } {
   if (r.items !== undefined && (typeof r.items !== 'object' || Array.isArray(r.items) || Object.values(r.items).some(v => typeof v !== 'number' || !Number.isFinite(v)))) return { error: 'reward.items must map item ids to numbers' };
   if (r.score !== undefined && (typeof r.score !== 'number' || !Number.isFinite(r.score))) return { error: 'reward.score must be a number' };
   if (q.dialogue !== undefined && typeof q.dialogue !== 'string') return { error: 'dialogue must be a dialogue id' };
+  const ex = q.expire === undefined ? [] : Array.isArray(q.expire) ? q.expire : [q.expire];
+  for (let i = 0; i < ex.length; i++) { const e = triggerProblem(ex[i], `expire[${i}]`); if (e) return { error: e }; }
+  let track: NQuest['track'] = null;
+  if (q.track !== undefined) {
+    if (!q.track || typeof q.track !== 'object' || !Number.isFinite(q.track.memories) || q.track.memories < 1) return { error: 'track must be {"memories": N} with N >= 1' };
+    track = { memories: Math.floor(q.track.memories) };
+  }
   return {
     quest: {
       ...q,
@@ -69,6 +82,7 @@ export function normalizeQuest(q: any): { quest: NQuest } | { error: string } {
       desc: typeof q.desc === 'string' ? q.desc : '',
       start: q.start, complete: { ...q.complete, count },
       reward: { flags: r.flags ?? [], items: r.items ?? {}, score: Math.max(0, r.score ?? 0) },
+      expire: ex, track, derived: [],
     },
   };
 }
@@ -97,4 +111,40 @@ export function matchPayload(match: Trigger['match'], p: any): boolean {
     return false;
   }
   return true;
+}
+
+/** The memory threshold inside an exit condition ({memories: N}, possibly nested in all/any), or 0. */
+function memGate(c: any, depth = 0): number {
+  if (!c || typeof c !== 'object' || depth > 8) return 0;
+  if (Number.isFinite(c.memories)) return Math.max(0, Math.floor(c.memories));
+  for (const k of ['all', 'any']) if (Array.isArray(c[k])) for (const x of c[k]) { const n = memGate(x, depth + 1); if (n) return n; }
+  return 0;
+}
+
+/**
+ * Keep quest content honest against the sector graph (quests.json and areas.json are edited separately):
+ * - "clear every wave in X" (wave:clear matching an areaId) needs exactly as many clears as X has waves;
+ *   a stale count is replaced by the real wave total (and noted in `derived`).
+ * - "reach X" (area:enter matching an areaId) where X sits behind a gated exit: the gate's memory threshold
+ *   becomes visible progress (`track`), and entering any sibling exit of the gate closes the quest as missed.
+ * Explicit `track` / `expire` in content always win.
+ */
+export function deriveQuest(q: NQuest, areas: { id: string; waves?: unknown[]; exits?: { to: string; when?: unknown }[] }[]): NQuest {
+  const out: NQuest = { ...q, complete: { ...q.complete }, expire: [...q.expire], derived: [...q.derived] };
+  const aid = out.complete.match?.areaId;
+  if (typeof aid !== 'string') return out;
+  if (out.complete.on === 'wave:clear') {
+    const a = areas.find(x => x?.id === aid); const n = Array.isArray(a?.waves) ? a!.waves!.length : 0;
+    if (n > 0 && out.complete.count !== n) { out.derived.push(`count ${out.complete.count} -> ${n} (waves in ${aid})`); out.complete.count = n; }
+  }
+  if (out.complete.on === 'area:enter') {
+    for (const src of areas) {
+      const ex = Array.isArray(src?.exits) ? src.exits : [];
+      const gate = ex.find(e => e?.to === aid && e.when !== undefined); if (!gate) continue;
+      const n = memGate(gate.when);
+      if (n && !out.track) { out.track = { memories: n }; out.derived.push(`track memories ${n} (gate ${src.id} -> ${aid})`); }
+      if (!q.expire.length) for (const e of ex) if (e?.to && e.to !== aid) { out.expire.push({ on: 'area:enter', match: { areaId: e.to } }); out.derived.push(`expire on entering ${e.to}`); }
+    }
+  }
+  return out;
 }

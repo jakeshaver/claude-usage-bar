@@ -12,9 +12,39 @@ const CPS = 0.72;                 // characters per tick (~43 cps): readable, st
 const FAST = 4;                   // speed multiplier while fire/confirm is held
 const PAUSE: Record<string, number> = { '.': 9, '!': 9, '?': 9, ',': 4, ';': 5, ':': 5, '-': 3 };
 const ELLIPSIS_DOT = 5;           // each dot of "..." lands one beat at a time
-const BLIP_GAP = 4;               // min ticks between 'talk' blips (the sfx is ~6 ticks long)
 const OPEN_LOCK = 10;             // ticks after a conversation opens where presses are ignored (stray fire mashing)
+const CLOSE_HOLD = 40;            // max ticks the closing press is held back from play (so it never fires a turd)
+const CARD_GATE = 8;              // an area briefing opens once the world's sector title card is down to this many ticks
+const CARD_MAX = 200;             // never wait on a title card longer than this
 const MAX_NODES = 64;             // hard cap per conversation (protects against next-cycles in content)
+
+/**
+ * Speaker voices: every character gets their own 'talk' blip (passed to audio.sfx('talk', {voice, pitch})).
+ * `gap` is the minimum number of ticks between blips, so a gruff voice talks in slower, heavier syllables.
+ */
+export interface Voice { voice: 'gruff' | 'bright' | 'meow' | 'regal' | 'plain'; pitch: number; gap: number }
+const VOICES: [RegExp, Voice][] = [
+  [/biscuit|bulldog|commander/i, { voice: 'gruff', pitch: 0.62, gap: 6 }],
+  [/pom|poodle/i, { voice: 'bright', pitch: 1.26, gap: 4 }],
+  [/empress|fluffington|queen|duchess|madame/i, { voice: 'regal', pitch: 0.9, gap: 5 }],
+  [/cat|tom|whisk|sal|mau|patches|sphynx|siamese|tabby|kitty|admiral|ace|kingpin|fold|mainsail|blue/i, { voice: 'meow', pitch: 1.08, gap: 5 }],
+  [/pup|puppy/i, { voice: 'bright', pitch: 1.5, gap: 4 }],
+];
+const PLAIN: Voice = { voice: 'plain', pitch: 1, gap: 5 };
+/** Voice for a speaker (matched on speaker name, then portrait id). */
+export function voiceFor(node: { speaker?: string; portrait?: string }): Voice {
+  const key = `${node.speaker ?? ''}|${node.portrait ?? ''}`;
+  for (const [re, v] of VOICES) if (re.test(key)) return v;
+  return PLAIN;
+}
+/**
+ * Should typing character i of `txt` blip? Only letters and digits speak, a doubled letter ("woof", "Pommm")
+ * does not repeat the syllable, and the voice's gap keeps the rhythm to words rather than a machine-gun buzz.
+ */
+export function blipAt(txt: string, i: number): boolean {
+  const ch = txt[i]; if (!ch || !/[A-Za-z0-9]/.test(ch)) return false;
+  return i === 0 || txt[i - 1].toLowerCase() !== ch.toLowerCase();
+}
 
 /** A missing or broken node never crashes: Pom fills the gap herself. */
 export const FALLBACK_NODE: DialogueDef = {
@@ -34,6 +64,8 @@ export interface DlgState {
   chars: number;
   acc: number; wait: number; lastBlip: number;
   nodes: number;
+  /** speaker voice of the current node */
+  voice: Voice;
 }
 
 /** Split text into pages of DLG_ROWS wrapped lines. Page text is the lines rejoined, so ui's re-wrap is identical. */
@@ -58,8 +90,27 @@ export function revealLines(text: string, chars: number, cols = DLG_COLS, rows =
   return out;
 }
 
+/**
+ * Tool compatibility: `tools/screenshot.mjs --skipDialogue` loads `?area=x` WITHOUT `advance` and then closes the
+ * briefing by looping `quest.advance()` while `quest.dlg` is set. A briefing still waiting on the title card has
+ * no `dlg` yet, so such a boot-time deep link opens it right away (as before) to stay skippable. Remove once the
+ * tool calls `quest.skipAll()` (docs/core-requests/quest.md, round 2).
+ */
+function toolSkipLink(g: Game): boolean {
+  if (g.tick !== 0 || typeof location === 'undefined') return false;
+  const q = String(location.search ?? '');
+  return /[?&]area=/.test(q) && !/[?&]advance=/.test(q);
+}
+
 export class DialogueEngine {
   dlg: DlgState | null = null;
+  /**
+   * A briefing waiting for the sector title card to finish (scene is already 'dialogue', so the world holds its
+   * intro timer and the player stays put, but nothing is drawn over the card). Promoted to `dlg` in update().
+   */
+  staged: { node: DialogueDef; prev: Scene; done?: () => void; t: number } | null = null;
+  /** The last page was closed by a press that is still held: play resumes once fire/confirm is released. */
+  releasing: { d: DlgState; t: number } | null = null;
   private pending: { id: string; done?: () => void }[] = [];
   private closing = false;
   constructor(private g: Game) {}
@@ -88,7 +139,10 @@ export class DialogueEngine {
     return null;
   }
 
-  busy() { return !!this.dlg || !!this.g.mods.ui?.heldDlg; }
+  busy() { return !!this.dlg || !!this.staged || !!this.releasing || !!this.g.mods.ui?.heldDlg; }
+
+  /** Ticks left on the world's sector title card (0 when there is none). */
+  private card(): number { const c = Number(this.g.mods.world?.titleCard ?? 0); return Number.isFinite(c) ? c : 0; }
 
   /**
    * Open a conversation. While another one runs: a conversation nobody waits on (no `done`) is replaced,
@@ -98,23 +152,39 @@ export class DialogueEngine {
   open(nodeId: string, done?: () => void, queue = false) {
     if (typeof nodeId !== 'string' || !nodeId) { this.g.reportError('quest', `bad dialogue id ${JSON.stringify(nodeId)}`); this.safeDone(done); return; }
     if (this.busy()) {
-      const cur = this.dlg;
-      if (queue || !cur || cur.done) { this.pending.push({ id: nodeId, done }); return; }
-      this.g.bus.emit('dialogue:close', { nodeId: cur.src.id });
-      this.dlg = null;
+      const cur = this.dlg ?? this.staged;
+      if (queue || !cur || cur.done || this.releasing) { this.pending.push({ id: nodeId, done }); return; }
+      if (this.dlg) this.g.bus.emit('dialogue:close', { nodeId: this.dlg.src.id });
+      this.dlg = null; this.staged = null;
     }
     const node = this.resolve(nodeId);
     if (!node) { this.safeDone(done); return; } // every node gated off: nothing to say
     const sc = this.g.state.scene;
     const prev: Scene = sc === 'dialogue' ? 'play' : sc;
-    this.dlg = { node, src: node, pages: [], page: 0, prev, done, t: 0, age: 0, chars: 0, acc: 0, wait: 0, lastBlip: -99, nodes: 1 };
+    // one thing to read at a time: a briefing waits for the sector title card (the bot never waits)
+    if (!this.g.autopilot && sc === 'play' && this.card() > CARD_GATE && !toolSkipLink(this.g)) {
+      this.staged = { node, prev, done, t: 0 };
+      this.g.setScene('dialogue');
+      return;
+    }
+    this.show(node, prev, done);
+  }
+
+  private show(node: DialogueDef, prev: Scene, done?: () => void) {
+    this.dlg = { node, src: node, pages: [], page: 0, prev, done, t: 0, age: 0, chars: 0, acc: 0, wait: 0, lastBlip: -99, nodes: 1, voice: voiceFor(node) };
     this.setPages(node);
-    this.g.setScene('dialogue');
+    if (this.g.state.scene !== 'dialogue') this.g.setScene('dialogue');
     this.g.bus.emit('dialogue:open', { nodeId: node.id });
   }
 
+  /** Promote a staged briefing now (title card done, a skip, or a forced open). */
+  private unstage() {
+    const s = this.staged; if (!s) return;
+    this.staged = null; this.show(s.node, s.prev, s.done);
+  }
+
   private setPages(src: DialogueDef) {
-    const d = this.dlg!; d.src = src; d.pages = paginate(src.text); d.page = 0; this.showPage();
+    const d = this.dlg!; d.src = src; d.voice = voiceFor(src); d.pages = paginate(src.text); d.page = 0; this.showPage();
   }
   private showPage() {
     const d = this.dlg!; d.node = { ...d.src, text: d.pages[d.page] ?? '' };
@@ -125,23 +195,30 @@ export class DialogueEngine {
 
   /** Confirm press: finish the page if it is still typing, else go to the next page / node / end. */
   advance() {
+    if (!this.dlg && this.staged) { this.unstage(); return; }
     const d = this.dlg; if (!d) return;
     if (d.chars < d.node.text.length) { d.chars = d.node.text.length; d.wait = 0; return; }
     if (d.page + 1 < d.pages.length) { d.page++; this.showPage(); return; }
     this.g.bus.emit('dialogue:close', { nodeId: d.src.id });
     const next = d.nodes < MAX_NODES ? this.resolve(d.src.next) : null;
     if (next) { d.nodes++; this.setPages(next); this.g.bus.emit('dialogue:open', { nodeId: next.id }); return; }
+    // the press that closed the last page must not reach play (Space is fire AND confirm): hold the scene
+    // until it is released, so Pom never toots on her first frame back
+    const I = this.g.input;
+    if (!this.g.autopilot && (I?.held('fire') || I?.held('confirm'))) { this.dlg = null; this.releasing = { d, t: 0 }; return; }
     this.finish(true);
   }
 
-  /** Fast-forward the whole open conversation (skip key / pause menu). */
+  /** Fast-forward the whole open conversation (skip key / pause menu), including a briefing still waiting on the title card. */
   skipAll() {
+    if (this.staged) this.unstage();
     for (let i = 0; i < MAX_NODES * 8 && this.dlg; i++) { this.dlg.chars = 1e9; this.advance(); }
+    if (this.releasing) this.finish(true);
   }
 
   private finish(restoreScene: boolean) {
-    const d = this.dlg; if (!d) return;
-    this.dlg = null;
+    const d = this.dlg ?? this.releasing?.d ?? null; if (!d) return;
+    this.dlg = null; this.releasing = null;
     this.closing = true;
     try { if (restoreScene && this.g.state.scene === 'dialogue') this.g.setScene(d.prev); } finally { this.closing = false; }
     this.safeDone(d.done);
@@ -149,7 +226,7 @@ export class DialogueEngine {
   }
 
   private drain() {
-    if (this.dlg || !this.pending.length) return;
+    if (this.dlg || this.staged || this.releasing || !this.pending.length) return;
     const sc = this.g.state.scene;
     if (sc !== 'play' && sc !== 'map' && sc !== 'dialogue' && sc !== 'bonus') return; // wait for a scene that can host it
     const nx = this.pending.shift()!; this.open(nx.id, nx.done);
@@ -164,16 +241,28 @@ export class DialogueEngine {
   onSceneChange(from: Scene, to: Scene) {
     if (this.closing) return;
     if (to === 'dialogue') return;
-    if (to === 'title' || to === 'recovery' || to === 'ending' || to === 'boot') { this.dlg = null; this.pending = []; return; }
+    if (to === 'title' || to === 'recovery' || to === 'ending' || to === 'boot') { this.reset(); return; }
+    if (from === 'dialogue' && this.staged) { const s = this.staged; this.staged = null; this.safeDone(s.done); this.drain(); return; }
+    if (from === 'dialogue' && this.releasing) { this.finish(false); return; }
     if (from === 'dialogue' && this.dlg) { this.g.bus.emit('dialogue:close', { nodeId: this.dlg.src.id }); this.finish(false); return; }
     this.drain();
   }
 
-  reset() { this.dlg = null; this.pending = []; }
+  reset() { this.dlg = null; this.staged = null; this.releasing = null; this.pending = []; }
 
   update(g: Game) {
-    if (!this.dlg && this.pending.length && !g.paused) this.drain();
-    const d = this.dlg; if (!d || g.paused || g.state.scene !== 'dialogue') return;
+    if (!this.busy() && this.pending.length && !g.paused) this.drain();
+    if (g.paused || g.state.scene !== 'dialogue') return;
+    if (this.releasing) {
+      const r = this.releasing; r.t++;
+      if (!(g.input.held('fire') || g.input.held('confirm')) || r.t >= CLOSE_HOLD || g.autopilot) this.finish(true);
+      return;
+    }
+    if (this.staged) {
+      if (g.autopilot || this.card() <= CARD_GATE || ++this.staged.t > CARD_MAX) this.unstage();
+      return;
+    }
+    const d = this.dlg; if (!d) return;
     d.t++; d.age++;
     if (g.autopilot) { this.type(1); if (d.t > 20) this.advance(); return; }
     const I = g.input;
@@ -182,10 +271,41 @@ export class DialogueEngine {
     if (press) {
       const wasTyping = this.typing();
       this.advance();
-      if (!wasTyping) g.mods.audio?.sfx('talk');
+      if (!wasTyping) this.blip(d, 1);
       return;
     }
     this.type(hold ? FAST : 1);
+  }
+
+  /** One 'talk' syllable in the speaker's voice; a small per-letter pitch wobble keeps it from sounding like a beep. */
+  private blip(d: DlgState, code: number) {
+    if (this.quiet) return;
+    const v = d.voice; const pitch = +(v.pitch * (1 + ((code % 5) - 2) * 0.035)).toFixed(3);
+    this.g.mods.audio?.sfx('talk', { voice: v.voice, pitch });
+  }
+  /** Silences blips (showcase staging fast-forwards typing without a burst of sound). */
+  quiet = false;
+
+  /**
+   * Showcase/tool staging: open `id` and play `at` ticks of a reader who lets every page type out and presses
+   * confirm ~45 ticks after it finishes, so stills can show typing in progress, a punctuation pause, a second page.
+   * `at` undefined shows the first page fully typed.
+   */
+  stage(id: string, at?: number) {
+    this.reset(); this.open(id);
+    if (this.staged) this.unstage();
+    const d0 = this.dlg; if (!d0) return null;
+    if (at === undefined || !Number.isFinite(at)) { d0.chars = d0.node.text.length; return d0; }
+    this.quiet = true;
+    try {
+      let idle = 0;
+      for (let i = 0; i < at && this.dlg; i++) {
+        const d = this.dlg; d.t++; d.age++;
+        if (d.chars >= d.node.text.length) { if (++idle >= 45) { idle = 0; this.advance(); } }
+        else this.type(1);
+      }
+    } finally { this.quiet = false; }
+    return this.dlg;
   }
 
   /** Reveal characters with punctuation pauses and throttled per-character blips. */
@@ -197,7 +317,7 @@ export class DialogueEngine {
     while (d.acc >= 1 && d.chars < txt.length) {
       d.acc--;
       const i = Math.floor(d.chars); const ch = txt[i]; d.chars = i + 1;
-      if (/[A-Za-z0-9]/.test(ch) && d.age - d.lastBlip >= BLIP_GAP) { d.lastBlip = d.age; this.g.mods.audio?.sfx('talk'); }
+      if (blipAt(txt, i) && d.age - d.lastBlip >= d.voice.gap) { d.lastBlip = d.age; this.blip(d, ch.charCodeAt(0)); }
       const nextCh = txt[i + 1];
       let p = 0;
       if (ch === '.' && nextCh === '.') p = ELLIPSIS_DOT;
