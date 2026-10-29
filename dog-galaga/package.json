@@ -12,7 +12,8 @@
     "bot": "tsx tools/bot.ts",
     "shot": "node tools/screenshot.mjs",
     "typecheck": "tsc --noEmit -p .",
-    "verify": "npm run typecheck && npm run lint:content && npm run bot && npm test && npm run build"
+    "verify": "npm run typecheck && npm run lint:content && npm run bot && npm test && npm run build",
+    "build:single": "vite build && node tools/single-file.mjs"
   },
   "keywords": [],
   "author": "",
