@@ -4,7 +4,7 @@ import type { AreaDef, Tod } from '../core/types';
 import { Rng, hash } from '../core/rng';
 import { col } from '../core/palette';
 import { TILESETS, SEG, SW, type Tileset, type LayerDef } from './tiles';
-import { Painter, TOD_RAMP, SPACE_RAMP, INDOOR_RAMP, RIM_RAMP, type Ramp } from './paint';
+import { Painter, TOD_RAMP, SPACE_RAMP, INDOOR_RAMP, INDOOR_EDGE, RIM_RAMP, LAMP_EDGE, type Ramp } from './paint';
 
 const LAYERS = ['far', 'main', 'fg'] as const;
 type LayerKey = typeof LAYERS[number];
@@ -42,7 +42,9 @@ export class Background {
   }
   private light(p: Painter, tod: Tod) {
     const ts = this.ts; const outdoor = !ts.space && !ts.indoor;
-    p.finish(this.ramp(tod), tod === 'night' || (tod === 'dusk' && !!ts.indoor), ts.indoor ? TOD_RAMP.day : undefined, outdoor && ts.rim !== false ? RIM_RAMP[tod] ?? null : null);
+    const todRamp = this.ramp(tod);
+    p.finish(todRamp, tod === 'night' || (tod === 'dusk' && !!ts.indoor), ts.indoor ? TOD_RAMP.day : undefined, outdoor && ts.rim !== false ? RIM_RAMP[tod] ?? null : null,
+      ts.indoor ? INDOOR_EDGE[tod] ?? todRamp : LAMP_EDGE);
   }
 
   private segment(layer: LayerKey, def: LayerDef, s: number, tod: Tod): HTMLCanvasElement {
