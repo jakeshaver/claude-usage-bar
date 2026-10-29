@@ -1,59 +1,30 @@
-// Captain Pom curled up for a nap (32x24, 2 breathing frames). Palette-indexed, authored for the player module.
-import { defineSprites } from '../art/sprite';
+// Captain Pom's sprites (generated rows in pom-art.ts) plus time-of-day lighting variants built at load:
+// dusk adds a warm 1px rim on the sunset (right) side, night swaps the white highlight for pale lavender
+// and adds a cool moonlit rim on the top-left. Only fur tones are touched, so pods and bow stay readable.
+import { defineSprites, type SpriteDef } from '../art/sprite';
+import { POM_ART } from './pom-art';
 
-export const NAP_ROWS: string[][] = [
-  [
-    '................................',
-    '.............00000.00...........',
-    '..........0086666786680.........',
-    '........0866666776666770........',
-    '.......06666777776677778........',
-    '.......8667777776677778880......',
-    '.....0886777788766667666678.....',
-    '....866687666677667776677770....',
-    '...0667778666777677777777780....',
-    '....000000677777877776678880....',
-    '...0666670007778877666677890....',
-    '..06666677070888668667777980....',
-    '..066667777007666677777788860...',
-    '.00667777708806677777778888770..',
-    '.066777777089067777888889877780.',
-    '.067707707089007778888999877880.',
-    '00777007770a9090888889669788890.',
-    '0677777cc70a900888999667798990..',
-    '007777777708a0909980077789990...',
-    '.00077777880909000..07889900....',
-    '...0dd0dd880000......9899.......',
-    '....0ee0000000........00........',
-    '................................',
-    '................................',
-  ],
-  [
-    '.............00000.00...........',
-    '..........0086666786680.........',
-    '........0866666776666770........',
-    '.......06666777776677778........',
-    '.......8667777776677778880......',
-    '......066777788766667666678.....',
-    '.....08877666677667776677770....',
-    '....866687666777677777777780....',
-    '...0667778677777877778778880....',
-    '....000000777778877886688890....',
-    '...066667000788887866667798.....',
-    '..06666677070889668667777800....',
-    '..066667777007666677777788860...',
-    '.00667777708806677777778888770..',
-    '.066777777089067777888889877780.',
-    '.067707707089007778888999877880.',
-    '00777007770a9090888889669788890.',
-    '0677777cc70a900888999667798990..',
-    '007777777708a0909980077789990...',
-    '.00077777880909000..07889900....',
-    '...0dd0dd880000......9899.......',
-    '....0ee0000000........00........',
-    '................................',
-    '................................',
-  ],
-];
+const FUR = '6789a';
+type Light = { map: Record<string, string>; rim: string; dirs: [number, number][] };
+/** Pom's head starts at row 19: the night highlight swap stays off the head so her face keeps full contrast. */
+const HEAD_ROW = 19;
+export const LIGHTS: Record<string, Light> = {
+  dusk: { map: {}, rim: 'g', dirs: [[1, 0]] },
+  night: { map: { '6': '5' }, rim: 'm', dirs: [[-1, 0], [0, -1]] },
+};
 
-defineSprites({ poodle_nap: { rows: NAP_ROWS[0], frames: [NAP_ROWS[1]] } });
+function relit(rows: string[], L: Light, mapRows = Infinity): string[] {
+  const at = (x: number, y: number) => rows[y]?.[x] ?? '.';
+  return rows.map((r, y) => [...r].map((ch, x) => {
+    if (!FUR.includes(ch)) return ch;
+    for (const [dx, dy] of L.dirs) if (at(x + dx, y + dy) === '0' && at(x + 2 * dx, y + 2 * dy) === '.') return L.rim;
+    return y < mapRows ? L.map[ch] ?? ch : ch;
+  }).join(''));
+}
+
+const defs: Record<string, SpriteDef> = { ...POM_ART, poodle_nap: POM_ART.pom_nap };
+for (const [name, d] of Object.entries(POM_ART)) for (const [tod, L] of Object.entries(LIGHTS)) {
+  const mr = name.startsWith('pom_pup') || name === 'pom_nap' ? Infinity : HEAD_ROW;
+  defs[`${name}@${tod}`] = { rows: relit(d.rows, L, mr), frames: d.frames?.map(f => relit(f, L, mr)) };
+}
+defineSprites(defs);
