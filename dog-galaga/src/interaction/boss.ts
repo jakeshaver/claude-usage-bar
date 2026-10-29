@@ -4,7 +4,7 @@ import type { EnemyDef } from '../core/types';
 import { frameCount } from '../art/sprite';
 import { col } from '../core/palette';
 import { pxDash, pxRing, pxSpark } from '../core/pixel';
-import { BOSS_BULLET, bossRig, bossBruises, ditherShadow, ditherRect, bossAura, drawCombat } from './art';
+import { BOSS_BULLET, bossRig, bossBruises, ditherShadow, ditherRect, bossGlow, drawCombat } from './art';
 
 const BOSS_LIMIT = 150 * 60; // a boss that isn't beaten in 150s dozes off (counts as cleared): no softlocks
 const HOME_Y = 76;
@@ -195,12 +195,8 @@ export class Boss {
   render(r: any) {
     const x = this.x + this.jit, y = this.y - (this.hitT > 3 ? 1 : 0);   // a 1px recoil on every hit
     const tier = this.tier, t = this.t, ph = this.phase;
-    // a dark arena oval behind the Big Cat keeps it off the busy level art (drawn first, under every shadow)
-    const aw = [44, 50, 60, 72][tier], ah = [34, 36, 40, 46][tier];
-    // (only around its home band: a pounce down the lane leaves the arena behind)
-    if (y < HOME_Y + 26 && y > -20) r.push(1, -9999, (ctx: CanvasRenderingContext2D) => bossAura(ctx, x, y + 2, aw, ah));
-    // the drop shadow hugs the craft: same width, offset a consistent 8px down-right, only where there is ground
-    if (this.ix.grounded()) r.push(1, y, (ctx: CanvasRenderingContext2D) => ditherShadow(ctx, x + 8, y + 26 + tier * 4 + 8, 52 + tier * 14, 14));
+    // one small drop shadow, offset down-right like every cat's, only where there is ground below
+    if (this.ix.grounded()) r.push(1, y, (ctx: CanvasRenderingContext2D) => ditherShadow(ctx, x + 8, y + 30 + tier * 3, 44 + tier * 10, 10));
     // telegraphs (drawn under the boss)
     if (this.st === 'tell') {
       const k = this.stT / this.tellLen(); const blink = (this.stT >> 2) & 1; const c = blink ? 'r' : '6';
@@ -242,6 +238,8 @@ export class Boss {
       const nf = frameCount(this.def.sprite); const frame = Math.floor(t / (this.st === 'tell' ? 6 : 12)) % nf;
       const bob = this.st === 'idle' ? (t >> 4) & 1 : 0;
       bossRig(ctx, tier, x, y, t, ph, true);
+      // a warm orange rim glow hugs the Big Cat (white-hot yellow while it winds up: a second tell)
+      if (!flash) bossGlow(ctx, this.def.sprite, frame, x, y + bob, this.st === 'tell' && ((this.stT >> 2) & 1) === 1);
       drawCombat(ctx, this.def.sprite, x, y + bob, { frame, rim: flash ? undefined : this.ix.rimKey(), sil: flash ? '6' : undefined });
       if (!flash) bossBruises(ctx, x, y + bob, t, ph);
       bossRig(ctx, tier, x, y, t, ph, false);

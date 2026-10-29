@@ -1,7 +1,7 @@
 // Interaction-owned pixel art: bullet sprites (generated from shape functions into palette-indexed rows at load),
 // dithered shadows/lanes, the captive-pup bubble, boss rigs (the hover craft late Big Cats ride) and the boss HP bar.
 // Everything is integer fillRect / sprite blits in palette colors: no alpha blending, no anti-aliased primitives.
-import { defineSprites, drawSprite, frameCount, spriteRows } from '../art/sprite';
+import { defineSprites, drawSprite, frameCount, spriteRows, spriteCanvas } from '../art/sprite';
 import { col } from '../core/palette';
 import { pxRing } from '../core/pixel';
 
@@ -32,23 +32,27 @@ function bullet(w: number, h: number, paint: Paint, ring = '6'): string[] {
 const disc = (r: number, dx: number, dy: number) => dx * dx + dy * dy <= r * r + r * 0.6;
 
 /**
- * Cat hairball: a hot pink fuzz ball (a colour family no prop, floor or turd uses) with a white glint and a magenta
- * underside, 7px body, 11px with ink outline and pulsing halo. `spin` moves the glint a quarter turn per frame.
+ * Cat hairball: a purple fuzzball (the only purple thing in the air: pickups are red/yellow/cream, turds brown, props
+ * never purple) with a violet top light, a white glint and four ink tufts sticking out of the fur, so its silhouette
+ * is spiky-round. `spin` turns the glint and the tufts a step per frame.
  */
 const fur = (spin: number): Paint => (dx, dy) => {
-  if (!disc(3, dx, dy)) return null;
-  const [gx, gy] = [[-1, -1], [1, -1], [1, 1], [-1, 1]][spin & 3];
-  if (dx === gx && dy === gy) return '6';
-  if ((dx === gx * 2 && dy === gy) || (dx === gx && dy === gy * 2)) return 'c';
-  if (dx * gx + dy * gy <= -3) return 'e';
-  return 'd';
+  // 7px round body plus four 1px fur tufts (the pinwheel turns a notch per frame): after the ink and
+  // light rings grow around it the silhouette is a bumpy round ball, nothing like a framed pickup or a gem
+  const tufts = spin & 1 ? [[1, -4], [4, 1], [-1, 4], [-4, -1]] : [[0, -4], [4, 0], [0, 4], [-4, 0]];
+  const body = dx * dx + dy * dy <= 13;
+  if (!body && !tufts.some(([x, y]) => x === dx && y === dy)) return null;
+  if (dx === -1 && dy === -1) return '6';
+  if ((dx === -2 && dy === -1) || (dx === -1 && dy === -2) || (dx === 0 && dy === -2) || (dx === -2 && dy === 0)) return 't';
+  if (dx + dy >= 3) return 'v';
+  return 'u';
 };
 /** Capturer yarn: an ice-cyan wound ball with teal stripes (cool family, distinct from the pink hairball). */
 const yarn = (spin: number): Paint => (dx, dy) => !disc(3, dx, dy) ? null : (dx === -1 && dy === -2) ? '6' : (((dx + dy * 2 + spin) % 3 + 3) % 3 === 0 ? 'n' : ((dx - dy) & 1 ? 'm' : 'l'));
-/** Boss sweep: a hot pink paw print (toe beans and a pad). */
+/** Boss sweep: a purple paw print (toe beans and a pad), the hairball's colour family. */
 const paw: Paint = (dx, dy) => {
-  if (disc(2.2, dx, dy - 1.5)) return dx < 0 && dy < 1 ? 'c' : 'd';
-  for (const [tx, ty] of [[-3, -2.5], [0, -3.8], [3, -2.5]]) if ((dx - tx) ** 2 + (dy - ty) ** 2 <= 1.6) return 'c';
+  if (disc(2.2, dx, dy - 1.5)) return dx < 0 && dy < 1 ? 't' : 'u';
+  for (const [tx, ty] of [[-3, -2.5], [0, -3.8], [3, -2.5]]) if ((dx - tx) ** 2 + (dy - ty) ** 2 <= 1.6) return 't';
   return null;
 };
 /** Boss charge: a fish bone dropping head first (spine, ribs, cyan head, forked tail). */
@@ -76,9 +80,9 @@ const star = (diag: boolean): Paint => (dx, dy) => {
 
 // Every enemy bullet has 2 frames: the halo alternates white / a second bright colour (pulse) and the body spins.
 defineSprites({
-  blt_fur: { rows: bullet(7, 7, fur(0), '6'), frames: [bullet(7, 7, fur(1), 'c'), bullet(7, 7, fur(2), '6'), bullet(7, 7, fur(3), 'c')] },
+  blt_fur: { rows: bullet(9, 9, fur(0), '6'), frames: [bullet(9, 9, fur(1), 't'), bullet(9, 9, fur(2), '6'), bullet(9, 9, fur(3), 't')] },
   blt_yarn: { rows: bullet(7, 7, yarn(0), '6'), frames: [bullet(7, 7, yarn(1), 's')] },
-  blt_paw: { rows: bullet(9, 9, paw, '6'), frames: [bullet(9, 9, paw, 'c')] },
+  blt_paw: { rows: bullet(9, 9, paw, '6'), frames: [bullet(9, 9, paw, 't')] },
   blt_bone: { rows: bullet(7, 13, bone, '6'), frames: [bullet(7, 13, bone, 'l')] },
   blt_yarnbig: { rows: bullet(9, 9, yarnBig, '6'), frames: [bullet(9, 9, yarnBig, 's')] },
   blt_star: { rows: bullet(9, 9, star(false), 'u'), frames: [bullet(9, 9, star(true), 't')] },
@@ -113,37 +117,69 @@ function outlineCanvas(name: string, frame: number, key: string, sil: boolean): 
   }
   outlineCache.set(ck, out); return out;
 }
-function blit(ctx: Ctx, c: HTMLCanvasElement, cx: number, cy: number, flipY?: boolean) {
-  const x = Math.round(cx - c.width / 2), y = Math.round(cy - c.height / 2);
-  if (flipY) { ctx.save(); ctx.translate(x, y + c.height); ctx.scale(1, -1); ctx.drawImage(c, 0, 0); ctx.restore(); }
-  else ctx.drawImage(c, x, y);
-}
 
 /**
  * Draw a combat sprite with optional outline treatments:
  *   rim: 1px light ring (dark stages / dusk / night, so navy cats separate from navy floors),
- *   sil: draw a solid silhouette of this key (with its own ring) instead of the sprite (hit flash frame 1),
- *   recolor: palette remap (time-of-day tint).
+ *   sil: draw a solid silhouette of this key (with its own ring) instead of the sprite (hit flash),
+ *   recolor: palette remap (time-of-day tint), `tintKey` names it for the cache.
+ * The rim, the recolour and the vertical flip are baked once into one cached canvas per combination, so each cat
+ * costs a single drawImage per frame (no per-frame recolour, no save/scale/restore).
  */
-export function drawCombat(ctx: Ctx, name: string, x: number, y: number, o: { frame?: number; flipY?: boolean; rim?: string; sil?: string; recolor?: Record<string, string> } = {}) {
+const combatCache = new Map<string, HTMLCanvasElement | null>();
+function combatCanvas(name: string, f: number, flipY: boolean, rim: string, sil: string, recolor: Record<string, string> | undefined, tintKey: string) {
+  const ck = `${name}|${f}|${flipY ? 1 : 0}|${rim}|${sil}|${tintKey}`;
+  const hit = combatCache.get(ck); if (hit !== undefined) return hit;
+  let out: HTMLCanvasElement | null = null;
+  const base = sil ? outlineCanvas(name, f, sil, true) : spriteCanvas(name, f, false, recolor);
+  if (base && typeof document !== 'undefined') {
+    const W = sil ? base.width : base.width + 2, H = sil ? base.height : base.height + 2;
+    out = document.createElement('canvas'); out.width = W; out.height = H;
+    const c = out.getContext('2d')!;
+    if (flipY) { c.translate(0, H); c.scale(1, -1); }
+    if (sil) c.drawImage(base, 0, 0);
+    else {
+      if (rim) { const r = outlineCanvas(name, f, rim, false); if (r) c.drawImage(r, 0, 0); }
+      c.drawImage(base, 1, 1);
+    }
+  }
+  combatCache.set(ck, out); return out;
+}
+export function drawCombat(ctx: Ctx, name: string, x: number, y: number, o: { frame?: number; flipY?: boolean; rim?: string; sil?: string; recolor?: Record<string, string>; tintKey?: string } = {}) {
   const f = o.frame ?? 0;
-  if (o.sil) { const s = outlineCanvas(name, f, o.sil, true); if (s) { blit(ctx, s, x, y, o.flipY); return; } }
-  if (o.rim) { const r = outlineCanvas(name, f, o.rim, false); if (r) blit(ctx, r, x, y, o.flipY); }
+  const c = combatCanvas(name, f, !!o.flipY, o.rim ?? '', o.sil ?? '', o.recolor, o.recolor ? (o.tintKey ?? JSON.stringify(o.recolor)) : '');
+  if (c) { ctx.drawImage(c, Math.round(x - c.width / 2), Math.round(y - c.height / 2)); return; }
   drawSprite(ctx, name, x, y, { frame: f, flipY: o.flipY, recolor: o.recolor });
 }
 
-/** A Big Cat's dark arena: a solid deep-night oval with a 2-step dithered edge, so the boss never melts into props. */
-export function bossAura(ctx: Ctx, cx: number, cy: number, rx: number, ry: number) {
-  const X = Math.round(cx), Y = Math.round(cy);
-  for (let dy = -ry - 6; dy <= ry + 6; dy++) {
-    for (const [grow, mode] of [[6, 2], [3, 1], [0, 0]] as [number, number][]) {
-      const a = rx + grow, b = ry + grow; if (Math.abs(dy) > b) continue;
-      const w = Math.round(a * Math.sqrt(1 - (dy * dy) / (b * b)));
-      if (mode === 0) { ctx.fillStyle = col('1'); ctx.fillRect(X - w, Y + dy, w * 2 + 1, 1); continue; }
-      ctx.fillStyle = col(mode === 1 ? '1' : '0');
-      for (let dx = -w; dx <= w; dx++) if (((dx + dy) & 1) === 0 && (mode === 1 || ((dx >> 1) + dy) % 2 === 0)) ctx.fillRect(X + dx, Y + dy, 1, 1);
+/**
+ * A Big Cat's warm glow: a 1px orange rim hugging the sprite, then a dithered burnt-orange second ring that falls
+ * off to nothing. Separates the boss from busy level art without painting a dark pit under it. Cached per frame.
+ */
+const glowCache = new Map<string, HTMLCanvasElement | null>();
+export function bossGlow(ctx: Ctx, name: string, frame: number, x: number, y: number, hot: boolean) {
+  const ck = `${name}|${frame}|${hot ? 1 : 0}`;
+  let out = glowCache.get(ck);
+  if (out === undefined) {
+    out = null; const rows = spriteRows(name, frame);
+    if (rows && typeof document !== 'undefined') {
+      const h = rows.length, w = Math.max(...rows.map(r => r.length)), P = 4;
+      const on = (x: number, y: number) => { const ch = rows[y]?.[x]; return !!ch && ch !== '.' && ch !== ' '; };
+      out = document.createElement('canvas'); out.width = w + P * 2; out.height = h + P * 2;
+      const c = out.getContext('2d')!;
+      for (let yy = -P; yy < h + P; yy++) for (let xx = -P; xx < w + P; xx++) {
+        if (on(xx, yy)) continue;
+        let d = 99;
+        for (let j = -P; j <= P; j++) for (let i = -P; i <= P; i++) if (on(xx + i, yy + j)) d = Math.min(d, Math.max(Math.abs(i), Math.abs(j)) + (i && j ? 0.5 : 0));
+        const X = xx + P, Y = yy + P;
+        if (d <= 1) { c.fillStyle = col(hot ? 'f' : 'g'); c.fillRect(X, Y, 1, 1); }
+        else if (d <= 2.5) { if (((X + Y) & 1) === 0) { c.fillStyle = col(hot ? 'g' : 'h'); c.fillRect(X, Y, 1, 1); } }
+        else if (d <= 4 && ((X + Y) & 3) === 0 && (Y & 1) === 0) { c.fillStyle = col('h'); c.fillRect(X, Y, 1, 1); }
+      }
     }
+    glowCache.set(ck, out);
   }
+  if (out) ctx.drawImage(out, Math.round(x - out.width / 2), Math.round(y - out.height / 2));
 }
 
 /** Oval drop shadow (rx, ry radii) as a 50% checkerboard of ink pixels (palette-exact, no translucency). */
@@ -170,27 +206,67 @@ export function ditherRect(ctx: Ctx, x: number, y: number, w: number, h: number,
   for (let j = 0; j < h; j++) for (let i = ((x + y + j + parity) & 1); i < w; i += 2) ctx.fillRect(x + i, y + j, 1, 1);
 }
 
-/** Soap bubble around a captive / floating pup: dithered ice fill, solid rim, two glints. */
-export function bubble(ctx: Ctx, x: number, y: number, r: number, t: number) {
-  const x0 = Math.round(x), y0 = Math.round(y);
+/** Soap bubble around a captive / floating pup: dithered ice fill, solid rim, two glints. `pulse` makes it throb
+ *  (radius +1 and a white rim on the beat, plus a spinning dashed halo) so a carried pup reads as "shoot my carrier". */
+export function bubble(ctx: Ctx, x: number, y: number, r: number, t: number, pulse = false) {
+  const x0 = Math.round(x), y0 = Math.round(y); const beat = pulse && ((t >> 3) & 1) === 1;
+  if (beat) r += 1;
   ctx.fillStyle = col('s');
   for (let dy = -r + 1; dy <= r - 1; dy++) {
     const w = Math.floor(Math.sqrt((r - 1) * (r - 1) - dy * dy));
     for (let dx = -w; dx <= w; dx++) if (((dx + dy + (t >> 4)) & 3) === 0) ctx.fillRect(x0 + dx, y0 + dy, 1, 1);
   }
-  pxRing(ctx, x0, y0, r + 1, '0'); pxRing(ctx, x0, y0, r, 's');
+  pxRing(ctx, x0, y0, r + 1, '0'); pxRing(ctx, x0, y0, r, beat ? '6' : 's');
+  if (pulse) pxRing(ctx, x0, y0, r + 3, beat ? 'l' : 's', 4, t / 16);
   ctx.fillStyle = col('6'); ctx.fillRect(x0 - Math.round(r * 0.55), y0 - Math.round(r * 0.6), 2, 2); ctx.fillRect(x0 - Math.round(r * 0.75), y0 - Math.round(r * 0.2), 1, 2);
 }
 
-/** Capture beam: a widening cone of dithered ice stripes that ripple downward (Galaga's tractor beam, cozy edition). */
-export function captureBeam(ctx: Ctx, x: number, y: number, len: number, t: number, k: number) {
-  const x0 = Math.round(x), y0 = Math.round(y); const L = Math.round(len * k);
-  for (let j = 0; j < L; j++) {
-    const hw = 4 + Math.floor(j * 0.32); const band = ((j + 64 - (t * 2) % 64) >> 3) & 1;
-    ctx.fillStyle = col(band ? 'l' : 's');
-    ctx.fillRect(x0 - hw - 1, y0 + j, 1, 1); ctx.fillRect(x0 + hw + 1, y0 + j, 1, 1);   // solid edges
-    for (let i = -hw; i <= hw; i++) if (((i + j + (band ? 0 : 1)) & 1) === 0 && (band || (j & 1))) ctx.fillRect(x0 + i, y0 + j, 1, 1);
+/**
+ * Stepped tractor beam from (x0, y0) toward (x1, y1): a cone that widens in 2px stair steps from half-width w0 to w1,
+ * filled with a dithered cyan / ice band pattern marching along it, with cyan + ink edges so it reads on any floor.
+ * `k` (0..1) unrolls it.
+ */
+export function tractor(ctx: Ctx, x0: number, y0: number, x1: number, y1: number, w0: number, w1: number, t: number, k = 1) {
+  const L = Math.max(1, Math.abs(Math.round(y1) - Math.round(y0))); const n = Math.round(L * Math.max(0, Math.min(1, k)));
+  const dir = y1 >= y0 ? 1 : -1;
+  for (let j = 0; j <= n; j++) {
+    const f = j / L;
+    const hw = w0 + Math.floor(((w1 - w0) * f) / 2) * 2;
+    const cx = Math.round(x0 + (x1 - x0) * f), yy = Math.round(y0) + j * dir;
+    const band = ((j + 64 - ((t * 2) % 64)) >> 2) & 1;
+    ctx.fillStyle = col('0'); ctx.fillRect(cx - hw - 2, yy, 1, 1); ctx.fillRect(cx + hw + 2, yy, 1, 1);
+    ctx.fillStyle = col('l'); ctx.fillRect(cx - hw - 1, yy, 1, 1); ctx.fillRect(cx + hw + 1, yy, 1, 1);
+    ctx.fillStyle = col(band ? 's' : 'l');
+    for (let i = -hw; i <= hw; i++) if (((i + j) & 1) === 0 || (band && (j & 1) === 0)) ctx.fillRect(cx + i, yy, 1, 1);
   }
+}
+
+/** Capture beam: the capturer's signature moment (Galaga's tractor beam, cozy edition): a tall stepped cone with
+ *  sparkles riding up it. */
+export function captureBeam(ctx: Ctx, x: number, y: number, len: number, t: number, k: number) {
+  tractor(ctx, x, y, x, y + len, 3, 3 + Math.round(len * 0.3), t, k);
+  const L = Math.round(len * k); const X = Math.round(x), Y = Math.round(y);
+  ctx.fillStyle = col('6');
+  for (let i = 0; i < 4 && L > 8; i++) {
+    const sy = Math.round(L - ((t * 1.5 + i * 37) % L)); const sx = Math.round(Math.sin(t / 9 + i * 2) * (2 + sy * 0.2));
+    ctx.fillRect(X + sx, Y + sy - 1, 1, 3); ctx.fillRect(X + sx - 1, Y + sy, 3, 1);
+  }
+}
+
+/** Pickup badge: a notched square frame (ink, then blinking white / yellow) with a sparkle hopping between its corners,
+ *  so a pickup always reads as treasure, never as an enemy shot (shots are round, purple and unframed). */
+export function pickupBadge(ctx: Ctx, x: number, y: number, t: number) {
+  const X = Math.round(x), Y = Math.round(y);
+  const frame = (R: number, key: string) => {
+    ctx.fillStyle = col(key);
+    ctx.fillRect(X - R + 2, Y - R, R * 2 - 3, 1); ctx.fillRect(X - R + 2, Y + R, R * 2 - 3, 1);
+    ctx.fillRect(X - R, Y - R + 2, 1, R * 2 - 3); ctx.fillRect(X + R, Y - R + 2, 1, R * 2 - 3);
+    ctx.fillRect(X - R + 1, Y - R + 1, 1, 1); ctx.fillRect(X + R - 1, Y - R + 1, 1, 1); ctx.fillRect(X - R + 1, Y + R - 1, 1, 1); ctx.fillRect(X + R - 1, Y + R - 1, 1, 1);
+  };
+  frame(11, '0'); frame(10, (t >> 3) & 1 ? 'f' : '6'); frame(9, '0');
+  const k = (t >> 4) & 3; const sx = X + (k === 1 || k === 2 ? 12 : -12), sy = Y + (k >= 2 ? 12 : -12);
+  ctx.fillStyle = col('0'); ctx.fillRect(sx - 3, sy - 1, 7, 3); ctx.fillRect(sx - 1, sy - 3, 3, 7);
+  ctx.fillStyle = col('6'); ctx.fillRect(sx - 2, sy, 5, 1); ctx.fillRect(sx, sy - 2, 1, 5);
 }
 
 /**

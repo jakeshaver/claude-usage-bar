@@ -84,3 +84,26 @@
 7. **Toast merge (ui, critic #10).** Interaction now merges repeated pickup toasts itself by editing `ui.toasts` in place
    (`{text, t}` entries; it adds an `n` counter and rewrites text to `NAME X3`). A first-class `ui.toast(text, {merge:true})`
    would be cleaner; until then please keep the `toasts: {text, t}[]` shape.
+
+# Core requests from `interaction` (builder round 4)
+
+1. **Captain Pom readability (art/player, critic #5).** `pom` reads as a white/grey blob at 1x and is lost among turd
+   sparks on bright grass. Needs a clear rear-view poodle silhouette (big rear pom-pom, two floppy ears, wings), a 1px
+   ink outline like the cats, and darker mid-tones (lavender/grey shading) for value contrast against grass. The 4
+   white puffs on top look like particles: merge them into the silhouette or tint them.
+2. **Tank cat art (art, critic #8).** `cat_persian` / `cat_mainecoon` "helmet" cats read as skulls. Please make the
+   ears visible through (or poking out of) the dome and drop the big pink tongue. Interaction now makes the hit
+   feedback a blinking solid white silhouette (10 ticks) followed by a short red rim.
+3. **Pause hides banners (ui/world, critic #10a).** While paused, skip the `WAVE n` / sector banners and title cards
+   so they do not bleed through the pause dither.
+4. **Docks dialogue (quest/content, critic #10b, repeat).** "FISH MARKET DOCKS AT DAWN" is shown at dusk.
+5. **Flight Time separator (ui, critic #10c).** Keep the colon static (stills show `00 16`).
+6. **Stray cyan line in factory (world, critic #10d)** around world y=162, x 284..356 (a 1px horizontal cyan run).
+   Interaction draws no 1px cyan lines any more (the pup tether is now a stepped beam), so it is a world/effects draw.
+7. **Post-nap / intro gaps (world, critic #3).** After a nap the field is empty for 150 ticks, and at area entry the
+   first wave starts after the 150-tick intro. Interaction now spawns the first cats within ~10-20 ticks of
+   `startWave`. Consider showing `WAVE n` during the nap restart and cutting the nap timer to ~100 ticks.
+8. **Content (optional):** interaction now lays waves out with its own per-sector shapes (src/interaction/formation.ts:
+   tapered Galaga block, chevron, split wings, diamond, staggered checker, arrow) at 32x31px cells, ~65% of the view
+   wide. Content's row order still picks breeds (capturers lead), but the 10-column rows are no longer flown as-is;
+   cats beyond a shape's capacity are left out.
