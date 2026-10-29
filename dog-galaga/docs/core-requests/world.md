@@ -227,3 +227,32 @@ night with day-coloured pendant pools); sky and space tilesets keep their own ba
   drawn under a clip rect that grows left to right over 12 ticks (from e=46), with a 1px cyan wipe edge. The sector
   name keeps its typing beat. world: feel free to restyle it; it is about 6 lines.
 - Verified: `npm run verify` green; title, map, docks autopilot, memories and ending showcases have zero errors.
+
+## Polish 5
+
+- For interaction (src/interaction/index.ts, critic issue 3, "hard-edged 50% ink checker band behind the rack looks like a
+  debug overlay / selection box" on docks, factory, alley): please remove the rack shade band: set
+  `const RACK_SHADE = new Set<string>([]);` (or delete `renderShade()` and its call in `render()`). World now does this job
+  itself: `world/bg.ts` (`RACK_DIM`) redraws the ground under the rack from a one-value-step-darker copy of each cached
+  segment (same hue family, palette-exact; water keeps its blue), clipped to a soft rounded blob with a hand-cut, wobbly
+  edge that follows the rack's sway, eases open when a wave's rack arrives and folds away between waves. With the band
+  removed the checker share of docks / factory / alley drops from 12-19% to under 1.5% (checked locally with the band
+  disabled; the band is still on in this branch because interaction is outside world's folder).
+- Optional, for interaction: expose `rackBounds(): [x0, y0, x1, y1] | null` (world px: the rack lattice incl. sway, with
+  ~22 px of air, null when no wave rack is up). World calls it when present; until then it reads `cats`, `cells`, `cx`,
+  `colSp`, `rowSp`, `formTop`, `sway`, `amp` and `mode` the way `renderShade()` did, inside a try/catch.
+- ARCHITECTURE.md section 2 (wording): please replace the time-of-day description from "Day is brightest and most
+  neutral; dawn is cooler ..." through the night sentence with: "Time of day is modelled as light, not a wash: every
+  material keeps its own hue family (wood stays wood-brown, grass green, metal cool grey, water blue) and only value and
+  temperature move. Day is brightest and most neutral. Dawn is a little lower, with cool lavender cast shadows and soft
+  peach only on highlights (creams, blade tips), sky-facing glass (pink) and the sun-facing top / east rims. Dusk is
+  lower and warm: woods and creams a step deeper, greys a step down but still grey, an amber rim on west faces, long
+  plum cast shadows. Night is dark, cool and desaturated (greys to slate and deep navy, creams to grey); warm emissive
+  windows and sodium lamp pools carry the colour. Interiors (cafe, station, mothership, factory) change mostly through
+  their windows and lights." In the lawn sentence, replace "night one dark teal-green (the blades melt into it and only
+  show inside lamp pools)" with "night a dark, desaturated teal-green (dark-green blades on a deep-night ground; lamp
+  pools bring the lit greens back)". In the lamp-pool sentence, `WARM_LIFT` now runs dark -> plum -> dark brown ->
+  brown -> light brown -> tan / cream (never lavender or white), and tilesets can soften a pool with
+  `Painter.poolLift` (warm steps per ring, default [1, 2, 3, 4]; street [1, 1, 2, 3], alley [1, 2, 2, 3]). Add: "Busy
+  stages (docks, factory, alley) dim the ground under the rack one value step inside a soft organic blob (`world/bg.ts`
+  `RACK_DIM`)."

@@ -33,7 +33,7 @@ export const SHADE = ramp('1:0 2:1 3:2 4:3 5:4 6:5 7:8 8:9 9:a a:b b:v c:d d:e e
 export const SHADE_TOD: Record<Tod, Ramp> = {
   day: SHADE,
   night: remap('2:1 q:1 3:2 k:1 j:1 n:1 p:2 4:3 u:2 o:q 9:b a:v 8:p 1:0', SHADE),
-  dawn: remap('k:1 j:k i:k q:2 p:3 o:4 7:5 8:4 9:3 a:2 b:1 h:a v:1 i:m 3:2 n:2 m:n c:d', SHADE),
+  dawn: remap('k:1 j:k i:k q:2 p:q o:p 7:o 8:p 9:b a:b b:v h:a v:1 3:2 4:3 5:4 6:5 n:2 m:n c:d', SHADE),
   dusk: remap('k:1 j:b i:b q:v p:q o:p 8:a 9:b a:v b:v h:b g:h 4:u 3:2 2:v n:v m:n 1:0 e:v u:v', SHADE),
 };
 // ---------------------------------------------------------------- lighting
@@ -42,10 +42,15 @@ export const SHADE_TOD: Record<Tod, Ramp> = {
 // time-of-day colours anywhere (so the band behind the formation stays calm and flat); each material keeps
 // its hue family and two value steps while value and temperature move. Dither is only used for small local
 // light falloff (lamp pool rings, beam edges).
+// Time of day is modelled as LIGHT, not a wash: every material keeps its own hue family (wood stays wood-brown, grass
+// green, metal cool grey, water blue) and only value and temperature move.
 //   day   brightest, most neutral (identity: backgrounds are authored in day colours)
-//   dawn  cool and a little lower: lawns cool teal-green, greys to slate-lavender, creams/yellows to peach-pink
-//   dusk  warm and lower: lawns olive-dark with ochre tips, woods a step deeper, greys to plum, blues to violet
-//   night dark navy: lawns deep teal-navy, greys to indigo, creams to periwinkle; emissives and lamp pools stay bright
+//   dawn  a little lower: cool lavender cast shadows, soft peach on highlights (creams, blade tips) and in sky-facing glass
+//         (pink), a peach rim on the sun-facing top / east edges
+//   dusk  lower and warm: woods and creams a step deeper, greys a step down (still grey), a warm amber rim on the west
+//         faces, long plum cast shadows
+//   night dark, cool, desaturated: greys to slate and deep navy, creams to grey, lawns a dark teal-green (blades on a
+//         deep-night ground); warm emissive windows and sodium lamp pools (WARM_LIFT) carry the colour
 /** a strict remap from "from:to" pairs (missing keys map to themselves); mixes are refused */
 function remap(map: string, base?: Ramp): Ramp {
   if (map.includes('/')) throw new Error('time-of-day remaps map each palette index to exactly one index: ' + map);
@@ -56,12 +61,12 @@ const ID = ramp('');
 export const TOD_RAMP: Record<Tod, Ramp> = {
   day: ID,
   // lawns stay a cool fresh green (grass blades green, their tips peach), stone to indigo-slate, creams/yellows to peach-pink
-  dawn: remap('6:5 7:c 8:c 9:9 f:c g:c h:d r:d i:c l:s m:m n:2 o:4 p:3 q:2 s:5'),
+  dawn: remap('6:7 7:8 i:8 l:m s:c'),
   // lawns olive-gold: the dark green ground under a carpet of green and sun-browned blades with orange tips; woods a step deeper,
   // stone cools to indigo for contrast against the warm ground, blues to violet
-  dusk: remap('6:7 7:8 8:9 9:a a:b b:v c:d f:g g:h h:b r:h i:f j:9 l:t s:t m:u n:2 o:9 p:q q:2 1:v 2:v 3:2 4:3 5:4 t:u u:e'),
+  dusk: remap('6:7 7:8 8:9 9:a a:b b:v c:d f:g g:h h:b r:h i:f j:9 l:m s:m m:n o:p p:q 1:v 2:v 3:2 4:3 5:4 t:u'),
   // dark but legible: lawns one dark teal-green (blades and tufts melt into it), stone periwinkle/indigo, creams to periwinkle
-  night: remap('6:5 7:4 8:3 9:a a:b b:v c:e d:e e:v f:9 g:a h:b r:e i:k j:k l:m m:n n:2 s:4 o:4 p:3 q:2 1:0 2:1 3:2 4:3 5:4 t:u u:2'),
+  night: remap('6:o 7:p 8:q 9:a a:b b:v c:e d:e e:v f:9 g:a h:b r:e i:k j:k k:1 l:m m:n n:2 s:p o:p p:q q:1 1:0 2:1 3:2 4:3 5:4 t:u u:2'),
 };
 /** Low sun on the sunward faces: warm amber at dusk (west faces), peach-pink at dawn (top / east edges). */
 export const RIM_RAMP: Partial<Record<Tod, Ramp>> = {
@@ -75,24 +80,25 @@ export const RIM_RAMP: Partial<Record<Tod, Ramp>> = {
  * Four steps from the rim inward (edge, middle, core, a small hot centre). Grass keeps its blades (lit green,
  * then gold-tipped yellow-green), water lifts through teal. No pixel is painted with a flat fill.
  */
-// indigo / periwinkle surfaces (paths, kerbs, decks) lift through periwinkle and warm violet to tan and cream, never brown
-const WARM_LIFT = remap('0:1 1:v v:3 b:a a:h h:9 9:8 8:7 7:7 6:6 2:3 q:a 3:t p:h 4:t o:8 5:8 e:d d:c c:7 r:g g:f f:7 u:t t:8 n:3 m:4 l:s s:7');
+// sodium light: dark greys / navy lift through plum and warm browns to amber-tan and cream (never lavender or white)
+const WARM_LIFT = remap('0:1 1:v v:b b:a a:9 h:g 9:8 8:7 7:7 6:6 2:v q:a 3:a p:9 4:9 o:8 5:8 e:h d:g c:7 r:g g:f f:7 u:a t:8 n:m m:s l:s s:7');
 function liftN(v: number, n: number) { for (let i = 0; i < n; i++) v = WARM_LIFT.a[v]; return v; }
 const GK = KEY.indexOf('k'), GJ = KEY.indexOf('j'), GI = KEY.indexOf('i');
 /** grass under a lamp, by ring (edge..hot) for the day indices k (ground), j (blade), i (tip) */
 const GRASS_LIT: [string, string, string][] = [['k', 'j', 'j'], ['j', 'j', 'i'], ['j', 'i', 'f'], ['i', 'f', '7']];
-const lampCache = new WeakMap<Ramp, Ramp[]>();
-/** the four lamp ring ramps (edge, middle, core, hot), built from the area's night remap */
-export function lampRamps(night: Ramp): Ramp[] {
-  let r = lampCache.get(night); if (r) return r;
-  r = [1, 2, 3, 4].map((n, ring) => {
+const lampCache = new WeakMap<Ramp, Map<string, Ramp[]>>();
+/** the four lamp ring ramps (edge, middle, core, hot), built from the area's night remap; lifts = warm steps per ring */
+export function lampRamps(night: Ramp, lifts: number[] = [1, 2, 3, 4]): Ramp[] {
+  let m = lampCache.get(night); if (!m) lampCache.set(night, m = new Map());
+  let r = m.get(lifts.join()); if (r) return r;
+  r = lifts.map((n, ring) => {
     const a = new Uint8Array(32);
     for (let i = 0; i < 32; i++) a[i] = liftN(night.a[i], n);
     const g = GRASS_LIT[ring]; a[GK] = KEY.indexOf(g[0]); a[GJ] = KEY.indexOf(g[1]); a[GI] = KEY.indexOf(g[2]);
     a[0] = ring >= 2 ? 1 : 0; // ink outlines stay outlines
     return { a, b: a, lv: new Uint8Array(32), id: false };
   });
-  lampCache.set(night, r); return r;
+  m.set(lifts.join(), r); return r;
 }
 /** kept for callers that pass a pool ramp: the stepped outdoor lamp model */
 export const LAMP_RAMP = remap('');
@@ -101,11 +107,11 @@ export const LAMP_EDGE = remap('');
 export const INDOOR_RAMP: Record<Tod, Ramp> = {
   day: ID,
   // early: the room is cooler and a step dimmer (woods toward grey-brown, greys toward slate); peach from the low sunbeams
-  dawn: remap('6:5 7:8 8:9 9:a a:a b:b o:4 p:3 q:2 s:5 f:9 g:9 c:t'),
+  dawn: remap('6:7 s:o l:m'),
   // golden hour: woods warm and a step deeper, greys to warm brown, shadows plum; amber beams and the first pools on top
-  dusk: remap('6:7 7:8 8:9 9:h a:a b:b o:9 p:a q:b 5:4 4:3 3:2 2:v 1:v s:o f:g g:h c:d d:e'),
+  dusk: remap('6:7 7:8 o:p s:o 1:v'),
   // closing time: a dim room that keeps its dark wood planks and slate tiles; only the pendant pools stay warm
-  night: remap('6:4 7:3 8:9 9:a a:b b:v o:3 p:2 q:1 5:3 4:2 3:2 2:1 1:0 v:1 s:4 f:9 g:a h:b c:u d:e e:v k:1 j:k i:k n:2 m:n'),
+  night: remap('6:o 7:8 8:9 9:a a:b b:v o:p p:q q:1 5:4 4:3 3:2 2:1 1:0 v:1 s:p f:9 g:a h:b c:d d:e e:v k:1 j:k i:j n:2 m:n l:m'),
 };
 /** Falloff ring of an indoor pendant pool (between the lit room and the dim one). */
 export const INDOOR_EDGE: Partial<Record<Tod, Ramp>> = {
@@ -121,10 +127,10 @@ export const SPACE_RAMP: Record<Tod, Ramp> = {
   // sunlit: the void lifts to a deep indigo haze and hull plates catch white light
   day: ramp('0:1 1:2 v:2 2:3'),
   // a sunrise over the planet's rim: plum void, hull metal stays slate, pink and violet glints on the edges
-  dawn: remap('0:v 1:v v:2 o:5 5:c 4:t 6:7'),
+  dawn: remap('0:1 1:v v:2 5:c 6:7'),
   // sunset glare: the hull stays metal (never brown); only the edges catch warm tan / cream light
-  dusk: remap('0:1 1:v v:2 o:8 5:8 6:7 4:3 p:q'),
-  night: ramp('o:p 5:4 6:5 4:3 3:2 8:9 7:8'),
+  dusk: remap('0:1 1:v v:2 o:p 5:8 6:7 4:3 p:q'),
+  night: remap('o:p 5:4 6:o 4:3 3:2 8:9 7:8'),
 };
 
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
@@ -171,6 +177,8 @@ export class Painter {
   clearShadow = 1;
   /** lamp pools are scaled by this (busy tilesets keep them small) */
   poolScale = 0.55;
+  /** warm lift steps of the four lamp rings (edge, middle, core, hot): lower = a softer, lower-contrast pool */
+  poolLift = [1, 2, 3, 4];
   constructor(public canvas: HTMLCanvasElement, public w: number, public h: number, public tod: Tod) {
     this.buf = new Uint8Array(w * h).fill(CLEAR);
     this.shadow = new Uint8Array(w * h);
@@ -362,7 +370,7 @@ export class Painter {
       }
     }
     if (!todRamp.id || mask) {
-      const L = stepped ? lampRamps(todRamp) : null;
+      const L = stepped ? lampRamps(todRamp, this.poolLift) : null;
       const tail = this.sunTail ?? this.sunSoft ?? this.sunRamp;
       const ramps: (Ramp | null)[] = L ? [todRamp, L[2], this.sunRamp, rimRamp, L[0], L[1], this.sunSoft ?? this.sunRamp, L[3], tail]
         : [todRamp, poolRamp, this.sunRamp, rimRamp, edgeRamp, poolRamp, this.sunSoft ?? this.sunRamp, null, tail];
