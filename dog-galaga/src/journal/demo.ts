@@ -12,6 +12,7 @@ export function seedJournalDemo(g: Game) {
   s.quests = { ...s.quests, first_flight: 'done', lost_pups: 'active', scrapbook: 'active', park_pals: 'active', boop_brigade: 'active', big_cats: 'active' };
   Object.assign(s.inventory, { _q_lost_pups: 4, _q_scrapbook: 5, _q_park_pals: 2, _q_boop_brigade: 312, _q_big_cats: 2 });
   Object.assign(s.stats, { shots: 2210, hits: 1460, naps: 3, playTicks: 151200, catsBooped: 312 });
+  s.flags = { ...s.flags, pup_backyard: true, pup_street: true, pup_park: true, pup_alley: true };
   s.score = 48250; s.hiScore = 61200;
 }
 

@@ -56,3 +56,31 @@
    so a touch no longer also arrives as a compatibility `mousedown`. Arrow keys no longer change tabs at the grid
    edges; tabs change only with Q/E, Tab/Shift+Tab, PageUp/PageDown, LB/RB, a tap, or Left/Right while the tab bar
    is focused.
+
+# Core requests from journal (round 3)
+
+1. **input (`src/core/input.ts`): page actions `pageL` / `pageR`.** Please add them to `Action` and map them:
+   keyboard `KeyQ` / `PageUp` -> `pageL`, `KeyE` / `PageDown` -> `pageR`; gamepad buttons 4 (LB) -> `pageL`,
+   5 (RB) -> `pageR` in `poll()` (so a shoulder press also sets `lastDevice = 'gamepad'`, like the other buttons).
+   The journal already calls `I.pressed('pageL' | 'pageR')` every frame (cast, returns false today) and will use
+   them as soon as they exist; its own shoulder polling is only a fallback, and it sets `input.lastDevice =
+   'gamepad'` on a shoulder press so the hint bar shows (LB)(RB) (same public field `ui/touch.ts` writes).
+   Once the actions land, the journal's `keydown` listener for Q/E/PageUp/PageDown and the `navigator.getGamepads`
+   poll can be deleted (Tab / Shift+Tab can stay journal-local).
+
+2. **Showcase (`src/showcase/index.ts`, case 'journal'), still open from rounds 1-2.** The journal now keeps the
+   real save while a demo is staged and restores it when the journal closes (fixes HI-SCORE 61200 leaking to the
+   title). If the showcase stages the demo itself, please call `g.mods.journal.seedDemo()` (not
+   `seedJournalDemo` directly) so the backup/restore applies, then set `tab` BEFORE `open()`:
+   `g.mods.ui.menuOpen = 'journal'; g.mods.ui.settingsFrom = 'title'; g.mods.journal.seedDemo(); g.mods.journal.tab = +(p.get('tab') ?? 1); g.mods.journal.open();`
+
+3. **ui overlay (round 2 item 2) is simpler now.** The journal no longer snapshots the scene: it paints a
+   full-bleed backdrop (ink + dot lattice) under its panel every frame, so nothing under it is ever visible.
+   `ui.overlay` can skip the scene draw entirely while `menuOpen === 'journal'` from the first frame:
+   `if (this.menuOpen === 'journal') { g.mods.journal?.draw(g, ctx); this.touch.draw(g, ctx, this.t); return; }`
+   (saves ~5 ms per frame in headless Chromium). The audio hint badge (x 611-633, y 5-21) is still drawn on top
+   by the audio module and sits outside the panel, which is fine.
+
+4. **FYI, bus:** the bestiary now marks a wave's breeds as seen on `wave:start` (payload `{ areaId, waveIndex }`,
+   emitted by interaction) and the stats page reads `boss:defeat` (`{ bossId }`) and `cat:boop` (`{ breed }`).
+   Please keep those payload fields stable. It also reads `g.mods.ui.bestChain` for the BEST CHAIN card.

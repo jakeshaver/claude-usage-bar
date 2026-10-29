@@ -3,9 +3,9 @@ import { W, H } from '../core/game';
 import type { EnemyDef, QuestDef, MemoryDef } from '../core/types';
 import { text, textWidth, wrap } from '../art/font';
 import { spriteCanvas } from '../art/sprite';
-import { C, frame, scanlines, rect, chamferFill, chamferLine, ticks, icon, keycap, capWidth, dimRect, keys, darkOf, disc, arrow, type Device } from '../ui/draw';
+import { C, frame, scanlines, rect, chamferFill, chamferLine, ticks, icon, keycap, capWidth, keys, darkOf, lighter, disc, arrow, type Device } from '../ui/draw';
 import { headline, num } from '../ui/numerals';
-import { photo, lockedPhoto, PHOTO_W, PHOTO_H, THUMB } from './photos';
+import { photo, lockedPhoto, thumbAt, NOTES, PHOTO_W, PHOTO_H, THUMB_W, THUMB_H } from './photos';
 import { seedJournalDemo, wantsDemo } from './demo';
 
 // Pom's Journal: a holo-scrapbook with QUESTS / MEMORIES / BESTIARY / STATS tabs.
@@ -44,6 +44,7 @@ const MINI: Record<string, string[]> = {
   check: ['......#', '.....##', '#...##.', '##.##..', '.###...', '..#....', '.......'],
   close: ['##...##', '.##.##.', '..###..', '..###..', '.##.##.', '##...##', '.......'],
   crown: ['#..#..#', '##.#.##', '#######', '#######', '.#####.', '.......', '.......'],
+  mail: ['#######', '##...##', '#.#.#.#', '#..#..#', '#.....#', '#######', '.......'],
 };
 function mini(ctx: CanvasRenderingContext2D, name: string, x: number, y: number, c: string) {
   const g = MINI[name]; ctx.fillStyle = c;
@@ -93,15 +94,49 @@ function bbox(c: HTMLCanvasElement): Box {
 /** Specimen size: every cat, kitten and boss is shown in the same 64px frame (32px cats 2x, kitten 4x, bosses 1x). */
 const SPEC = 64;
 /** Draw a specimen centred on cx with its feet on baseline by. */
-function specimen(ctx: CanvasRenderingContext2D, e: EnemyDef, cx: number, by: number, seen: boolean) {
-  const c = spriteCanvas(e.sprite, 0, false, seen ? undefined : SILHOUETTE); if (!c) return;
+function specimen(ctx: CanvasRenderingContext2D, e: EnemyDef, cx: number, by: number, seen: boolean): Box | null {
+  const c = spriteCanvas(e.sprite, 0, false, seen ? undefined : SILHOUETTE); if (!c) return null;
   const s = Math.max(1, Math.floor(SPEC / Math.max(c.width, c.height))); const b = bbox(c);
-  blit(ctx, c, Math.round(cx - (b.x + b.w / 2) * s), by - (b.y + b.h) * s, s);
+  const x = Math.round(cx - (b.x + b.w / 2) * s), y = by - (b.y + b.h) * s;
+  blit(ctx, c, x, y, s);
+  return { x: x + b.x * s, y: y + b.y * s, w: b.w * s, h: b.h * s };
+}
+/** The unknown-specimen mark: a 2x '?' in peri with a 1px ink outline, centred on the silhouette's box. */
+function mystery(ctx: CanvasRenderingContext2D, b: Box | null) {
+  if (!b) return; const x = Math.round(b.x + b.w / 2 - 5), y = Math.round(b.y + b.h / 2 - 7);
+  for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1], [1, 1], [2, 2]]) text(ctx, '?', x + dx, y + dy, C.ink, { scale: 2 });
+  text(ctx, '?', x, y, C.peri, { scale: 2 });
+}
+/** Short sector names for tight footers ('S05 ROOFTOPS'). */
+const SHORT: Record<string, string> = { mothership: 'MEOWTHERSHIP' };
+/**
+ * Draw text that never overflows maxW: whole words are dropped from the end and a 3-dot pixel ellipsis is drawn
+ * instead (no mid-word cuts). Returns the width drawn.
+ */
+function textFit(ctx: CanvasRenderingContext2D, s: string, x: number, y: number, maxW: number, c: string, opts: { align?: 'left' | 'right' | 'center' } = {}) {
+  let t = s.toUpperCase(); let cut = false;
+  while (textWidth(t) > maxW && t.length) { const i = t.lastIndexOf(' '); t = (i > 0 ? t.slice(0, i) : t.slice(0, -1)).replace(/[ ,.:-]+$/, ''); cut = true; }
+  const w = textWidth(t) + (cut ? 7 : 0);
+  const x0 = opts.align === 'right' ? x - w : opts.align === 'center' ? Math.round(x - w / 2) : x;
+  text(ctx, t, x0, y, c);
+  if (cut) for (let i = 0; i < 3; i++) rect(ctx, x0 + textWidth(t) + 2 + i * 2, y + 6, 1, 1, c);
+  return w;
+}
+/** Hand-lettered line: the pixel font with a per-letter baseline wobble, like a pen note on the page. */
+function scrawl(ctx: CanvasRenderingContext2D, s: string, x: number, y: number, c: string) {
+  let cx = x; [...s.toUpperCase()].forEach((ch, i) => { text(ctx, ch, cx, y + [0, -1, 0, 1, 0, 0, -1, 1][(i * 5 + s.length) % 8], c); cx += ch === ' ' ? 5 : 6; });
+  return cx - x;
 }
 /** 0-4 threat pips: grunts by hit points, every big cat is a full 4. */
 const threat = (e: EnemyDef) => e.behavior === 'boss' ? 4 : Math.max(1, Math.min(3, e.hp));
 function pips(ctx: CanvasRenderingContext2D, x: number, y: number, n: number, on: string, off: string, w = 4) {
-  for (let i = 0; i < 4; i++) { rect(ctx, x + i * (w + 1), y, w, 3, i < n ? on : off); if (i < n) rect(ctx, x + i * (w + 1), y, w, 1, i < n && on === C.hot ? C.pink : on); }
+  for (let i = 0; i < 4; i++) { rect(ctx, x + i * (w + 1), y, w, 3, i < n ? on : off); if (i < n) rect(ctx, x + i * (w + 1), y, w, 1, lighter(on)); }
+}
+/** 1px dashed rectangle (dash 3, gap 2): the outline of a sealed, not-yet-written page. */
+function dashed(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, c: string) {
+  ctx.fillStyle = c;
+  for (let i = 2; i < w - 2; i += 5) { const l = Math.min(3, w - 2 - i); ctx.fillRect(x + i, y, l, 1); ctx.fillRect(x + i, y + h - 1, l, 1); }
+  for (let j = 2; j < h - 2; j += 5) { const l = Math.min(3, h - 2 - j); ctx.fillRect(x, y + j, 1, l); ctx.fillRect(x + w - 1, y + j, 1, l); }
 }
 const pad2 = (n: number) => String(n).padStart(2, '0');
 const fmtTime = (t: number) => { const s = Math.floor(t / 60), m = Math.floor(s / 60), h = Math.floor(m / 60); return (h > 0 ? `${h}:${pad2(m % 60)}` : `${m}`) + `:${pad2(s % 60)}`; };
@@ -136,13 +171,18 @@ class Journal implements Module {
   private pad = [false, false];     // previous shoulder button state
   private selT = -99;               // tick of the last selection change (focus ring flash)
   private lastKey = '';
-  private bg: { key: string; c: HTMLCanvasElement } | null = null; // cached static panel
-  private snap: HTMLCanvasElement | null = null;                   // dimmed, frozen copy of the scene behind
+  private bg: { key: string; c: HTMLCanvasElement } | null = null; // cached static backdrop + panel
+  private demoBackup: string | null = null;                        // real save, restored when a showcase demo closes
+  private boops = new Map<string, number>();                       // boops per breed this session (favourite target)
+  private bossesDown = new Set<string>();                          // bosses defeated this session
 
   init(g: Game) {
     this.g = g;
-    g.bus.on('cat:boop', (p: any) => { if (p?.breed) this.seen.add(p.breed); });
-    g.bus.on('boss:start', (p: any) => { if (p?.bossId) this.seen.add(p.bossId); });
+    g.bus.on('cat:boop', (p: any) => this.note('cat:boop', p));
+    g.bus.on('boss:start', (p: any) => this.note('boss:start', p));
+    g.bus.on('boss:defeat', (p: any) => this.note('boss:defeat', p));
+    // a wave's breeds count as seen the moment it spawns (they are on screen and listed in the HUD)
+    g.bus.on('wave:start', (p: any) => this.note('wave:start', p));
     if (typeof window === 'undefined' || typeof document === 'undefined' || g.headless) return;
     // one pointer stream (mouse, pen and touch alike): no duplicate compatibility mousedown after a touch
     addEventListener('pointerdown', e => {
@@ -159,14 +199,43 @@ class Journal implements Module {
   }
   isOpen() { return this.g?.mods.ui?.menuOpen === 'journal'; }
   open() {
-    if (wantsDemo()) seedJournalDemo(this.g);
+    if (wantsDemo()) this.seedDemo();
     this.sel = Math.min(this.sels[this.tab] ?? 0, Math.max(0, this.count(this.g) - 1)); this.focus = 'items'; this.viewer = -1;
-    this.taps = []; this.jump = 0; this.scroll = 0; this.snap = null; this.scan();
+    this.taps = []; this.jump = 0; this.scroll = 0; this.scan();
   }
-  /** Same as the showcase's staged save; exposed so core can stage it explicitly. */
-  seedDemo() { seedJournalDemo(this.g); }
-  /** Pull boops still in the bus log (e.g. from before the journal was listening). */
-  private scan() { for (const e of this.g?.bus.log ?? []) { if (e.evt === 'cat:boop' && e.p?.breed) this.seen.add(e.p.breed); if (e.evt === 'boss:start' && e.p?.bossId) this.seen.add(e.p.bossId); } }
+  /**
+   * Same as the showcase's staged save; exposed so core can stage it explicitly. The real save is kept and put
+   * back when the journal closes, so the demo numbers never reach the title screen or the save slot.
+   */
+  seedDemo() {
+    if (this.demoBackup === null) { this.demoBackup = JSON.stringify(this.g.state); this.boopsBackup = new Map(this.boops); }
+    seedJournalDemo(this.g);
+    for (const [b, n] of [['tabby', 141], ['tuxedo', 96], ['siamese', 52]] as [string, number][]) this.boops.set(b, (this.boops.get(b) ?? 0) + n);
+  }
+  private boopsBackup: Map<string, number> | null = null;
+  private restoreDemo() {
+    if (this.demoBackup === null) return; const saved = JSON.parse(this.demoBackup); this.demoBackup = null;
+    if (this.boopsBackup) { this.boops = this.boopsBackup; this.boopsBackup = null; }
+    const st = this.g.state as unknown as Record<string, unknown>;
+    for (const k of Object.keys(saved)) if (k !== 'scene' && k !== 'settings') st[k] = saved[k];
+  }
+  /** One bus event: what it tells the bestiary and the stats page. */
+  private note(evt: string, p: any) {
+    if (evt === 'cat:boop' && p?.breed) { this.seen.add(p.breed); this.boops.set(p.breed, (this.boops.get(p.breed) ?? 0) + 1); }
+    else if (evt === 'boss:start' && p?.bossId) this.seen.add(p.bossId);
+    else if (evt === 'boss:defeat' && p?.bossId) { this.seen.add(p.bossId); this.bossesDown.add(p.bossId); }
+    else if (evt === 'wave:start' && this.g) {
+      const wid = this.g.content.areas.find(a => a.id === p?.areaId)?.waves[p?.waveIndex];
+      for (const c of this.g.content.waves.find(w => w.id === wid)?.cats ?? []) this.seen.add(c.breed);
+    }
+  }
+  /** Pull events still in the bus log (e.g. from before the journal was listening). Runs once per open. */
+  private scanned = -1;
+  private scan() {
+    const log = this.g?.bus.log ?? []; if (this.scanned === log.length) return; this.scanned = log.length;
+    if (this.boops.size === 0) for (const e of log) this.note(e.evt, e.p);
+    else for (const e of log) if (e.evt !== 'cat:boop') this.note(e.evt, e.p);
+  }
   /** Every breed met so far. */
   seenBreeds(g: Game) { return new Set(g.content.enemies.filter(e => this.isSeen(g, e)).map(e => e.id)); }
 
@@ -190,16 +259,21 @@ class Journal implements Module {
     if (e.behavior === 'boss') return g.content.areas.find(a => a.boss === e.id)?.id;
     return g.content.areas.find(a => a.waves.some(w => this.fields(g, w, e.id)))?.id;
   }
-  /** Seen = booped/fought this session, or fielded by a sector already cleared or a wave already passed. */
+  /**
+   * Seen = on screen at some point. Uses the same notion of progress as passed(): every sector the player has
+   * flown past (cleared, or earlier on the chart than the current one) fielded its breeds and boss; in the
+   * current sector the waves already flown count, and so does every wave that has spawned (wave:start) and
+   * every cat booped or big cat met this session.
+   */
   isSeen(g: Game, e: EnemyDef): boolean {
     if (this.seen.has(e.id)) return true;
     const s = g.state;
-    for (const aid of s.areasCleared) {
-      const a = g.content.areas.find(a => a.id === aid); if (!a) continue;
+    for (const a of g.content.areas) {
+      if (!this.passed(g, a.id)) continue;
       if (a.boss === e.id || a.waves.some(w => this.fields(g, w, e.id))) return true;
     }
     const cur = g.content.areas.find(a => a.id === s.areaId);
-    if (cur && !s.areasCleared.includes(cur.id)) for (let i = 0; i < Math.min(s.waveIndex, cur.waves.length); i++) if (this.fields(g, cur.waves[i], e.id)) return true;
+    if (cur && !this.passed(g, cur.id)) for (let i = 0; i < Math.min(s.waveIndex, cur.waves.length); i++) if (this.fields(g, cur.waves[i], e.id)) return true;
     return false;
   }
   questState(g: Game, q: QuestDef) { return g.state.quests[q.id] ?? 'locked'; }
@@ -219,24 +293,32 @@ class Journal implements Module {
       this.taps = []; this.sels[this.tab] = this.sel; g.mods.audio?.sfx('select');
       // outside a flight there is no pause menu to fall back to: return to the title instead
       const sc = g.state.scene; if (g.mods.ui && sc !== 'play' && sc !== 'bonus' && sc !== 'dialogue') g.mods.ui.settingsFrom = 'title';
+      this.restoreDemo();
       close();
     };
     // the photo viewer is modal: confirm/back/tap closes it, left/right flips through found memories
     if (this.viewer >= 0) {
-      const tapped = this.taps.length > 0; this.taps = []; this.jump = 0;
-      if (confirm || I.pressed('back') || I.pressed('pause') || tapped) { this.viewer = -1; blip(); }
-      else if (I.pressed('left') || I.pressed('right')) {
-        const mem = g.content.memories; const d = I.pressed('left') ? -1 : 1;
+      let flip = I.pressed('left') ? -1 : I.pressed('right') ? 1 : 0; let tapClose = false;
+      for (const [x, y] of this.taps) { const h = [...this.hits].reverse().find(h => x >= h.x && x < h.x + h.w && y >= h.y && y < h.y + h.h); if (h?.kind === 'viewer' && h.i) flip = h.i; else tapClose = true; }
+      this.taps = []; this.jump = 0;
+      if (confirm || I.pressed('back') || I.pressed('pause') || (tapClose && !flip)) { this.viewer = -1; blip(); }
+      else if (flip) {
+        const mem = g.content.memories; const d = flip;
         for (let k = 1; k <= mem.length; k++) { const j = (((this.viewer + d * k) % mem.length) + mem.length) % mem.length; if (g.state.memories.includes(mem[j].id)) { this.viewer = j; this.sel = j; break; } }
         blip();
       }
       return;
     }
     if (I.pressed('back') || I.pressed('pause')) { shut(); return; }
-    // shoulder buttons (gamepad) and Q/E/Tab (keyboard) switch pages from anywhere
+    // shoulder buttons (gamepad) and Q/E/Tab (keyboard) switch pages from anywhere. Core actions 'pageL'/'pageR'
+    // are used when core/input has them (requested in docs/core-requests/journal.md); until then the shoulders
+    // are polled here, and a press marks the gamepad as the last device so the hint bar shows (LB)(RB).
+    const act = I.pressed as (a: string) => boolean;
+    if (act.call(I, 'pageL')) this.jump = -1; else if (act.call(I, 'pageR')) this.jump = 1;
     const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : [];
     let lb = false, rb = false; for (const p of pads) if (p) { lb ||= !!p.buttons[4]?.pressed; rb ||= !!p.buttons[5]?.pressed; }
-    if (lb && !this.pad[0]) this.jump = -1; if (rb && !this.pad[1]) this.jump = 1; this.pad = [lb, rb];
+    if ((lb && !this.pad[0]) || (rb && !this.pad[1])) { this.jump = lb && !this.pad[0] ? -1 : 1; I.lastDevice = 'gamepad'; }
+    this.pad = [lb, rb];
     if (this.jump) { this.switchTab(this.tab + this.jump); this.jump = 0; }
     // taps (hit rects come from the last drawn frame)
     for (const [x, y] of this.taps) {
@@ -283,15 +365,16 @@ class Journal implements Module {
    * The panel starts at y=24 so the screen-corner sound badge (y 5-21) never overlaps its frame. */
   layout(g: Game): Layout {
     const touch = !!g.mods.ui?.touch?.visible?.(g);
-    const panel = { x: 12, y: 24, w: W - 24, h: H - 28 };
-    if (touch) return { panel, grid: { x: 24, y: 68, w: 592, h: 164 }, detail: { x: 132, y: 236, w: 376, h: 112 }, hints: false, touch };
-    return { panel, grid: { x: 24, y: 68, w: 384, h: 256 }, detail: { x: 414, y: 68, w: 202, h: 256 }, hints: true, touch };
+    // touch: the panel ends at y=228, 4px above the pad decks (TOUCH_TOP - 4 = 232); the detail card floats
+    // below it in the gap between the MOVE and ACTION decks (x 132-508)
+    if (touch) return { panel: { x: 12, y: 24, w: W - 24, h: 204 }, grid: { x: 24, y: 64, w: 592, h: 160 }, detail: { x: 132, y: 234, w: 376, h: 122 }, hints: false, touch };
+    return { panel: { x: 12, y: 24, w: W - 24, h: H - 28 }, grid: { x: 24, y: 68, w: 384, h: 256 }, detail: { x: 414, y: 68, w: 202, h: 256 }, hints: true, touch };
   }
   cell(L: Layout): { cw: number; ch: number } {
     const id = this.tabId();
-    if (id === 'quests') return { cw: L.grid.w, ch: 23 };
-    if (id === 'memories') return L.touch ? { cw: 64, ch: 82 } : { cw: 62, ch: 84 };
-    if (id === 'bestiary') return L.touch ? { cw: 73, ch: 82 } : { cw: 76, ch: 84 };
+    if (id === 'quests') return { cw: L.grid.w, ch: L.touch ? 26 : 23 };
+    if (id === 'memories') return L.touch ? { cw: 64, ch: 80 } : { cw: 62, ch: 84 };
+    if (id === 'bestiary') return L.touch ? { cw: 73, ch: 80 } : { cw: 76, ch: 84 };
     return { cw: L.grid.w, ch: L.grid.h };
   }
   cols(L: Layout) { return Math.max(1, Math.floor(L.grid.w / this.cell(L).cw)); }
@@ -301,12 +384,7 @@ class Journal implements Module {
     this.g = g; this.hits = [];
     const L = this.layout(g); const P = L.panel; const acc = TABS[this.tab].accent;
     const key = `${this.tab}|${this.sel}|${this.focus}`; if (key !== this.lastKey) { this.lastKey = key; this.selT = this.t; }
-    // the scene behind is dimmed once when the journal opens and frozen (a per-frame palette remap reads the
-    // canvas back every frame, which costs ~10 fps); only the margins around the opaque panel ever show
-    if (!this.snap && typeof document !== 'undefined') {
-      dimRect(ctx, 0, 0, W, H);
-      const c = document.createElement('canvas'); c.width = W; c.height = H; c.getContext('2d')!.drawImage(ctx.canvas, 0, 0, W, H, 0, 0, W, H); this.snap = c;
-    } else blit(ctx, this.snap, 0, 0);
+    // full-bleed backdrop + panel in one cached canvas: no chopped HUD or frozen game ever shows in the margins
     blit(ctx, this.panelBg(L), 0, 0);
     // close button (also a tap target)
     const bx = P.x + P.w - 27, by = P.y + 4;
@@ -324,10 +402,13 @@ class Journal implements Module {
   }
   /** Static panel art (frame, dot grid, scanlines, corner ticks, title plate, label) rendered once per layout. */
   panelBg(L: Layout): HTMLCanvasElement | null {
-    const P = L.panel; const key = `${P.x},${P.y},${P.w},${P.h}`;
+    const P = L.panel; const key = `${P.x},${P.y},${P.w},${P.h},${L.touch}`;
     if (this.bg?.key === key) return this.bg.c;
     if (typeof document === 'undefined') return null;
     const c = document.createElement('canvas'); c.width = W; c.height = H; const ctx = c.getContext('2d')!;
+    // backdrop: the panel's own night, two steps darker (ink) with a sparse dot lattice
+    rect(ctx, 0, 0, W, H, C.ink); ctx.fillStyle = C.night;
+    for (let y = 4; y < H; y += 8) for (let x = 4 + ((y >> 3) & 1) * 4; x < W; x += 8) ctx.fillRect(x, y, 1, 1);
     cFrame(ctx, P.x, P.y, P.w, P.h, C.line, C.night, 8);
     ctx.fillStyle = C.indigo;
     for (let y = P.y + 8; y < P.y + P.h - 4; y += 8) for (let x = P.x + 8 + ((y >> 3) & 1) * 4; x < P.x + P.w - 4; x += 8) ctx.fillRect(x, y, 1, 1);
@@ -361,7 +442,7 @@ class Journal implements Module {
       if (on) {
         cFill(ctx, x, y, w, 19, C.plum, 4); cLine(ctx, x, y, w, 19, C.mag, 4);
         rect(ctx, x + 4, y + 18, w - 8, 1, C.plum); // open bottom edge: the tab joins the page
-        rect(ctx, x + 6, y + 1, w - 12, 1, darkOf(t.accent));
+        rect(ctx, x + 6, y + 1, w - 12, 1, t.accent);
         if (foc) this.ring(ctx, x, y, w, 19, 4);
       } else { cFill(ctx, x, y + 2, w, 15, C.ink, 3); cLine(ctx, x, y + 2, w, 15, C.indigo, 3); }
       const cnt = have >= 0 ? `${have}/${n}` : '';
@@ -408,28 +489,38 @@ class Journal implements Module {
   questTab(g: Game, ctx: CanvasRenderingContext2D, L: Layout) {
     const qs = g.content.quests; const wv = this.window(L, qs.length);
     // fixed columns: counter column (right aligned, widest "need/need" or the DONE badge), 8px gutter, bar column
-    const cntW = Math.max(40, ...qs.map(q => textWidth(`${q.complete.count ?? 1}/${q.complete.count ?? 1}`)));
-    const barW = 84;
+    const cntW = Math.max(40, ...qs.map(q => Math.max(textWidth(`${q.complete.count ?? 1}/${q.complete.count ?? 1}`), textWidth(this.lockTag(g, q)))));
+    const barW = 84; const next = this.nextQuest(g);
     for (let i = wv.first; i < wv.last; i++) {
       const q = qs[i]; const st = this.questState(g, q); const on = i === this.sel; const lock = st === 'locked';
       const y = L.grid.y + (i - wv.first) * wv.ch; const x = L.grid.x + 4, w = L.grid.w - 12, h = wv.ch - 4;
+      const ty = y + Math.floor((h - 7) / 2);
       this.hits.push({ x, y, w, h: wv.ch, kind: 'item', i });
-      cFill(ctx, x, y, w, h, lock ? C.ink : C.panel, 3);
-      cLine(ctx, x, y, w, h, st === 'done' ? darkOf(C.lime) : st === 'active' ? C.burnt : C.indigo, 3);
-      if (on) this.itemRing(ctx, x, y, w, h, 3);
-      const ic = st === 'done' ? C.lime : st === 'active' ? C.gold : C.peri;
-      if (st === 'done') mini(ctx, 'check', x + 7, y + 6, ic); else icon(ctx, st === 'active' ? 'flag' : 'lock', x + 7, y + 6, ic);
-      text(ctx, lock ? '? ? ?' : q.name, x + 20, y + 6, lock ? C.peri : on ? C.gold : C.text, { shadow: C.ink });
       const cx = x + w - 8; const barX = cx - cntW - 8 - barW;
       if (lock) {
-        const a = q.start.match?.areaId as string | undefined; const tag = this.lockTag(g, q);
-        text(ctx, tag, cx, y + 6, a && this.passed(g, a) ? C.dim : C.peri, { align: 'right' });
+        // a sealed page: dashed outline, envelope, an empty meter keeping the row rhythm, and where to look
+        const isNext = q === next;
+        cFill(ctx, x, y, w, h, isNext ? C.night : C.ink, 3);
+        if (isNext) cLine(ctx, x, y, w, h, C.burnt, 3); else dashed(ctx, x, y, w, h, C.indigo);
+        if (on) this.itemRing(ctx, x, y, w, h, 3);
+        mini(ctx, 'mail', x + 7, ty, isNext ? C.gold : C.peri);
+        text(ctx, '? ? ?', x + 20, ty, isNext ? C.dim : C.peri, { shadow: C.ink });
+        if (isNext) { const nw = textWidth('NEXT') + 8; cFill(ctx, x + 60, ty - 2, nw, 11, C.burnt, 2); text(ctx, 'NEXT', x + 64, ty, C.cream); }
+        meter(ctx, barX, ty + 1, barW, 5, 0, q.complete.count ?? 1, C.peri);
+        const a = q.start.match?.areaId as string | undefined;
+        textFit(ctx, this.lockTag(g, q), cx, ty, cntW + 4, isNext ? C.gold : a && this.passed(g, a) ? C.pink : C.peri, { align: 'right' });
         continue;
       }
+      cFill(ctx, x, y, w, h, C.panel, 3);
+      cLine(ctx, x, y, w, h, st === 'done' ? darkOf(C.lime) : C.burnt, 3);
+      if (on) this.itemRing(ctx, x, y, w, h, 3);
+      const ic = st === 'done' ? C.lime : C.gold;
+      if (st === 'done') mini(ctx, 'check', x + 7, ty, ic); else icon(ctx, 'flag', x + 7, ty, ic);
+      text(ctx, q.name, x + 20, ty, on ? C.gold : C.text, { shadow: C.ink });
       const p = this.progress(g, q); const c = st === 'done' ? C.lime : C.gold;
-      meter(ctx, barX, y + 7, barW, 5, p.have, p.need, c);
-      if (st === 'done') { cFill(ctx, cx - 40, y + 4, 40, 11, darkOf(C.lime), 2); text(ctx, 'DONE', cx - 20, y + 6, C.cream, { align: 'center' }); }
-      else text(ctx, `${p.have}/${p.need}`, cx, y + 6, C.gold, { align: 'right' });
+      meter(ctx, barX, ty + 1, barW, 5, p.have, p.need, c);
+      if (st === 'done') { cFill(ctx, cx - 40, ty - 2, 40, 11, darkOf(C.lime), 2); text(ctx, 'DONE', cx - 20, ty, C.cream, { align: 'center' }); }
+      else text(ctx, `${p.have}/${p.need}`, cx, ty, C.gold, { align: 'right' });
     }
     this.scrollMarks(ctx, L, wv);
     const q = qs[this.sel]; if (q) this.questDetail(g, ctx, L.detail, q);
@@ -437,8 +528,18 @@ class Journal implements Module {
   /** Dim where-to-look tag on a locked quest row: the sector that starts it, or the kind of event. */
   lockTag(g: Game, q: QuestDef) {
     const a = q.start.match?.areaId as string | undefined;
-    if (q.start.on === 'area:enter' && a) return `S${pad2(this.sector(g, a))} ${this.areaName(g, a)}`.toUpperCase();
+    if (q.start.on === 'area:enter' && a) return this.sectorTag(g, a);
     return START_TAG[q.start.on] ?? 'KEEP FLYING';
+  }
+  /** 'S05 ROOFTOPS': sector number plus a short area name, for footers and tags. */
+  sectorTag(g: Game, a: string) { return `S${pad2(this.sector(g, a))} ${SHORT[a] ?? a.toUpperCase()}`; }
+  /** The first sealed quest the player can still reach on the way forward (gets the NEXT highlight). */
+  nextQuest(g: Game): QuestDef | undefined {
+    return g.content.quests.find(q => {
+      if (this.questState(g, q) !== 'locked') return false;
+      const a = q.start.match?.areaId as string | undefined;
+      return !(q.start.on === 'area:enter' && a && this.passed(g, a));
+    });
   }
   questDetail(g: Game, ctx: CanvasRenderingContext2D, D: Box, q: QuestDef) {
     const st = this.questState(g, q); const p = this.progress(g, q); const wide = D.w > D.h * 2;
@@ -446,8 +547,9 @@ class Journal implements Module {
     this.detailFrame(ctx, D, acc);
     // medal sticker on a ribbon
     const mx = wide ? D.x + 36 : Math.round(D.x + D.w / 2), my = wide ? D.y + 46 : D.y + 40;
-    rect(ctx, mx - 8, my - 26, 6, 14, lock ? C.indigo : C.hot); rect(ctx, mx + 2, my - 26, 6, 14, lock ? C.indigo : C.line);
-    rect(ctx, mx - 8, my - 26, 6, 1, lock ? C.peri : C.pink); rect(ctx, mx + 2, my - 26, 6, 1, lock ? C.peri : C.ice);
+    // ribbon in the card's own accent (lime when done, gold in progress): a light and a dark strip
+    rect(ctx, mx - 8, my - 26, 6, 14, lock ? C.indigo : acc); rect(ctx, mx + 2, my - 26, 6, 14, lock ? C.indigo : darkOf(acc));
+    rect(ctx, mx - 8, my - 26, 6, 1, lock ? C.peri : lighter(acc)); rect(ctx, mx + 2, my - 26, 6, 1, lock ? C.peri : acc);
     disc(ctx, mx, my, 13, lock ? C.ink : darkOf(acc)); disc(ctx, mx, my - 1, 12, lock ? C.panel2 : acc); disc(ctx, mx, my - 1, 8, lock ? C.indigo : darkOf(acc));
     if (st === 'done') mini(ctx, 'check', mx - 3, my - 4, C.cream); else icon(ctx, st === 'active' ? 'flag' : 'lock', mx - 3, my - 4, lock ? C.peri : C.cream);
     const tx = wide ? D.x + 72 : D.x + 12; let y = wide ? D.y + 10 : D.y + 64; const cw = Math.floor((D.x + D.w - 10 - tx) / 6);
@@ -461,7 +563,7 @@ class Journal implements Module {
     }
     for (const l of wrap(lock ? this.startHint(g, q) : q.desc, cw).slice(0, wide ? 4 : 8)) { text(ctx, l, tx, y, lock ? C.dim : C.text); y += 10; }
     const rw = this.rewardText(q); y = D.y + D.h - 16;
-    if (rw) { icon(ctx, 'gift', tx, y, lock ? C.peri : C.pink); text(ctx, ('REWARD ' + rw).slice(0, cw - 2), tx + 11, y, st === 'done' ? C.dim : lock ? C.peri : C.pink); }
+    if (rw) { icon(ctx, 'gift', tx, y, lock ? C.peri : C.pink); textFit(ctx, 'REWARD ' + rw, tx + 11, y, D.x + D.w - 10 - (tx + 11), st === 'done' ? C.dim : lock ? C.peri : C.pink); }
   }
   /** Where a locked quest starts, worded for the player's progress (a passed sector means a replay). */
   startHint(g: Game, q: QuestDef): string {
@@ -498,11 +600,10 @@ class Journal implements Module {
     const w = 52, h = 64;
     rect(ctx, x + 2, y + 2, w, h, C.deep); // holo drop shadow
     rect(ctx, x, y, w, h, got ? C.cream : C.indigo); rect(ctx, x, y, w, 1, got ? C.text : C.peri); rect(ctx, x, y + h - 1, w, 1, got ? C.pale : C.night);
-    const ph = got ? photo(m.id, m.area) : lockedPhoto(m.id);
-    if (ph) ctx.drawImage(ph, THUMB.x, THUMB.y, THUMB.w, THUMB.h, x + 4, y + 4, THUMB.w, THUMB.h);
+    const ph = got ? photo(m.id) : lockedPhoto(m.id); const [sx, sy] = thumbAt(m.id);
+    if (ph) ctx.drawImage(ph, sx, sy, THUMB_W, THUMB_H, x + 4, y + 4, THUMB_W, THUMB_H);
     if (got) text(ctx, `#${pad2(i + 1)}`, x + w / 2, y + 50, C.indigo, { align: 'center' });
     else {
-      text(ctx, '?', x + 13, y + 10, C.dim);
       text(ctx, pad2(i + 1), x + 5, y + 50, C.peri);
       const s = `S${pad2(this.sector(g, m.area))}`; const sw = textWidth(s) + 4;
       cFill(ctx, x + w - 5 - sw, y + 48, sw, 9, C.night, 2); text(ctx, s, x + w - 3 - sw, y + 50, this.passed(g, m.area) ? C.pink : C.line);
@@ -515,49 +616,83 @@ class Journal implements Module {
   memoryDetail(g: Game, ctx: CanvasRenderingContext2D, D: Box, m: MemoryDef, i: number) {
     const got = g.state.memories.includes(m.id); const wide = D.w > D.h * 2;
     this.detailFrame(ctx, D, got ? C.pink : C.peri);
-    const pw = PHOTO_W + 8, ph = PHOTO_H + 20; // big polaroid (photo 88x64)
+    // big polaroid (photo 88x64) with a caption strip that holds up to two lines of title
+    const pw = PHOTO_W + 8, ph = wide ? PHOTO_H + 20 : PHOTO_H + 26;
     const px = wide ? D.x + 12 : Math.round(D.x + D.w / 2 - pw / 2), py = wide ? D.y + 13 : D.y + 14;
     rect(ctx, px + 2, py + 2, pw, ph, C.deep); rect(ctx, px, py, pw, ph, got ? C.cream : C.indigo); rect(ctx, px, py, pw, 1, got ? C.text : C.peri);
-    blit(ctx, got ? photo(m.id, m.area) : lockedPhoto(m.id), px + 4, py + 4);
-    if (!got) text(ctx, '?', px + 22, py + 12, C.dim);
-    text(ctx, got ? m.title.slice(0, 15) : `SECTOR ${pad2(this.sector(g, m.area))}`, px + pw / 2, py + PHOTO_H + 8, got ? C.indigo : C.line, { align: 'center' });
+    blit(ctx, got ? photo(m.id) : lockedPhoto(m.id), px + 4, py + 4);
+    const cap = got ? wrap(m.title, 15) : [`SECTOR ${pad2(this.sector(g, m.area))}`];
+    const lines = wide ? cap.slice(0, 1) : cap.slice(0, 2);
+    if (wide && cap.length > 1) textFit(ctx, m.title, px + pw / 2, py + PHOTO_H + 8, pw - 6, C.indigo, { align: 'center' });
+    else lines.forEach((l, k) => text(ctx, l, px + pw / 2, py + PHOTO_H + (lines.length > 1 ? 6 + k * 9 : 11), got ? C.indigo : C.line, { align: 'center' }));
     rect(ctx, px + pw / 2 - 9, py - 4, 18, 7, got ? C.pale : C.peri); rect(ctx, px + pw / 2 - 9, py - 4, 18, 1, got ? C.text : C.dim);
     const tx = wide ? px + pw + 14 : D.x + 12; let y = wide ? D.y + 10 : py + ph + 9; const cw = Math.floor((D.x + D.w - 10 - tx) / 6);
+    const maxL = Math.floor((D.y + D.h - 20 - (y + 12)) / 10);
     if (got) {
       text(ctx, `MEMORY #${pad2(i + 1)}`, tx, y, C.pink); y += 12;
-      for (const l of wrap(m.text, cw).slice(0, wide ? 7 : 10)) { text(ctx, l, tx, y, C.text); y += 10; }
+      for (const l of wrap(m.text, cw).slice(0, maxL)) { text(ctx, l, tx, y, C.text); y += 10; }
     } else {
       text(ctx, 'NOT FOUND YET', tx, y, C.dim); y += 12;
       const where = `${this.areaName(g, m.area)}, wave ${m.wave + 1}`;
       const hint = this.passed(g, m.area)
         ? `Missed in ${where}. Replay sector ${pad2(this.sector(g, m.area))} and watch for a glowing cat carrying a polaroid.`
         : `Somewhere in ${where}. Watch for a glowing cat carrying a polaroid and boop it gently.`;
-      for (const l of wrap(hint, cw).slice(0, 6)) { text(ctx, l, tx, y, C.peri); y += 10; }
+      for (const l of wrap(hint, cw).slice(0, maxL)) { text(ctx, l, tx, y, C.peri); y += 10; }
     }
     const yy = D.y + D.h - 14; icon(ctx, 'flag', tx, yy, got ? C.pink : C.peri);
-    text(ctx, `S${pad2(this.sector(g, m.area))} ${this.areaName(g, m.area)} W${m.wave + 1}`.slice(0, cw - 2), tx + 10, yy, C.dim);
+    textFit(ctx, `${this.sectorTag(g, m.area)} W${m.wave + 1}`, tx + 10, yy, D.x + D.w - 10 - (tx + 10), C.dim);
   }
-  /** Full-size photo with its story. It replaces the page body, so nothing from the page shows behind it. */
+  /** Full-size photo with its story, notes and page strip. It replaces the page body. */
   viewerDraw(g: Game, ctx: CanvasRenderingContext2D, L: Layout) {
     const m = g.content.memories[this.viewer]; if (!m) return;
-    const pw = PHOTO_W * 2 + 16, ph = PHOTO_H * 2 + 32; const tw = 288;
-    const top = L.grid.y, bottom = L.panel.y + L.panel.h - 8;
-    const total = pw + 18 + tw; const x = Math.round(W / 2 - total / 2), y = Math.round((top + bottom) / 2 - ph / 2);
+    const pw = PHOTO_W * 2 + 16, ph = PHOTO_H * 2 + 32; const tw = 272; const cap = 18, gap = 6;
+    const top = L.touch ? L.grid.y + 1 : L.grid.y - 2, bottom = L.panel.y + L.panel.h - (L.hints ? 24 : 8);
+    const total = cap + gap + pw + 14 + tw + gap + cap; const x0 = Math.round(W / 2 - total / 2);
+    const x = x0 + cap + gap, y = Math.max(top, Math.round((top + bottom) / 2 - ph / 2));
+    // polaroid
     rect(ctx, x + 3, y + 3, pw, ph, C.deep); rect(ctx, x, y, pw, ph, C.cream); rect(ctx, x, y, pw, 1, C.text); rect(ctx, x, y + ph - 1, pw, 1, C.pale);
-    blit(ctx, photo(m.id, m.area), x + 8, y + 8, 2);
-    text(ctx, m.title, x + pw / 2, y + PHOTO_H * 2 + 15, C.indigo, { align: 'center' });
+    blit(ctx, photo(m.id), x + 8, y + 8, 2);
+    textFit(ctx, m.title, x + pw / 2, y + PHOTO_H * 2 + 15, pw - 12, C.indigo, { align: 'center' });
     rect(ctx, x + pw / 2 - 16, y - 5, 32, 9, C.pale); rect(ctx, x + pw / 2 - 16, y - 5, 32, 1, C.text);
-    const bx = x + pw + 18, by = y, bh = ph; cFrame(ctx, bx, by, tw, bh, C.pink, C.ink, 6);
-    text(ctx, `MEMORY #${pad2(this.viewer + 1)}`, bx + 12, by + 12, C.pink);
-    const found = g.content.memories.filter(mm => g.state.memories.includes(mm.id)).length;
-    text(ctx, `${found}/${g.content.memories.length}`, bx + tw - 12, by + 12, C.dim, { align: 'right' });
-    wrap(m.text, 44).slice(0, 8).forEach((l, k) => text(ctx, l, bx + 12, by + 28 + k * 11, C.text));
-    icon(ctx, 'flag', bx + 12, by + bh - 34, C.peri); text(ctx, `S${pad2(this.sector(g, m.area))} ${this.areaName(g, m.area)}`, bx + 22, by + bh - 34, C.dim);
-    const dev = this.dev(g); const k = keys(dev);
-    if (dev === 'touch') text(ctx, 'TAP TO CLOSE', bx + 12, by + bh - 18, C.dim);
-    else { let hx = bx + 12; hx += keycap(ctx, '< >', hx, by + bh - 18, C.pink) + 4; text(ctx, 'FLIP', hx, by + bh - 18, C.dim); hx += textWidth('FLIP') + 12; hx += keycap(ctx, k.back, hx, by + bh - 18, C.pink) + 4; text(ctx, 'BACK', hx, by + bh - 18, C.dim); }
-    if (found > 1 && !g.state.settings.reduceMotion) { const o = (this.t >> 4) % 2; arrow(ctx, x - 8 - o, y + ph / 2, 'l', 4, C.pink); arrow(ctx, bx + tw + 7 + o, y + ph / 2, 'r', 4, C.pink); }
+    // story card
+    const bx = x + pw + 14, by = y, bh = ph; cFrame(ctx, bx, by, tw, bh, C.pink, C.ink, 6);
+    const found = g.content.memories.map((mm, k) => g.state.memories.includes(mm.id) ? k : -1).filter(k => k >= 0);
+    const page = found.indexOf(this.viewer) + 1;
+    text(ctx, `MEMORY #${pad2(this.viewer + 1)}`, bx + 12, by + 10, C.pink);
+    textFit(ctx, m.title, bx + tw - 12, by + 10, tw - 24 - textWidth('MEMORY #00') - 10, C.gold, { align: 'right' });
+    rect(ctx, bx + 12, by + 21, tw - 24, 1, C.plum);
+    let ly = by + 27; for (const l of wrap(m.text, Math.floor((tw - 24) / 6)).slice(0, 5)) { text(ctx, l, bx + 12, ly, C.text); ly += 10; }
+    // hand-written note with a doodled heart, then the postmark stamp (date + place)
+    const [date, note] = NOTES[m.id] ?? ['', ''];
+    const ny = Math.max(ly + 6, by + 76);
+    if (note) { const nw = scrawl(ctx, note, bx + 16, ny, C.cream); for (let k = 0; k < nw; k += 4) rect(ctx, bx + 16 + k, ny + 9 + (k % 8 ? 1 : 0), 3, 1, C.mag); this.doodle(ctx, bx + 22 + nw, ny); }
+    const sy = ny + 18, sw = tw - 24;
+    dashed(ctx, bx + 12, sy, sw, 17, darkOf(C.pink));
+    icon(ctx, 'flag', bx + 17, sy + 5, C.pink); textFit(ctx, `${this.sectorTag(g, m.area)} W${m.wave + 1}`, bx + 27, sy + 5, sw - 22 - textWidth(date) - 8, C.dim);
+    if (date) text(ctx, date, bx + 12 + sw - 5, sy + 5, C.pink, { align: 'right' });
+    // page strip: one dot per found polaroid, the open one wide and bright
+    const dy = by + bh - 30; const dw = found.length * 6 - 2;
+    text(ctx, `PAGE ${page} OF ${found.length}`, bx + 12, dy - 2, C.dim);
+    let dx = bx + tw - 12 - dw - 4; for (const k of found) { const on = k === this.viewer; rect(ctx, dx, dy - (on ? 1 : 0), on ? 6 : 4, on ? 5 : 3, on ? C.pink : C.indigo); dx += on ? 8 : 6; }
+    const dev = this.dev(g); const k = keys(dev); const hy = by + bh - 16;
+    if (dev === 'touch') text(ctx, 'TAP THE PHOTO TO CLOSE', bx + 12, hy, C.dim);
+    else { let hx = bx + 12; if (found.length > 1) { hx += keycap(ctx, '< >', hx, hy, C.pink) + 4; text(ctx, 'FLIP', hx, hy, C.dim); hx += textWidth('FLIP') + 12; } hx += keycap(ctx, k.back, hx, hy, C.pink) + 4; text(ctx, 'BACK', hx, hy, C.dim); }
+    // flip caps next to the photo and the card (also tap targets)
     this.hits.push({ x: 0, y: 0, w: W, h: H, kind: 'viewer', i: 0 });
+    if (found.length > 1) {
+      const o = g.state.settings.reduceMotion ? 0 : (this.t >> 4) % 2; const cy = y + Math.round(ph / 2), chh = 34;
+      for (const [cx, d] of [[x0, -1], [bx + tw + gap, 1]] as [number, number][]) {
+        cFill(ctx, cx, cy - chh / 2, cap, chh, C.ink, 4); cLine(ctx, cx, cy - chh / 2, cap, chh, C.mag, 4);
+        rect(ctx, cx + 4, cy - chh / 2 + 1, cap - 8, 1, C.plum);
+        arrow(ctx, d < 0 ? cx + 7 - o : cx + cap - 8 + o, cy, d < 0 ? 'l' : 'r', 5, C.pink);
+        this.hits.push({ x: cx - 4, y: cy - chh / 2 - 6, w: cap + 8, h: chh + 12, kind: 'viewer', i: d });
+      }
+    }
+  }
+  /** Tiny pen heart next to the hand-written note. */
+  doodle(ctx: CanvasRenderingContext2D, x: number, y: number) {
+    const c = C.hot; rect(ctx, x, y + 1, 2, 1, c); rect(ctx, x + 3, y + 1, 2, 1, c); rect(ctx, x - 1, y + 2, 1, 2, c); rect(ctx, x + 5, y + 2, 1, 2, c);
+    rect(ctx, x + 2, y + 2, 1, 1, c); rect(ctx, x, y + 4, 1, 1, c); rect(ctx, x + 4, y + 4, 1, 1, c); rect(ctx, x + 1, y + 5, 1, 1, c); rect(ctx, x + 3, y + 5, 1, 1, c); rect(ctx, x + 2, y + 6, 1, 1, c);
   }
 
   // ---- BESTIARY
@@ -572,8 +707,8 @@ class Journal implements Module {
       cLine(ctx, x, y, w, h, boss ? (seen ? C.burnt : C.indigo) : seen ? C.deep : C.indigo, 4);
       // every entry: the same top-down specimen, 64px frame, feet on a shared baseline
       const base = y + h - 13;
-      specimen(ctx, e, x + Math.floor(w / 2), base, seen);
-      if (!seen) text(ctx, '?', x + Math.floor(w / 2) - 2, base - 30, C.dim);
+      const sb = specimen(ctx, e, x + Math.floor(w / 2), base, seen);
+      if (!seen) mystery(ctx, sb);
       if (boss) mini(ctx, 'crown', x + 4, y + 4, seen ? C.gold : C.indigo);
       // footer: threat meter (4 pips) and the entry number
       pips(ctx, x + 6, y + h - 8, seen ? threat(e) : 0, boss ? C.gold : C.hot, seen ? C.indigo : C.night);
@@ -594,8 +729,8 @@ class Journal implements Module {
     const base = by + bh - 12;
     rect(ctx, bx + 8, base + 1, bw - 16, 1, seen ? darkOf(acc) : C.indigo);
     if (!g.state.settings.reduceMotion) rect(ctx, bx + 6, by + 6 + ((this.t >> 1) % (bh - 20)), bw - 12, 1, darkOf(acc)); // scan line, behind the specimen
-    specimen(ctx, e, bx + bw / 2, base, seen);
-    if (!seen) text(ctx, '?', bx + bw / 2 - 2, base - 30, C.dim);
+    const sb = specimen(ctx, e, bx + bw / 2, base, seen);
+    if (!seen) mystery(ctx, sb);
     pips(ctx, bx + bw / 2 - 12, by + bh - 7, seen ? threat(e) : 0, boss ? C.gold : C.hot, C.ink, 5);
     const tx = wide ? bx + bw + 12 : D.x + 12; let y = wide ? D.y + 10 : by + bh + 8; const cw = Math.floor((D.x + D.w - 10 - tx) / 6);
     text(ctx, `NO.${pad2(i + 1)}`, tx, y, C.peri);
@@ -607,58 +742,87 @@ class Journal implements Module {
       icon(ctx, 'star', tx, y, C.gold); text(ctx, `${e.points} PTS`, tx + 10, y, C.gold);
       const hx = tx + 10 + textWidth(`${e.points} PTS`) + 10;
       icon(ctx, 'heart', hx, y, C.hot); text(ctx, `HP ${e.hp}`, hx + 10, y, C.pink);
+      y += 12;
+      // the same 4 pips as the grid card, with their legend
+      text(ctx, 'THREAT', tx, y, C.dim); pips(ctx, tx + textWidth('THREAT') + 6, y + 2, threat(e), boss ? C.gold : C.hot, C.indigo, 5);
       y += 13;
-      for (const l of wrap(e.bestiary, cw).slice(0, wide ? 4 : 7)) { text(ctx, l, tx, y, C.text); y += 10; }
+      for (const l of wrap(e.bestiary, cw).slice(0, Math.floor((D.y + D.h - 18 - y) / 10))) { text(ctx, l, tx, y, C.text); y += 10; }
     } else {
-      for (const l of wrap('Not booped yet. Scanner data is fuzzy: one gentle boop and this page fills in.', cw).slice(0, 4)) { text(ctx, l, tx, y, C.peri); y += 10; }
+      for (const l of wrap('Not met yet. Scanner data is fuzzy: this page fills in once it shows up in a wave.', cw).slice(0, Math.floor((D.y + D.h - 18 - y) / 10))) { text(ctx, l, tx, y, C.peri); y += 10; }
     }
     const home = this.homeArea(g, e);
-    if (home) { const yy = D.y + D.h - 14; icon(ctx, 'flag', tx, yy, C.peri); text(ctx, ((boss ? 'BOSS OF ' : 'SEEN IN ') + `S${pad2(this.sector(g, home))} ` + this.areaName(g, home)).slice(0, cw - 2), tx + 10, yy, C.dim); }
+    if (home) {
+      const yy = D.y + D.h - 14; icon(ctx, 'flag', tx, yy, seen ? C.line : C.peri);
+      const verb = boss ? (seen ? 'BOSS OF ' : 'RULES ') : seen ? 'SEEN IN ' : 'LURKS IN ';
+      textFit(ctx, verb + this.sectorTag(g, home), tx + 10, yy, D.x + D.w - 10 - (tx + 10), C.dim);
+    }
   }
 
   // ---- STATS
   statsTab(g: Game, ctx: CanvasRenderingContext2D, L: Layout) {
     const s = g.state; const st = s.stats; const ct = g.content;
     const aim = st.shots ? Math.round(100 * st.hits / st.shots) : 0;
-    const pups = ct.quests.find(q => q.id === 'lost_pups'); const pp = pups ? this.progress(g, pups) : null;
-    const qDone = ct.quests.filter(q => this.questState(g, q) === 'done').length;
-    const seen = ct.enemies.filter(e => this.isSeen(g, e)).length;
     const frac = (a: number, b: number) => a / Math.max(1, b);
     const hi = Math.max(s.hiScore, s.score);
-    // [icon, label, value, colour, meter 0..1 or -1, caption]: every card gets a meter that means something
-    const tiles: [string, string, string, string, number, string][] = [
+    const chain = g.mods.ui?.bestChain ?? 0;
+    // big cats: every cleared sector's boss, plus the ones napped this session
+    const bosses = new Set([...this.bossesDown, ...ct.areas.filter(a => s.areasCleared.includes(a.id) && a.boss).map(a => a.boss!)]);
+    const nBoss = ct.areas.filter(a => a.boss).length;
+    // pups: one lost pup rides with a capturer per sector (flag pup_<area> once rescued)
+    const pupAreas = ct.areas.filter(a => a.waves.some(w => ct.waves.find(x => x.id === w)?.cats.some(c => ct.enemies.find(e => e.id === c.breed)?.behavior === 'capturer')));
+    const pupsGot = pupAreas.filter(a => s.flags['pup_' + a.id]).length;
+    let fav = ''; let favN = 0; for (const [b, n] of this.boops) if (n > favN) { fav = b; favN = n; }
+    const favE = ct.enemies.find(e => e.id === fav);
+    // [icon, label, value, icon colour, meter 0..1 or -1, caption, custom footer]
+    type Tile = [string, string, string, string, number, string, ((x: number, y: number, w: number) => void)?];
+    const tiles: Tile[] = [
       ['star', 'SCORE', String(s.score), C.gold, frac(s.score, hi), 'OF YOUR BEST'],
       ['star', 'HI SCORE', String(hi), C.gold, -1, 'PERSONAL BEST'],
       ['cat', 'CATS BOOPED', String(st.catsBooped), C.line, -1, 'GENTLY, ALWAYS'],
+      ['wave', 'BEST CHAIN', String(chain), C.pink, -1, chain >= 20 ? 'BOOP COMBO. WOW' : 'BOOP COMBO'],
       ['bolt', 'TURDS TOOTED', String(st.shots), C.orange, frac(st.hits, st.shots), `${st.hits} DIRECT HITS`],
-      ['wave', 'AIM', String(aim), C.lime, aim / 100, aim >= 60 ? 'PERCENT. SHARP NOSE' : 'PERCENT. KEEP SNIFFING'],
+      ['paw', 'AIM', String(aim), C.lime, aim / 100, aim >= 60 ? 'PERCENT. SHARP NOSE' : 'PERCENT. KEEP SNIFFING'],
       ['moon', 'NAPS TAKEN', String(st.naps), C.violet, -1, st.naps ? 'WELL RESTED' : 'NO NAPS YET'],
       ['clock', 'FLIGHT TIME', fmtTime(st.playTicks), C.line, -1, 'TIME ALOFT'],
-      ['pup', 'PUPS SAVED', pp ? `${pp.have}/${pp.need}` : '0', C.pink, pp ? frac(pp.have, pp.need) : -1, 'WINGMEN FOUND'],
-      ['photo', 'MEMORIES', `${s.memories.length}/${ct.memories.length}`, C.pink, frac(s.memories.length, ct.memories.length), 'POLAROIDS'],
-      ['flag', 'QUESTS', `${qDone}/${ct.quests.length}`, C.gold, frac(qDone, ct.quests.length), 'PAGES FILLED'],
-      ['paw', 'SECTORS', `${s.areasCleared.length}/${ct.areas.length}`, C.lime, frac(s.areasCleared.length, ct.areas.length), 'CLEARED'],
-      ['cat', 'BESTIARY', `${seen}/${ct.enemies.length}`, C.line, frac(seen, ct.enemies.length), 'BREEDS LOGGED'],
+      ['pup', 'PUPS RESCUED', `${pupsGot}/${pupAreas.length}`, C.pink, -1, 'BY SECTOR', (x, y, w) => {
+        const n = pupAreas.length; const pw = Math.max(3, Math.min(24, Math.floor((w + 1) / Math.max(1, n)) - 1));
+        pupAreas.forEach((a, k) => { const on = !!s.flags['pup_' + a.id]; rect(ctx, x + k * (pw + 1) - 1, y - 1, pw + 2, 6, C.ink); rect(ctx, x + k * (pw + 1), y, pw, 4, on ? C.pink : C.night); rect(ctx, x + k * (pw + 1), y, pw, 1, on ? C.text : C.indigo); });
+      }],
+      ['crown', 'BIG CATS NAPPED', `${bosses.size}/${nBoss}`, C.gold, frac(bosses.size, nBoss), 'BOSSES DEFEATED'],
+      ['flag', 'SECTORS', `${s.areasCleared.length}/${ct.areas.length}`, C.lime, frac(s.areasCleared.length, ct.areas.length), 'CLEARED'],
+      ['cat', 'FAVOURITE TARGET', favE ? favE.name : 'NONE YET', C.line, -1, favE ? `${favN} BOOPS` : 'BOOP SOME CATS'],
     ];
     const B = L.touch ? L.grid : { x: L.grid.x, y: L.grid.y, w: L.detail.x + L.detail.w - L.grid.x, h: L.grid.h };
     const cols = 4, rows = 3, gap = 6; const tw = Math.floor((B.w - gap * (cols - 1)) / cols), th = Math.floor((B.h - gap * (rows - 1)) / rows);
-    tiles.forEach(([ic, lbl, val, c, p, sub], i) => {
+    tiles.forEach(([ic, lbl, val, c, p, sub, foot], i) => {
       const x = B.x + (i % cols) * (tw + gap), y = B.y + Math.floor(i / cols) * (th + gap);
-      cFrame(ctx, x, y, tw, th, c, C.panel, 5);
-      icon(ctx, ic, x + 9, y + 9, c, C.ink); text(ctx, lbl, x + 20, y + 9, C.dim);
+      // one violet frame for every card: colour lives in the icons and meters only
+      cFrame(ctx, x, y, tw, th, C.violet, C.panel, 5);
+      if (ic === 'crown') mini(ctx, 'crown', x + 9, y + 9, c); else icon(ctx, ic, x + 9, y + 9, c, C.ink);
+      textFit(ctx, lbl, x + 20, y + 9, tw - 28, C.dim);
+      const isName = ic === 'cat' && i === tiles.length - 1;
       if (th >= 60) {
-        num(ctx, val, x + 10, y + 26, C.text, { hi: C.cream, shadow: darkOf(c) });
-        if (p >= 0) { text(ctx, sub, x + 10, y + 46, C.peri); meter(ctx, x + 10, y + th - 15, tw - 20, 4, Math.round(p * 100), 100, c); }
-        else { text(ctx, sub, x + 10, y + th - 18, C.peri); this.badge(ctx, ic, x + tw - 22, y + th - 22, c); }
+        if (isName) { textFit(ctx, val, x + 10, y + 28, tw - 20 - (favE ? 34 : 0), favE ? C.text : C.peri); if (favE) this.favSprite(ctx, favE, x + tw - 26, y + th - 12); }
+        else num(ctx, val, x + 10, y + 26, C.text, { hi: C.cream, shadow: C.purple });
+        if (foot) { text(ctx, sub, x + 10, y + 46, C.peri); foot(x + 10, y + th - 15, tw - 20); }
+        else if (p >= 0) { text(ctx, sub, x + 10, y + 46, C.peri); meter(ctx, x + 10, y + th - 15, tw - 20, 4, Math.round(p * 100), 100, c); }
+        else { textFit(ctx, sub, x + 10, y + th - 18, tw - 20 - (isName && favE ? 34 : 24), C.peri); if (!isName) this.badge(ctx, ic, x + tw - 22, y + th - 22, c); }
       } else {
-        text(ctx, val, x + tw - 9, y + 24, C.text, { align: 'right' });
-        if (p >= 0) meter(ctx, x + 9, y + th - 10, tw - 18, 2, Math.round(p * 100), 100, c);
+        textFit(ctx, val, x + tw - 9, y + 24, tw - 18, C.text, { align: 'right' });
+        if (foot) foot(x + 9, y + th - 10, tw - 18);
+        else if (p >= 0) meter(ctx, x + 9, y + th - 10, tw - 18, 2, Math.round(p * 100), 100, c);
       }
     });
   }
+  /** The favourite target's sprite, small, standing on the card's footer line. */
+  favSprite(ctx: CanvasRenderingContext2D, e: EnemyDef, cx: number, by: number) {
+    const c = spriteCanvas(e.sprite, 0, false); if (!c) return; const b = bbox(c); if (b.h > 34) return;
+    const s = Math.max(1, Math.floor(32 / Math.max(b.w, b.h)));
+    blit(ctx, c, Math.round(cx - (b.x + b.w / 2) * s), by - (b.y + b.h) * s, s);
+  }
   /** Icon on a little chamfered plate: the illustration on stat cards that have no meter. */
   badge(ctx: CanvasRenderingContext2D, ic: string, x: number, y: number, c: string) {
-    cFill(ctx, x - 4, y - 4, 18, 18, C.night, 3); cLine(ctx, x - 4, y - 4, 18, 18, darkOf(c), 3);
+    cFill(ctx, x - 4, y - 4, 18, 18, C.night, 3); cLine(ctx, x - 4, y - 4, 18, 18, C.purple, 3);
     icon(ctx, ic, x + 1, y + 1, c, C.ink);
   }
 
