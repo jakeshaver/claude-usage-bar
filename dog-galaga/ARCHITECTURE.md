@@ -119,7 +119,8 @@ Each module exports a `Module` object:
 
 ```ts
 interface Module { id: string; init?(g: Game): void; update?(g: Game): void;
-                   render?(g: Game, r: Renderer): void; showcase?(g: Game): void }
+                   render?(g: Game, r: Renderer): void; overlay?(g: Game, ctx): void;
+                   overlayZ?: number /* overlay order, default 0, higher on top */ }
 ```
 The loop calls `update`/`render` through `safe(moduleId, fn)`.
 
@@ -128,7 +129,15 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
 - **world**: `enterArea(id)`, `currentArea()`, `setTod(tod)`, `transition(kind, cb)`, `exitsFrom(id)`
 - **player**: `pos()`, `respawn()`, `setInvuln(ticks)`, `camera: {x}`, `hitbox()`
 - **interaction**: `startWave(areaId, i)`, `startBoss(id)`, `liveCats()`, `clearAll()`, `spawnPickup(id,x,y)`
-- **save**: `save()`, `load(slot)`, `hasSave()`, `wipe()`, `exportString()`, `importString(s)`
+- **save**: `save()` (throttled), `flush()`, `load(slot = 'main')` (`'main'` | `'backup'`: the slot tried
+  first; returns `'ok'` | `'recovered'` | `'corrupt'` | `'none'`; legacy `load(false)` = load without resuming),
+  `hasSave()`, `wipe()` (keeps hi score + settings), `info()` (slot health, `persistent`), `recoveryOptions()`
+  (recovery card wording: `rows`, `status`, `doomed`, toasts), `exportString()` / `importString(s)`
+  (`POODLE1:` save codes), `stage(name)` (showcase: `recovery` | `recovery-backup` | `recovery-nibbled` |
+  `indicator` | `indicator-touch` | `indicator-memory`). Draw helpers: `drawFloppy` (16x16 master floppy;
+  `chewed`, `memory`, `mono`, `plate`), `FLOPPY7` (7x7 menu glyph), `drawRecoveryCard`, `drawChewMedallion`.
+  Overlay draws at `overlayZ = 100` (on top of ui). Ctrl/Cmd+C / Ctrl/Cmd+V copy / paste a save code on the
+  title, map, pause menu and recovery screen.
 - **ui**: `toast(text)`, `muteToasts(on)`, `openPause()`, `openMap()`, `showDialogue(nodeId)`.
   Escape opens the pause menu in play, bonus, map and dialogue (the conversation is parked while it is open,
   and `quest.update` idles while `g.paused`)
@@ -153,7 +162,7 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
 The **public game API** is `window.__game` (used by tools, tests and the bot):
 `ready`, `getState()`, `setState(partial)`, `goto(scene, opts)`, `enterArea(id)`,
 `setTod(tod)`, `step(n)` (advance n fixed ticks, works while paused), `input(keys)`,
-`autopilot(on)`, `questGraph()`, `errors()`, `fps()`, `save()`, `load()`.
+`autopilot(on)`, `questGraph()`, `errors()`, `fps()`, `save()`, `load()`, `exportSave()`, `importSave(code)`.
 
 ## 5. Content schema (declarative, never hardcoded)
 

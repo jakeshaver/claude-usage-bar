@@ -27,6 +27,8 @@ export interface Module {
   render?(g: Game, r: Renderer): void;
   /** screen-space overlay render (HUD/menus), after playfield */
   overlay?(g: Game, ctx: CanvasRenderingContext2D): void;
+  /** overlay draw order (default 0, stable): higher draws later, on top */
+  overlayZ?: number;
   api?: any;
 }
 

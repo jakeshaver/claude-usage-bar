@@ -1,5 +1,6 @@
 import { text, textWidth } from '../art/font';
 import { PALETTE } from '../core/palette';
+import { FLOPPY7 } from '../save/indicator';
 // Futuristic UI kit. Everything here is pixel exact: integer fillRects only, no arcs, no strokes,
 // no alpha blending for shapes (dimming uses palette dithers). Colors come from the fixed palette.
 const P = PALETTE;
@@ -210,7 +211,7 @@ const ICONS: Record<string, string[]> = {
   gear: ['.#.#.#.', '#######', '.##.##.', '###.###', '.##.##.', '#######', '.#.#.#.'],
   book: ['.##.##.', '#..#..#', '#..#..#', '#..#..#', '#..#..#', '.##.##.', '...#...'],
   play: ['.#.....', '.##....', '.###...', '.####..', '.###...', '.##....', '.#.....'],
-  disk: ['######.', '#.##.##', '#.##..#', '#.....#', '#.###.#', '#.###.#', '#######'],
+  disk: FLOPPY7,
   bolt: ['...##..', '..##...', '.####..', '..##...', '.##....', '.#.....', '.......'],
   gift: ['.#.#...', '#######', '#..#..#', '#######', '#..#..#', '#..#..#', '#######'],
   retry: ['..####.', '.#....#', '#......', '#....#.', '#...###', '.#.....', '..###..'],

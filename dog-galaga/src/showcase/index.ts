@@ -37,7 +37,7 @@ export function runShowcase(g: Game, which: string, p: URLSearchParams) {
     case 'map': g.state.areasCleared = ['backyard', 'street']; g.state.areaId = 'street'; g.setScene('map'); break;
     case 'journal': g.state.memories = g.content.memories.slice(0, 3).map(m => m.id); g.mods.ui.menuOpen = 'journal'; g.mods.journal.open(); g.mods.journal.tab = +(p.get('tab') ?? 1); break;
     case 'minigames': case 'bonus': { const a = g.content.areas.find(a => a.bonus) ?? W_.area(area); W_.enterArea(a.id, 0); quiet(); g.mods.quest.dlg = null; g.setScene('play'); g.mods.minigames.startBonus(a.bonus); for (let i = 0; i < 260; i++) g.step(); break; }
-    case 'save': g.setScene('recovery'); break;
+    case 'save': if (g.mods.save?.stage) g.mods.save.stage(p.get('stage') ?? 'recovery'); else g.setScene('recovery'); break;
     case 'memories': { const m = g.content.memories[0]; W_.enterArea(m?.area ?? area, m?.wave ?? 0); g.mods.quest.dlg = null; g.setScene('play'); W_.titleCard = 0; for (let i = 0; i < 400; i++) g.step(); if (m) g.mods.interaction.spawnPickup('memory:' + m.id, 224, 200); break; }
     case 'ending':
       g.state.ending = p.get('ending') ?? g.content.endings[0].id; g.state.inventory.pups = 6;

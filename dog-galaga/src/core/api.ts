@@ -22,6 +22,8 @@ export function makeApi(g: Game, extra: { fps: () => number } = { fps: () => 60 
     fps: extra.fps,
     save: () => g.mods.save?.save(),
     load: () => g.mods.save?.load(),
+    exportSave: (): string => g.mods.save?.exportString?.() ?? '',
+    importSave: (code: string) => g.mods.save?.importString?.(code) ?? 'corrupt',
     events: () => g.bus.log.slice(-100),
   };
 }

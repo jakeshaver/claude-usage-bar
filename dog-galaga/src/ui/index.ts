@@ -1,4 +1,5 @@
 import type { Game, Module } from '../core/game';
+import { drawRecoveryCard } from '../save/index';
 import { W, H, PF_X, PF_W } from '../core/game';
 import { text, wrap, textWidth } from '../art/font';
 import { drawSprite, spriteCanvas, frameCount, SHEETS } from '../art/sprite';
@@ -107,7 +108,7 @@ class UI implements Module {
       if (p.to === 'ending') this.endingT = 0;
       if (p.to !== 'play' && p.to !== 'bonus') this.menuOpen = this.menuOpen === 'journal' ? 'journal' : 'none';
     });
-    g.bus.on('save:recovered', () => this.toast('SAVE PATCHED UP FROM BACKUP'));
+    g.bus.on('save:recovered', (p: any) => this.toast(this.g.mods.save?.recoveryOptions?.().recoveredToast(p?.slot) ?? 'SAVE PATCHED UP FROM BACKUP'));
     g.bus.on('cat:boop', () => {
       this.chain = g.tick - this.lastBoop <= 100 ? this.chain + 1 : 1; this.lastBoop = g.tick;
       this.bestChain = Math.max(this.bestChain, this.chain); this.chainPop = 8;
@@ -200,6 +201,7 @@ class UI implements Module {
         else if (it === 'SKIP BRIEFING') { this.closeMenus(); this.skipDialogue(g); }
         else if (it === 'JOURNAL') { this.menuOpen = 'journal'; this.settingsFrom = 'pause'; g.mods.journal?.open(); }
         else if (it === 'SETTINGS') { this.menuOpen = 'settings'; this.settingsFrom = 'pause'; this.sel = 0; }
+        else if (it === 'COPY SAVE CODE') this.copySaveCode(g);
         else if (it === 'SAVE & QUIT') { const inDlg = !!this.heldDlg; this.closeMenus(false); if (inDlg) this.skipDialogue(g); g.mods.save?.save(); g.mods.interaction?.clearAll(); g.setScene('title'); }
       }
       return;
@@ -219,7 +221,15 @@ class UI implements Module {
 
   titleItems() { return ['CONTINUE', 'NEW GAME', 'JOURNAL', 'SETTINGS']; }
   titleDisabled() { return [!this.g.mods.save?.hasSave(), false, false, false]; }
-  pauseItems() { return this.heldDlg ? ['RESUME', 'SKIP BRIEFING', 'JOURNAL', 'SETTINGS', 'SAVE & QUIT'] : ['RESUME', 'JOURNAL', 'SETTINGS', 'SAVE & QUIT']; }
+  pauseItems() { return this.heldDlg ? ['RESUME', 'SKIP BRIEFING', 'JOURNAL', 'SETTINGS', 'COPY SAVE CODE', 'SAVE & QUIT'] : ['RESUME', 'JOURNAL', 'SETTINGS', 'COPY SAVE CODE', 'SAVE & QUIT']; }
+  /** COPY SAVE CODE: clipboard API when allowed, else a hint for the Ctrl+C shortcut save listens for */
+  copySaveCode(g: Game) {
+    const code: string = g.mods.save?.exportString?.() ?? '';
+    if (!code) { this.toast('NO SAVE TO COPY YET'); return; }
+    const clip = (globalThis as any).navigator?.clipboard;
+    if (clip?.writeText) clip.writeText(code).then(() => this.toast('SAVE CODE COPIED'), () => this.toast('PRESS CTRL+C TO COPY'));
+    else this.toast('PRESS CTRL+C TO COPY');
+  }
 
   titleNav(g: Game) {
     const I = g.input; const items = this.titleItems(); const off = this.titleDisabled();
@@ -268,10 +278,13 @@ class UI implements Module {
   }
   recoveryNav(g: Game) {
     const I = g.input;
-    if (I.pressed('up') || I.pressed('down')) { this.sel = 1 - this.sel; g.mods.audio?.sfx('blip'); }
+    const o = g.mods.save.recoveryOptions?.();
+    // nothing left to fetch: the card shows a single START FRESH row (row 0's load() then fails and starts fresh)
+    if (!o?.doomed && (I.pressed('up') || I.pressed('down'))) { this.sel = 1 - this.sel; g.mods.audio?.sfx('blip'); }
     if (I.pressed('confirm')) {
-      if (this.sel === 0) { const r = g.mods.save.load(); if (r === 'corrupt' || r === 'none') { g.mods.save.wipe(); g.setScene('title'); this.toast('STARTING FRESH. NO WORRIES!'); } }
-      else { g.mods.save.wipe(); g.setScene('title'); this.toast('STARTING FRESH. NO WORRIES!'); }
+      const fresh = o?.freshToast ?? 'STARTING FRESH. NO WORRIES!';
+      if (this.sel === 0) { const r = g.mods.save.load(); if (r === 'corrupt' || r === 'none') { g.mods.save.wipe(); g.setScene('title'); this.toast(fresh); } }
+      else { g.mods.save.wipe(); g.setScene('title'); this.toast(fresh); }
     }
   }
 
@@ -302,10 +315,15 @@ class UI implements Module {
       const f = Math.min(1, x.age / 12, x.t / 10); const open = 1 - (1 - f) * (1 - f);
       const full = textWidth(x.text) + 30; const w = Math.max(14, Math.round(full * open)); const bx = Math.round(cx - w / 2);
       const y = Math.round(x.y);
+      // never an empty chip: below 30% open nothing is drawn; after that the label is revealed together with
+      // the frame (clipped to the pill's inside), so pill and words open and close as one
+      if (open < 0.3) return;
       frame(ctx, bx, y, w, 14, C.hot, C.night, 4);
-      if (open < 0.98) { rect(ctx, bx + 4, y + 6, w - 8, 1, C.hot); return; }
-      icon(ctx, x.text.startsWith('MEMORY') ? 'photo' : x.text.startsWith('PUPPY') ? 'paw' : x.text.includes('QUEST') ? 'flag' : 'star', bx + 7, y + 4, C.gold);
-      text(ctx, x.text, bx + 18, y + 4, (x.age >> 2) % 2 && x.age < 30 ? C.text : C.gold);
+      const fx = Math.round(cx - full / 2), clip = open < 0.98;
+      if (clip) { ctx.save(); ctx.beginPath(); ctx.rect(bx + 3, y + 2, w - 6, 10); ctx.clip(); }
+      icon(ctx, x.text.startsWith('MEMORY') ? 'photo' : x.text.startsWith('PUPPY') ? 'paw' : x.text.includes('QUEST') ? 'flag' : 'star', fx + 7, y + 4, C.gold);
+      text(ctx, x.text, fx + 18, y + 4, (x.age >> 2) % 2 && x.age < 30 ? C.text : C.gold);
+      if (clip) ctx.restore();
     });
   }
 
@@ -921,11 +939,11 @@ class UI implements Module {
     const A = g.mods.world?.area();
     if (A) text(ctx, A.name.toUpperCase(), W / 2, y + 26, C.dim, { align: 'center' });
     rect(ctx, x + 16, y + 38, w - 32, 1, C.indigo);
-    const icons = items.map(it => ({ RESUME: 'play', 'SKIP BRIEFING': 'skip', JOURNAL: 'book', SETTINGS: 'gear' } as Record<string, string>)[it] ?? 'disk');
+    const icons = items.map(it => ({ RESUME: 'play', 'SKIP BRIEFING': 'skip', JOURNAL: 'book', SETTINGS: 'gear', 'COPY SAVE CODE': 'paw' } as Record<string, string>)[it] ?? 'disk');
     this.rows = menu(ctx, items, this.sel, W / 2, y + 52, this.t, 20, icons, w - 28);
     const dy = y + 52 + n * 20;
     rect(ctx, x + 16, dy, w - 32, 1, C.indigo);
-    text(ctx, this.heldDlg ? 'BRIEFING ON HOLD' : 'PROGRESS SAVES EVERY WAVE', W / 2, dy + 8, C.dim, { align: 'center' });
+    text(ctx, this.heldDlg ? 'BRIEFING ON HOLD' : 'PROGRESS SAVES AUTOMATICALLY', W / 2, dy + 8, C.dim, { align: 'center' });
     const k = keys(this.dev());
     hintRow(ctx, [[k.ok, 'SELECT'], [k.back, 'RESUME']], W / 2, y + h - 18, C.line);
   }
@@ -1062,19 +1080,9 @@ class UI implements Module {
     scanlines(ctx, x + 2, y + 2, w - 4, h - 4);
     ticks(ctx, x, y, w, h, C.mag, 8, 3);
     chamferFill(ctx, x + 70, y - 8, w - 140, 18, C.hot, 5); text(ctx, 'SAVE RECOVERY', W / 2, y - 3, C.ink, { align: 'center' });
-    // the culprit in a solid 2px medallion, with the chewed floppy pinned on as a badge
-    const mx = W / 2, my = y + 38;
-    disc(ctx, mx, my, 22, C.ink); ring(ctx, mx, my, 22, C.mag); ring(ctx, mx, my, 21, C.hot); ring(ctx, mx, my, 25, C.plum, [3, 3], t >> 3);
-    for (const [dx, dy] of [[0, -23], [0, 22], [-23, 0], [22, 0]]) rect(ctx, mx + dx, my + dy, 2, 2, C.pink);
-    drawSprite(ctx, 'cat_tabby', mx + ((t >> 5) % 2 ? 1 : -1), my, { frame: (t >> 4) % 2 });
-    const bx = mx + 12, by = my + 9;
-    chamferFill(ctx, bx, by, 15, 15, C.ink, 3); chamferLine(ctx, bx, by, 15, 15, C.gold, 3);
-    icon(ctx, 'disk', bx + 4, by + 4, C.pale);
-    headline(ctx, 'UH OH! A CAT CHEWED YOUR SAVE.', W / 2, y + 66, C.gold, C.cream, C.burnt);
-    text(ctx, 'NOTHING IS BROKEN. PICK AN OPTION:', W / 2, y + 83, C.text, { align: 'center' });
-    this.rows = menu(ctx, ['TRY BACKUP SAVE', 'START FRESH'], this.sel, W / 2, y + 102, t, 19, ['retry', 'new'], 200, { center: true });
-    const k = keys(this.dev());
-    hintRow(ctx, [[k.move, 'CHOOSE'], [k.ok, 'CONFIRM']], W / 2, y + h - 14, C.hot);
+    // the culprit chewing the master floppy, the slot status, the options worded by save, and the hint row
+    // (TAP AN OPTION on touch, CTRL+V SAVE CODE on keyboards)
+    this.rows = drawRecoveryCard(ctx, this.g.mods.save.recoveryOptions(), this.sel, t, this.dev());
     // Pom peeks over the garden fence, waiting to fly again
     this.peekPom(ctx, HZ, 1, t);
   }

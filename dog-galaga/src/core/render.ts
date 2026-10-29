@@ -38,7 +38,8 @@ export class CanvasRenderer implements Renderer {
     ctx.translate(PF_X - camX + Math.round(shake.x), Math.round(shake.y));
     for (const c of this.q) { try { c.fn(ctx); } catch (e) { g.reportError('render', e); } }
     ctx.restore();
-    for (const m of g.modules) if (m.overlay) g.safe(m.id + ':overlay', () => m.overlay!(g, ctx));
+    const ov = g.modules.filter(m => m.overlay).sort((a, b) => (a.overlayZ ?? 0) - (b.overlayZ ?? 0));
+    for (const m of ov) g.safe(m.id + ':overlay', () => m.overlay!(g, ctx));
     // fps
     this.fpsN++; if (now - this.fpsT >= 1000) { this.fpsValue = this.fpsN * 1000 / (now - this.fpsT || 1); this.fpsN = 0; this.fpsT = now; }
   }
