@@ -8,7 +8,7 @@ import { tuning, type Tuning } from './tuning';
 import { pxRing, pxDither, pxSpark, pxDisc } from '../core/pixel';
 import { ditherShadow, captureBeam, bubble, drawBullet, drawCombat, plaster, tractor, pickupBadge } from './art';
 import { Boss } from './boss';
-import { COL_SP, ROW_SP, layout, shapeFor, type Shape } from './formation';
+import { COL_SP, ROW_SP, layout, shapeFor, closeRanks, type Shape } from './formation';
 
 export type CatState = 'wait' | 'enter' | 'home' | 'form' | 'dive' | 'return' | 'leave' | 'flyby' | 'kdive';
 export interface Cat {
@@ -22,6 +22,14 @@ export interface Cat {
   pupK?: number;
   /** bonus stage: squadron index (sent as `group` in the bonus cat:boop payload) */
   bgroup?: number;
+  /** lattice cell (row index, column offset u in COL_SP units) and the home the cat glides on toward `slot` */
+  row: number; u: number; home: Pt;
+  /** stable row id and original column from the layout (close ranks keeps an untouched row's cells) */
+  rid: number; u0: number;
+  /** close-ranks glide: where the home started and ticks into the glide */
+  gFrom: Pt; gT: number;
+  /** two-step regroup: the sideways stop before the vertical slide (null: one straight glide) */
+  gMid: Pt | null;
 }
 /** `art` names the bullet sprite (cats: blt_fur / blt_yarn, bosses: one per bossPattern). */
 export interface Shot { x: number; y: number; vx: number; vy: number; kind: 'turd' | 'hairball' | 'yarn'; t: number; art?: string }
@@ -29,16 +37,22 @@ export interface Pickup { kind: string; x: number; y: number; vy: number; t: num
 
 const WAVE_LIMIT = 75 * 60;  // cats lose interest after 75s, so waves can never stall
 const MAX_TURDS = 4;
+const WAVE_TURDS = 2;       // Galaga's two-shot limit against the formation (spread shots add their extra lanes)
 // Formation grid (Galaga-like readability): at most 10 columns x 4 rows of flat rows, with clear lanes between cats.
 // The top row sits under the HUD toast lane (a single toast spans y 8..22), the bottom row stays above y ~160.
 const FORM_TOP = 46;
 const STREAM_STEP = 11;     // ticks between cats in one entry lane (11 x 4.0 >= 44px along the path: 32px sprites never overlap)
 const LANE_BREAK = 6;       // extra ticks between groups of 8 in one lane (Galaga's streams come in bursts)
-const HURRY_DIVERS = 2;     // last stand: at most this many stragglers out of the grid at once
+const HURRY_DIVERS = 2;     // last stand: at most this many stragglers out of the grid at once (one leader + a wingmate)
+const GLIDE_T = 32;         // ticks a home takes to slide when the grid closes ranks: every cat moves at once and lands
+                            // together (the block morphs as one, so neighbours never slide through each other)
+const REGROUP_LULL = 30;    // quiet ticks (no boop, no arrival) before the grid closes ranks: a burst of boops ends in
+const REGROUP_LULL_LATE = 15; // one calm regroup, not a row sliding cat after cat (the last 8 regroup on a shorter beat)
+const ENTRY_EDGE = 214;     // entry streams start just outside the visible playfield (half view 192 + a cat)
 const BEAM_TICKS = 84;      // capturer's tractor-beam moment
 const tp: TrackPos = { x: 0, y: 0, hx: 0, hy: 1 };
 const PUP_LIFT = 10;        // the formation sits this much lower when a captive pup rides above its holder
-const HURRY_LEAVE = 6 * 60; // once only ~20% of a wave is left, stragglers dive (2 at a time), then fly off after 6s
+const HURRY_LEAVE = 8 * 60; // once only ~20% of a wave is left, stragglers dive from their slots, then fly off after 8s
 /** Stages with no ground below the action (sky and space): nothing to cast a shadow on. */
 const AIRBORNE = new Set(['sky', 'moon', 'nebula', 'station', 'mothership']);
 /** Time-of-day tint for the combat layer (subtle: highlights cool at night, warm at dusk and dawn). */
@@ -60,6 +74,10 @@ class Interaction implements Module {
   sway = 0; nextId = 1; pupHolder = -1; rowSp = ROW_SP; colSp = COL_SP; shape: Shape = 'galaga';
   T: Tuning = { d: 0, spitSpeed: 1.5, spitCap: 3, bossSpitCap: 14, fireEvery: 90, diveEvery: 180, diveGroups: 1, maxDivers: 3, diveSpeed: 2.7, entrySpeed: 2.7, diveShots: 1, tell: 22, aimSlop: 50 };
   fireT = 0; diveT = 0; breathMix = 0; entryDone = false; clearHold = 0; total = 0; formTop = FORM_TOP; hurry = 0;
+  /** formation members at the last close-ranks pass (re-pack when one is booped) */
+  ranks = -1; rankKey = -1; rankT = 0;
+  /** cats per stable row id at the start of the wave */
+  rowN = new Map<number, number>();
   /** formation centre (world x): rides with the panning camera, so the convoy stays centred and whole on screen */
   cx = WORLD_W / 2;
 
@@ -90,8 +108,45 @@ class Interaction implements Module {
   private viewCx() { return (this.g.mods.player?.camera?.x ?? (WORLD_W - PF_W) / 2) + PF_W / 2; }
 
   private mkCat(def: EnemyDef, x: number, y: number, st: CatState, extra: Partial<Cat> = {}): Cat {
-    return { id: this.nextId++, def, hp: def.hp, x, y, vx: 0, vy: 0, st, slot: [x, y], track: null, s: 0, speed: 0, lat: 0, weave: 0,
-      delay: 0, t: 0, flash: 0, tell: 0, shots: 0, group: 0, side: 1, diveSeed: 0, ...extra };
+    const c: Cat = { id: this.nextId++, def, hp: def.hp, x, y, vx: 0, vy: 0, st, slot: [x, y], track: null, s: 0, speed: 0, lat: 0, weave: 0,
+      delay: 0, t: 0, flash: 0, tell: 0, shots: 0, group: 0, side: 1, diveSeed: 0, row: 0, u: 0, home: [x, y], rid: 0, u0: 0, gFrom: [x, y], gT: GLIDE_T, gMid: null, ...extra };
+    c.home = [c.slot[0], c.slot[1]];
+    if (!extra.rid) c.rid = c.row;
+    if (extra.u0 === undefined) c.u0 = c.u;
+    return c;
+  }
+  /** World position of a lattice cell (before sway / breathing / the camera ride). */
+  private cell(row: number, u: number): Pt { return [WORLD_W / 2 + u * this.colSp, this.formTop + row * this.rowSp]; }
+
+  /** Galaga grid that always reads as a grid: survivors close ranks in the lull after a boop (rows still streaming in
+   *  keep their cells): empty rows close up, each row packs side by side and re-centres, all gliding as one. */
+  private closeRanks() {
+    const mem = this.cats.filter(c => !c.dead && c.st !== 'leave' && c.st !== 'kdive' && c.st !== 'flyby');
+    const busy = (c: Cat) => c.st === 'wait' || c.st === 'enter' || c.st === 'home';
+    const key = mem.length * 64 + mem.filter(busy).length;   // re-pack on a boop, and as each cat lands in its cell
+    if (key === this.ranks) { this.rankKey = key; this.rankT = 0; return; }
+    // regroup in a lull, not under fire: wait until the grid has been quiet (no boop, no arrival) for a beat, so
+    // a run of boops ends in one calm regroup instead of the row sliding cat after cat into Pom's lane
+    // (the last few, <= 8, regroup sooner: a straggler block always reads as a block)
+    if (key !== this.rankKey) { this.rankKey = key; this.rankT = 0; }
+    if (++this.rankT < (mem.length <= 8 ? REGROUP_LULL_LATE : REGROUP_LULL)) return;
+    // one regroup at a time: a plan assumes every home sits in its cell, so wait for a glide in flight to land
+    if (mem.some(c => c.gT < (c.gMid ? GLIDE_T * 2 : GLIDE_T))) return;
+    this.ranks = key;
+    if (!mem.length) return;
+    const homes = closeRanks(mem.map(c => ({ rid: c.rid, u0: c.u0, u: c.u, row: c.row, busy: busy(c) })), this.rowN, this.entryDone);
+    mem.forEach((c, i) => {
+      const s = this.cell(homes[i].row, homes[i].u); c.row = homes[i].row; c.u = homes[i].u;
+      if (s[0] !== c.slot[0] || s[1] !== c.slot[1]) {
+        c.slot = s; c.gFrom = [c.home[0], c.home[1]]; c.gT = 0;
+        c.gMid = homes[i].twoStep ? [s[0], c.home[1]] : null;
+      }
+    });
+    // once settled, the regrouped block is the new baseline: rows are renumbered top down and count as untouched
+    if (this.entryDone) {
+      this.rowN = new Map();
+      for (const c of mem) { c.rid = c.row; c.u0 = c.u; this.rowN.set(c.rid, (this.rowN.get(c.rid) ?? 0) + 1); }
+    }
   }
 
   startWave(areaId: string, i: number) {
@@ -106,30 +161,33 @@ class Interaction implements Module {
     // the sector picks the formation's silhouette; every home sits on a COL_SP x ROW_SP lattice (no two overlap)
     const areaIdx = g.content.areas.findIndex(a => a.id === areaId);
     const holderWave = w.cats.some(c => this.enemy(c.breed).behavior === 'capturer') && !g.state.flags['pup_' + areaId];
-    const top = this.formTop = FORM_TOP + (holderWave ? PUP_LIFT : 0);
+    this.formTop = FORM_TOP + (holderWave ? PUP_LIFT : 0);
     this.rowSp = ROW_SP; this.colSp = COL_SP;
     this.shape = shapeFor(areaIdx, i);
-    this.cx = this.viewCx(); const ox = this.cx - WORLD_W / 2;
+    this.cx = this.viewCx(); 
     let n = 0; const first = this.cats.length;
-    const slots = layout(w, this.shape, i, id => this.enemy(id), Math.round(20 + 12 * T.d)).map(h => ({ def: h.def, slot: [WORLD_W / 2 + h.u * COL_SP, top + h.row * ROW_SP + h.dy] as Pt }));
+    this.ranks = -1; this.rankKey = -1; this.rankT = 0;
+    const slots = layout(w, this.shape, i, id => this.enemy(id), Math.round(22 + 12 * T.d)).map(h => ({ def: h.def, row: h.row, u: h.u, slot: this.cell(h.row, h.u) }));
     // entry lanes run in parallel and back to back (Galaga: the convoy assembles in ~4s, not over half the wave):
-    // split / rain / loop pour one lane per side, swirls fly pairs abreast with groups of 8 alternating sides.
+    // every stream flies in pairs abreast (two lanes per side), so even a 32-cat convoy is home in ~4 s.
     // Each lane fills its cells top row first, so a cat climbing into its cell only ever passes empty cells.
     const laneN = new Map<string, number>();
-    for (const { def, slot } of slots) {
+    for (const { def, slot, row, u } of slots) {
       const gi = Math.floor(n / 8), k = n % 8;
       let side = 1, lat = 0;
       switch (w.entry) {
-        case 'swirl-left': case 'swirl-right': side = gi % 2 ? -1 : 1; lat = k % 2 ? -19 : 19; break;
-        case 'loop': side = gi % 2 ? -1 : 1; break;
-        default: side = n % 2 ? -1 : 1;                       // split, rain: two mirrored lanes
+        case 'swirl-left': case 'swirl-right': case 'loop': side = gi % 2 ? -1 : 1; lat = k % 2 ? -19 : 19; break;
+        default: side = n % 2 ? -1 : 1; lat = (n >> 1) % 2 ? -19 : 19;   // split, rain: two mirrored streams of pairs
       }
       const key = side + ':' + lat; const li = laneN.get(key) ?? 0; laneN.set(key, li + 1);
       // the split streams cross at the centre: the right lane runs half a step behind so they interleave
       const delay = li * STREAM_STEP + Math.floor(li / 8) * LANE_BREAK + (w.entry === 'split' && side < 0 ? Math.round(STREAM_STEP / 2) : 0);
-      const track = new Track(entryPath(w.entry, side, [slot[0] + ox, slot[1]]));
+      // the choreography is drawn around the world centre: ride it over to the formation centre, and start the far
+      // ends just outside the visible playfield, so cats are on screen within a few ticks of their cue
+      const pts = entryPath(w.entry, side, [slot[0], slot[1]]).map(([x, y]) => [this.cx + Math.max(-ENTRY_EDGE, Math.min(ENTRY_EDGE, x - WORLD_W / 2)), y] as Pt);
+      const track = new Track(pts);
       const p0 = track.at(0, tp);
-      this.cats.push(this.mkCat(def, p0.x, p0.y, 'wait', { slot, track, speed: T.entrySpeed, lat, delay, side, diveSeed: g.rng.next() }));
+      this.cats.push(this.mkCat(def, p0.x, p0.y, 'wait', { slot, track, speed: T.entrySpeed, lat, delay, side, diveSeed: g.rng.next(), row, u }));
       n++;
     }
     // no two cats may share an entry lane at the same moment (same side + lane offset start at the same
@@ -141,6 +199,7 @@ class Interaction implements Module {
       lanes.set(key, c.delay);
     }
     this.total = this.cats.length;
+    this.rowN = new Map(); for (const c of this.cats) this.rowN.set(c.rid, (this.rowN.get(c.rid) ?? 0) + 1);
     // a capturer may carry a lost pup (once per area)
     // the lost pup rides with a different capturer each wave, so its column moves around
     const caps = this.cats.filter(c => c.def.behavior === 'capturer');
@@ -185,7 +244,8 @@ class Interaction implements Module {
   }
 
   fireTurds(x: number, y: number, pattern: { dx: number; vx: number }[]) {
-    if (this.turds.length + pattern.length > MAX_TURDS + 4 || this.turds.length >= MAX_TURDS + (pattern.length - 1) * 2) return false;
+    const cap = this.mode === 'wave' ? WAVE_TURDS : MAX_TURDS;
+    if (this.turds.length + pattern.length > cap + 4 || this.turds.length >= cap + (pattern.length - 1) * 2) return false;
     for (const p of pattern) this.turds.push({ x: x + p.dx, y, vx: p.vx, vy: -6.2, kind: 'turd', t: 0 });
     return true;
   }
@@ -210,10 +270,10 @@ class Interaction implements Module {
   /** Formation home of a slot right now: sways side to side while cats arrive, then breathes in and out. */
   private liveSlot(c: Cat): Pt {
     const bm = this.breathMix;
-    const sw = Math.sin(this.sway / 80) * 6 * (1 - bm);   // small: the 10-wide convoy always fits the panning view
+    const sw = Math.sin(this.sway / 80) * 6 * (1 - bm);   // small: the 8-wide convoy always sits well inside the view
     const br = (1 - Math.cos(this.sway / 40)) * 0.5 * bm;   // 0..1
-    const top = this.formTop;
-    return [this.cx + (c.slot[0] - WORLD_W / 2) * (1 + br * 0.1) + sw, top - 4 + (c.slot[1] - top + 4) * (1 + br * 0.1)];
+    const top = this.formTop; const h = c.home;
+    return [this.cx + (h[0] - WORLD_W / 2) * (1 + br * 0.06) + sw, top - 4 + (h[1] - top + 4) * (1 + br * 0.06)];
   }
 
   private boop(c: Cat, viaTurd = true) {
@@ -258,7 +318,7 @@ class Interaction implements Module {
       if (this.staged && this.stageScript()) return;
     }
     this.sway++;
-    { const d = this.viewCx() - this.cx; this.cx += Math.max(-1, Math.min(1, d * 0.05)); }
+    { const d = this.viewCx() - this.cx; this.cx += Math.max(-2, Math.min(2, d * 0.1)); }
     const P = g.mods.player; const pb = P?.hitbox();
     const T = this.T;
     // turds
@@ -270,9 +330,28 @@ class Interaction implements Module {
     if (this.active) this.waveT++;
 
     const w = this.wave; const bonus = this.mode === 'bonus';
+    // bonus stage: the HUD's BOOPS / AIM read the run stats, so they always include every bonus hit, also one tallied
+    // by the stage itself (a pinned showcase tally): credit any hits the stage knows about that we have not counted
+    if (bonus && this.bonus) {
+      const mh = Math.min(this.bonus.total, Math.floor(+(g.mods.minigames?.hits ?? 0)) || 0);
+      if (mh > this.bonus.hits) {
+        const d = mh - this.bonus.hits, st = g.state.stats; this.bonus.hits = mh;
+        st.catsBooped += d; st.hits += d; st.shots = Math.max(st.shots, st.hits);
+      }
+    }
     const timedOut = this.waveT > WAVE_LIMIT && this.mode === 'wave';
     if (!this.entryDone && this.mode === 'wave' && !this.cats.some(o => o.st === 'wait' || o.st === 'enter' || o.st === 'home')) this.entryDone = true;
     if (this.entryDone && this.breathMix < 1) this.breathMix = Math.min(1, this.breathMix + 1 / 90);
+    if (this.mode === 'wave' && !this.stageReq) this.closeRanks();
+    for (const c of this.cats) { // homes glide toward their (possibly re-packed) cells
+      const h = c.home;
+      const span = c.gMid ? GLIDE_T * 2 : GLIDE_T;
+      if (c.gT < span) {
+        c.gT++; const seg = c.gMid && c.gT > GLIDE_T ? 1 : 0, k = (c.gT - seg * GLIDE_T) / GLIDE_T, e = k * k * (3 - 2 * k);
+        const a = seg ? c.gMid! : c.gFrom, b = c.gMid && !seg ? c.gMid : c.slot;
+        h[0] = a[0] + (b[0] - a[0]) * e; h[1] = a[1] + (b[1] - a[1]) * e;
+      } else { h[0] = c.slot[0]; h[1] = c.slot[1]; }
+    }
 
     // schedulers: dives and formation fire (Galaga style: a steady drumbeat, not random noise)
     // last stand: once only ~20% of the wave is left, the stragglers dive back to back, then give up and fly off
@@ -290,9 +369,10 @@ class Interaction implements Module {
         const out = this.cats.filter(c => c.st === 'dive' || c.st === 'return');
         const groups = new Set(out.filter(c => c.st === 'dive').map(c => c.group)).size;
         const room = (this.hurry ? HURRY_DIVERS : T.maxDivers) - out.length;
-        if ((this.hurry || groups < T.diveGroups) && room > 0 && inForm.length) this.launchDive(inForm, undefined, room);
+        if ((this.hurry ? groups < 1 : groups < T.diveGroups) && room > 0 && inForm.length) this.launchDive(inForm, undefined, room);
         const left = inForm.length / Math.max(1, this.total);
-        this.diveT = this.hurry ? Math.round(g.rng.range(34, 52)) : Math.round(T.diveEvery * g.rng.range(0.7, 1.3) * (0.45 + 0.55 * left));
+        // the last stand keeps a steady beat (one small group at a time), so the stragglers hold their cells between dives
+        this.diveT = this.hurry ? Math.round(g.rng.range(56, 84)) : Math.round(T.diveEvery * g.rng.range(0.7, 1.3) * (0.45 + 0.55 * left));
       }
       if (--this.fireT <= 0) {
         this.fireT = Math.round(T.fireEvery * g.rng.range(0.6, 1.4));
@@ -342,7 +422,8 @@ class Interaction implements Module {
           const sp = c.st === 'home' ? c.speed : Math.min(c.speed, 1 + d * 0.05);
           if (d <= sp + 0.5) { c.x = sx; c.y = sy; c.st = 'form'; }
           else { c.x += dx / d * sp; c.y += dy / d * sp; }
-          if (timedOut || (hurryOut && !special(c))) c.st = 'leave';
+          // a straggler giving up first lands in its cell, then lifts off with the block (never peels off mid-glide)
+          if (timedOut) c.st = 'leave';
           break;
         }
         case 'form': {
@@ -470,7 +551,7 @@ class Interaction implements Module {
     let first = 0;
     for (const c of [leader, ...esc]) {
       const side = c === leader ? 0 : first ? -first : (first = Math.sign(c.slot[0] - leader.slot[0]) || 1);
-      const ox = side * 26, oy = side ? 8 : 0;
+      const ox = side * 32, oy = side ? 10 : 0;   // a full cell apart: wingmates never overlap the leader
       c.track = new Track([[c.x, c.y], ...path.slice(1).map(p => [p[0] + ox, p[1] + oy] as Pt)]); c.s = 0; c.speed = speed; c.lat = 0;
       c.weave = c.def.behavior === 'zigzag' ? 14 : 0;
       c.st = 'dive'; c.group = leader.id; c.beam = 0; c.beamUsed = false;
@@ -555,7 +636,7 @@ class Interaction implements Module {
     this.mode = 'wave'; this.active = true; this.entryDone = true; this.breathMix = 1; this.waveT = 100; this.fireT = 1e9; this.diveT = 1e9;
     this.rowSp = 36; this.colSp = COL_SP; const x0 = WORLD_W / 2 - (7 * COL_SP) / 2; this.hurry = 0;
     const top = this.formTop = FORM_TOP + (rows.some(([b]) => this.enemy(b).behavior === 'capturer') ? PUP_LIFT : 0);
-    rows.forEach(([breed, cs, row], ri) => { const def = this.enemy(breed); for (const c of cs) { const slot: Pt = [x0 + c * COL_SP, top + (row ?? ri) * 36]; this.cats.push(this.mkCat(def, slot[0], slot[1], 'form', { slot })); } });
+    rows.forEach(([breed, cs, row], ri) => { const def = this.enemy(breed); for (const c of cs) { const slot: Pt = [x0 + c * COL_SP, top + (row ?? ri) * 36]; this.cats.push(this.mkCat(def, slot[0], slot[1], 'form', { slot, row: row ?? ri, u: c - 3.5 })); } });
     this.total = this.cats.length; this.sway = 40 * Math.PI * 2; this.cx = WORLD_W / 2; // breathing at rest
     const holder = this.cats.find(c => c.def.behavior === 'capturer' && c.slot[0] > WORLD_W / 2 - COL_SP && c.slot[0] < WORLD_W / 2);
     if (holder) holder.pup = true;
@@ -617,7 +698,8 @@ class Interaction implements Module {
         const k = Math.min(1, (BEAM_TICKS - c.beam) / 18, c.beam / 10);
         r.push(1, y + 1, (ctx: CanvasRenderingContext2D) => captureBeam(ctx, x, y + 12, Math.min(140, H - y), c.t, k));
       }
-      r.push(2, y, (ctx: CanvasRenderingContext2D) => {
+      // a cat dropping back into its cell is drawn under the parked grid, so the formation stays crisp as it passes
+      r.push(2, c.st === 'return' ? -999 : y, (ctx: CanvasRenderingContext2D) => {
         // memory carriers: the halo, gold rim, crown and held polaroid are drawn by the memories module
         // hit flash: the cat blinks to a solid white silhouette (on, off, on, off...) for the first 10 ticks: the main
         // "that hurt" signal. After that a red rim lingers for a moment so the breed stays readable while it recovers.
