@@ -7,6 +7,7 @@ import { TRACKS } from '../audio/tracks';
 import { SFX_IDS } from '../audio/sfx';
 import { AMBIENCE_IDS } from '../audio/ambience';
 import type { RenderStats } from '../audio/offline';
+import { wantsDemo } from '../journal/demo';
 
 /** ?showcase=<module> stages a representative scene for one module (for screenshots + critics). */
 export function runShowcase(g: Game, which: string, p: URLSearchParams) {
@@ -16,6 +17,7 @@ export function runShowcase(g: Game, which: string, p: URLSearchParams) {
   switch (which) {
     case 'art': gallery(g, p.get('filter') ?? ''); break;
     case 'world': W_.enterArea(area, 0); quiet(); g.mods.quest.dlg = null; g.setScene('play'); g.mods.player.y = 999; break;
+    // player: `filter=gallery` draws the player module's own full-screen frame gallery instead
     case 'player': W_.enterArea(area, 0); quiet(); g.mods.quest.dlg = null; g.setScene('play'); g.mods.player.power('shield', 9999); g.mods.player.buddy = true; g.mods.player.invuln = 0; break;
     case 'interaction': {
       const I = g.mods.interaction; const st = p.get('stage') ?? 'play';
@@ -31,14 +33,31 @@ export function runShowcase(g: Game, which: string, p: URLSearchParams) {
     case 'effects': W_.enterArea(area, 0); quiet(); g.mods.quest.dlg = null; g.setScene('play');
       g.mods.ui?.muteToasts?.(true);
       g.mods.effects.stage(p.get('fx') ?? 'grid', p.has('fxt') ? +p.get('fxt')! : -1); break;
-    case 'quest': case 'dialogue': W_.enterArea(area, 0); W_.titleCard = 0; g.mods.quest.dialogue(p.get('node') ?? W_.area(area).intro ?? 'intro-backyard-1'); g.mods.quest.dlg.chars = 999; break;
+    // dialogue: `sheet=1` the 5-state review sheet; else `node` (default: the area intro) staged `at` ticks into the
+    // typewriter (no `at` = the fully typed first page)
+    case 'quest': case 'dialogue': W_.enterArea(area, 0); quiet();
+      if (p.get('sheet')) g.mods.quest.showSheet();
+      else { const at = p.get('at'); g.mods.quest.stage(p.get('node') ?? W_.area(area).intro ?? 'intro-backyard-1', at === null ? undefined : +at); }
+      break;
     case 'ui': W_.enterArea(area, 2); g.mods.quest.dlg = null; g.setScene('play'); W_.titleCard = 0; for (let i = 0; i < 300; i++) g.step(); g.mods.ui.toast('NEW QUEST: LOST PUPS'); if (p.get('menu') === 'pause') g.mods.ui.openPause(); if (p.get('menu') === 'settings') { g.mods.ui.menuOpen = 'settings'; g.mods.ui.settingsFrom = 'pause'; g.paused = true; } break;
     case 'title': g.setScene('title'); break;
     case 'map': g.state.areasCleared = ['backyard', 'street']; g.state.areaId = 'street'; g.setScene('map'); break;
-    case 'journal': g.state.memories = g.content.memories.slice(0, 3).map(m => m.id); g.mods.ui.menuOpen = 'journal'; g.mods.journal.open(); g.mods.journal.tab = +(p.get('tab') ?? 1); break;
+    case 'journal': { // mid-game demo save (restored when the journal closes; `state=` or `nodemo=1` keep the real one)
+      const J = g.mods.journal;
+      g.mods.ui.menuOpen = 'journal'; g.mods.ui.settingsFrom = 'title';
+      if (wantsDemo()) J.seedDemo();
+      J.tab = +(p.get('tab') ?? 1); J.open();      // tab BEFORE open(): open() restores that tab's selection
+      if (p.get('viewer')) J.viewer = +p.get('viewer')!;
+      break;
+    }
+    // bonus: minigames pins `phase=intro|fly|results|perfect`, `at=<tick>`, `hits=N` itself
     case 'minigames': case 'bonus': { const a = g.content.areas.find(a => a.bonus) ?? W_.area(area); W_.enterArea(a.id, 0); quiet(); g.mods.quest.dlg = null; g.setScene('play'); g.mods.minigames.startBonus(a.bonus); for (let i = 0; i < 260; i++) g.step(); break; }
     case 'save': if (g.mods.save?.stage) g.mods.save.stage(p.get('stage') ?? 'recovery'); else g.setScene('recovery'); break;
-    case 'memories': { const m = g.content.memories[0]; W_.enterArea(m?.area ?? area, m?.wave ?? 0); g.mods.quest.dlg = null; g.setScene('play'); W_.titleCard = 0; for (let i = 0; i < 400; i++) g.step(); if (m) g.mods.interaction.spawnPickup('memory:' + m.id, 224, 200); break; }
+    case 'memories': { const m = g.content.memories[0]; W_.enterArea(m?.area ?? area, m?.wave ?? 0); g.mods.quest.dlg = null; g.setScene('play'); W_.titleCard = 0; for (let i = 0; i < 400; i++) g.step();
+      // stage=carrier|drop|boop|reveal|lost|bundle[:N] (memory #N, or phase=N), at=T ticks into the moment; frozen
+      const [k, n] = (p.get('stage') ?? 'carrier').split(':');
+      g.mods.memories.stage(k || 'carrier', +(n ?? p.get('phase') ?? 0) || 0, p.get('at') !== null ? +p.get('at')! : -1);
+      break; }
     case 'ending':
       g.state.ending = p.get('ending') ?? g.content.endings[0].id; g.state.inventory.pups = 6;
       g.state.score = 184250; g.state.hiScore = 184250;
