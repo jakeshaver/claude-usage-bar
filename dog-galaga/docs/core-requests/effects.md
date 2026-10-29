@@ -109,3 +109,64 @@ the settings menu. Effects already reads them through `(settings as any)`.
 ## 5. ui: touch override
 `--touch=1` did not show touch controls on a desktop viewport. Please confirm that `settings.touch = 'on'` forces them on.
 Also, the gamepad path has never been exercised at runtime. A tiny test with a stubbed `navigator.getGamepads` would cover it.
+
+# Round 4 requests from `effects`
+
+API additions (backward compatible): `hitStop(n)` (holds the effects frame n ticks, max 6) and `frozen()`
+(true during a hit-stop; always false headless and while a showcase is staged, so bot/tests stay deterministic).
+The boss finale calls `hitStop(3)` itself. `cat:boop` now also draws a 2-tick ink-outlined white silhouette of the
+cat (from `enemies[breed].sprite`) plus a 1px/3-tick shake (honours settings). `burst('boop')` now includes a small
+turd-splat (impact star + 2 crumbs) and upward garnish. Label/shape outlines are palette 0 (true ink) with a 1px drop.
+While a showcase is staged (`stage()`), effects empties `g.mods.ui.toasts` each frame (presentational only).
+
+## 1. core/game.ts: honour the hit-stop (Galaga-style weight on the boss finale)
+In `Game.step()`, hold the simulation (not effects/ui/audio) while effects reports a hit-stop:
+```ts
+  step() {
+    this.input.poll(this);
+    const frozen = !this.paused && !!this.mods.effects?.frozen?.();
+    if (!this.paused && !frozen) { this.tick++; this.bus.tick = this.tick; /* playTicks as before */ }
+    for (const m of this.modules) {
+      if (frozen && m.id !== 'effects' && m.id !== 'ui' && m.id !== 'audio') continue;
+      if (m.update) this.safe(m.id, () => m.update!(this));
+    }
+    this.input.endFrame();
+  }
+```
+`frozen()` is always false when `headless`, so the playthrough bot and tests are unaffected. Optional: interaction
+may call `g.mods.effects?.hitStop(1)` on multi-kills (2+ cats in one tick) for extra crunch.
+
+## 2. ARCHITECTURE.md section 4: replace the effects line with
+```
+- **effects**: `burst(x,y,kind,tint?)` kinds boop|bigboop|poof|sparkle|shield|splat|hearts|confetti|fur|boom
+  (tint = palette key, used by boop and fur; unknown kinds report an error and fall back to boop),
+  `shake(px,ticks)` (integer px, honours settings.shake/reduceMotion), `flash(paletteKey,ticks)` (palette key or an
+  exact palette hex; honours settings.flash/reduceMotion; max 10 ticks, dithered), `floatText(x,y,text)` (numeric
+  labels within 24px merge into a combo total), `shakeOffset()` ({x,y} integer camera offset),
+  `hitStop(n)` / `frozen()` (presentational hit-stop; core skips sim updates while frozen), `step(n)` (advance the
+  effects timeline even while paused), `stage(mode,t)` (frozen showcase: grid|strip|boss, `-world` suffix keeps the
+  area backdrop), `clear()`, `liveCount()` (live particles, budget < 600).
+  Effects listens to `cat:boop` (fur puffs in coat colours + hit silhouette) and `boss:defeat` (dying-boss sprite).
+```
+
+## 3. interaction: turd-splat on misses that hit something solid
+Critic r3 #8: the full splat should also fire when a turd hits a pickup/prop instead of a cat. Where turds are
+removed for hitting a pickup or a prop (if/when props collide), call `g.mods.effects?.burst(s.x, s.y, 'splat')`.
+Kills already get a small splat from `burst('boop')` (no change needed at interaction/index.ts:156).
+
+## 4. ui: a supported way to mute toasts during staged showcases
+Effects currently does `g.mods.ui.toasts.length = 0` each frame while staged (critic r3 #6: the 'NEW QUEST' toast
+covered the strip). Please add `ui.muteToasts(on: boolean)` (or have the showcase set it for `showcase=effects`), and
+effects will switch to it.
+
+## 5. (repeat) core/types.ts + state + settings menu: `flash: boolean` (default true), `reduceMotion: boolean` (default false)
+Effects already honours both (flash(), shake(), and now the dying-boss strobe, which drops to a calm, non-flashing
+sprite with no wobble when either is set).
+
+## 6. Out-of-module observations from the effects critic (r3 #11), for the owners
+- ui/quest: Escape does nothing while a dialogue box is open (critic shot pause3); with autopilot on, Escape did not
+  open the pause menu (pause2).
+- world: `--tod=day` on rooftops shows night-time dialogue text; the dawn street looks like full night (the
+  time-of-day tint is weak).
+- (repeat) callers still pass hex to flash(): interaction/boss.ts:74 `'#ffd166'` -> `'f'`, player/index.ts:32
+  `'#ff5a4f'` -> `'r'` (both are exact palette entries, so they work, but keys are the contract).
