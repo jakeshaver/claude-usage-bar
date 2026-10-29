@@ -82,7 +82,6 @@ class Memories implements Module {
   /** toasts that arrived while a reveal card was up: shown right after it */
   private heldToasts: string[] = [];
   private toastOut: ((s: string) => void) | null = null;
-  private toastsHidden = false;
   t = 0;
   /** true while the reveal holds the game (we set g.paused and must hand it back) */
   holding = false;
@@ -190,14 +189,7 @@ class Memories implements Module {
    */
   private hookToasts(g: Game) {
     const ui: any = g.mods.ui; if (!ui) return;
-    // Toasts already on screen when the card goes up share its strip (ui stacks them from y 8 / 24): ui keeps
-    // them from ageing, and they are kept off screen while the card shows, so no pill ever sits across its title.
-    // They come back in their place (with their time left) once it leaves. (A shim until ui skips drawToasts
-    // while memories.showing() itself: see docs/core-requests/memories.md, Polish 1 #17.)
-    if (!this.toastsHidden && typeof ui.drawToasts === 'function' && !Object.prototype.hasOwnProperty.call(ui, 'drawToasts')) {
-      const draw = ui.drawToasts.bind(ui); this.toastsHidden = true;
-      ui.drawToasts = (ctx: Ctx) => { const sc = g.state.scene; if (this.showing() && (sc === 'play' || sc === 'bonus')) return; draw(ctx); };
-    }
+    // Toasts already on screen when the card goes up are kept off screen by ui itself while showing() is true.
     if (this.toastOut || typeof ui.toast !== 'function') return;
     if (typeof ui.holdToasts === 'function') return;
     const orig = ui.toast.bind(ui); this.toastOut = orig;

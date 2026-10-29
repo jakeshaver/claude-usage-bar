@@ -131,9 +131,6 @@ class UI implements Module {
   init(g: Game) {
     this.g = g;
     g.toastFn = (s) => this.toast(s);
-    // one sound widget only: audio's legacy blinking corner hint ('audio-hint' overlay) painted over this module's
-    // static sound chip. Park it through core's isolation switch until audio drops it (core request, Polish 1).
-    g.disabled.add('audio-hint:overlay');
     g.bus.on('scene:change', (p: any) => {
       this.sel = p.to === 'title' && !this.g.mods.save?.hasSave() ? 1 : 0; this.mapSel = 0;
       if (p.to === 'ending') { this.endingT = 0; this.plan = null; }
@@ -155,6 +152,8 @@ class UI implements Module {
   /** extra toast hold (on top of the automatic hold while memories' reveal card is up) */
   private toastHold = false; private toastPend: string[] = [];
   holdToasts(on: boolean) { this.toastHold = on; }
+  /** In a live wave or boss fight toasts play one at a time (a stack would cover the formation's top rows). */
+  private toastsSingle() { const g = this.g; const m = g?.mods.interaction?.mode; return g?.state.scene === 'play' && (m === 'wave' || m === 'boss'); }
   private toastsHeld() { const sc = this.g?.state.scene; return this.toastHold || (!!this.g?.mods.memories?.revealing?.() && (sc === 'play' || sc === 'bonus')); }
   toast(s: string) {
     if (this.toastsMuted) return;
@@ -163,7 +162,7 @@ class UI implements Module {
     const it = this.g?.content?.items?.find(i => i.name.toUpperCase() === s);
     const pw = it && POWERS.find(p => p[0] === it.effect.kind);
     if (pw) s = `${s}: ${pw[4]}`;
-    this.toasts.push({ text: s, t: 170, age: 0, y: -1 }); if (this.toasts.length > 4) this.toasts.shift(); }
+    this.toasts.push({ text: s, t: 170, age: 0, y: -1 }); if (this.toasts.length > (this.toastsSingle() ? 6 : 4)) this.toasts.shift(); }
   openPause() {
     if (this.menuOpen !== 'none') return;
     const Q = this.g.mods.quest;
@@ -207,7 +206,13 @@ class UI implements Module {
     // ...and while a memory reveal card is up (held toasts play the tick it leaves)
     const held = this.toastsHeld();
     if (!held && this.toastPend.length) { const q = this.toastPend; this.toastPend = []; for (const s of q) this.toast(s); }
-    if (this.menuOpen === 'none' && !held) { for (const x of this.toasts) { x.t--; x.age++; } this.toasts = this.toasts.filter(x => x.t > 0); }
+    if (this.menuOpen === 'none' && !held) {
+      // one at a time in combat: only the front toast ages, the rest wait their turn (capped so news stays fresh)
+      const single = this.toastsSingle();
+      if (single && this.toasts.length > 1) { const f = this.toasts[0]; f.t = Math.min(f.t, 110); }
+      for (const x of single ? this.toasts.slice(0, 1) : this.toasts) { x.t--; x.age++; }
+      this.toasts = this.toasts.filter(x => x.t > 0);
+    }
     if (this.resumeHold > 0) {
       const I0 = g.input;
       if ((I0.held('fire') || I0.held('confirm')) && this.resumeHold < 30 && this.menuOpen === 'none') { this.resumeHold++; g.paused = true; }
@@ -263,7 +268,11 @@ class UI implements Module {
 
   autopilotNav(g: Game) {
     const sc = g.state.scene;
-    if (sc === 'map' && !g.botDrivesMap && this.t % 30 === 0) { const ex = g.mods.world.exitsFrom(g.state.areaId); if (ex.length) g.mods.world.chooseExit(ex[(g.state.seed + g.state.areasCleared.length) % ex.length].to); }
+    if (sc === 'map' && !g.botDrivesMap && this.t % 30 === 0) { const ex = g.mods.world.exitsFrom(g.state.areaId); if (ex.length) {
+      // take the hop that finishes a quest (the open catnip gate) like a player would; otherwise the seed's pick
+      const fin = ex.findIndex((e: { to: string }) => (g.mods.quest?.completes?.(e.to)?.length ?? 0) > 0);
+      g.mods.world.chooseExit(ex[fin >= 0 ? fin : (g.state.seed + g.state.areasCleared.length) % ex.length].to);
+    } }
   }
 
   titleItems() { return ['CONTINUE', 'NEW GAME', 'JOURNAL', 'SETTINGS']; }
@@ -347,8 +356,9 @@ class UI implements Module {
     else if (sc === 'recovery') this.recovery(ctx);
     else if (sc === 'boot') { rect(ctx, 0, 0, W, H, C.bg); text(ctx, 'LOADING...', W / 2, H / 2, C.line, { align: 'center' }); }
     if (sc !== 'boot') this.soundChip(g, ctx);
-    // toasts first: an open menu dims them along with the playfield
-    this.drawToasts(ctx);
+    // toasts first: an open menu dims them along with the playfield. While a memory card shows in play/bonus they
+    // stay off screen (still held, not ageing) and come back in place when it leaves.
+    if (!((sc === 'play' || sc === 'bonus') && g.mods.memories?.showing?.())) this.drawToasts(ctx);
     if (this.menuOpen === 'pause') this.pause(g, ctx);
     if (this.menuOpen === 'settings') this.settings(g, ctx);
     if (this.menuOpen === 'journal') g.mods.journal?.draw(g, ctx);
@@ -364,7 +374,9 @@ class UI implements Module {
     const cx = PF_X + PF_W / 2;
     const sc = this.g?.state.scene;
     const up = sc === 'map'; const top = sc === 'title' || sc === 'recovery' || sc === 'ending' ? 322 : sc === 'map' ? 262 : this.bossBarOn ? 24 : 8;
+    const single = this.toastsSingle();
     this.toasts.forEach((x, i) => {
+      if (single && i > 0) return; // waiting its turn
       const target = top + (up ? -i : i) * 17;
       x.y = x.y < 0 ? target : x.y + Math.sign(target - x.y) * Math.min(2, Math.abs(target - x.y));
       if (x.t <= 2) return; // gone: the stack below slides up
@@ -998,7 +1010,10 @@ class UI implements Module {
       chamferFill(ctx, bx + 10, by + 12, 26, 26, C.ink, 6); chamferLine(ctx, bx + 10, by + 12, 26, 26, C.burnt, 6);
       glyph(ctx, selTo, bx + 23, by + 25, C.gold, C.burnt);
       text(ctx, a.name.toUpperCase(), W / 2, by + 9, C.gold, { align: 'center', shadow: C.burnt });
-      if (a.subtitle) text(ctx, a.subtitle.toUpperCase(), W / 2, by + 21, C.text, { align: 'center' });
+      // a hop that finishes or closes an open quest says so in place of the subtitle (quest.routeNote)
+      const rn: { text: string; good: boolean } | null = g.mods.quest?.routeNote?.(selTo) ?? null;
+      if (rn) { const rw = textWidth(rn.text) + 12, rx = Math.round(W / 2 - rw / 2); icon(ctx, 'flag', rx, by + 21, rn.good ? C.lime : C.peri); text(ctx, rn.text, rx + 12, by + 21, rn.good ? C.lime : C.pink); }
+      else if (a.subtitle) text(ctx, a.subtitle.toUpperCase(), W / 2, by + 21, C.text, { align: 'center' });
       const parts: [string, string, string][] = [['wave', `${a.waves.length} WAVES`, C.line]];
       if (a.boss) parts.push(['cat', 'BIG CAT', C.hot]);
       if (a.bonus) parts.push(['gift', 'BONANZA', C.gold]);
