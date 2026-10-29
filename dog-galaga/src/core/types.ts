@@ -1,6 +1,6 @@
 export type Tod = 'dawn' | 'day' | 'dusk' | 'night';
 export type Scene = 'boot' | 'title' | 'map' | 'play' | 'dialogue' | 'bonus' | 'ending' | 'recovery';
-export type QuestState = 'locked' | 'active' | 'done';
+export type QuestState = 'locked' | 'active' | 'done' | 'missed';
 
 export type Condition =
   | { flag: string } | { notFlag: string } | { quest: string; is: QuestState }
@@ -28,6 +28,8 @@ export interface EnemyDef {
 export interface QuestDef {
   id: string; name: string; desc: string; start: Trigger; complete: Trigger & { count?: number };
   reward: { flags?: string[]; items?: Record<string, number>; score?: number }; dialogue?: string;
+  /** closes the quest as 'missed' when any trigger matches (src/quest derives one from gated exits if absent) */
+  expire?: Trigger | Trigger[];
 }
 export interface DialogueDef { id: string; speaker: string; portrait: string; text: string; next?: string; when?: Condition }
 export interface ItemDef { id: string; name: string; sprite: string; desc: string; effect: { kind: 'heart' | 'double' | 'spread' | 'shield' | 'speed' | 'key' | 'treat'; value: number; ticks?: number } }

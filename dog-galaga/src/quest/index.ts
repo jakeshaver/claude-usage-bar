@@ -16,10 +16,7 @@ const EKEY = (id: string) => '_qe_' + id;
 /**
  * Quest states the engine writes. 'missed' is a closed, terminal state like 'done' (its window passed: the other
  * branch was taken, or the run ended first). It is stored in `state.quests`, so the journal and save see it.
- * core/types.ts QuestState does not list it yet (docs/core-requests/quest.md, Polish 1); the cast lives here only.
  */
-export type QState = QuestState | 'missed';
-const MISSED = 'missed' as unknown as QuestState;
 /** The run is over: nothing may stay "in progress" past this event (quests still open close as missed, quietly). */
 const RUN_END = 'ending';
 /** Min ticks between quest toasts, so they arrive one at a time instead of stacking. */
@@ -31,7 +28,7 @@ const TOAST_ALONE = 150;
  * the player passed by (indigo / peri, MISSED), 'expired' is a quest the run ended before (softer NEXT TIME).
  */
 export interface QuestLook {
-  state: QState; tone: 'locked' | 'active' | 'done' | 'missed' | 'expired';
+  state: QuestState; tone: 'locked' | 'active' | 'done' | 'missed' | 'expired';
   /** short pill for the journal row in place of the n/n counter ('' = show the counter) */
   pill: string;
   /** detail card tag */
@@ -234,7 +231,7 @@ class Quest implements Module {
     } finally { this.busy = false; }
   }
 
-  private st(id: string): QState { return (this.g.state.quests[id] as QState | undefined) ?? 'locked'; }
+  private st(id: string): QuestState { return this.g.state.quests[id] ?? 'locked'; }
 
   private process(evt: string, p: any) {
     for (const q of this.quests()) {
@@ -279,7 +276,7 @@ class Quest implements Module {
     delete this.g.state.inventory[XKEY(q.id)];
     if (runEnd) this.g.state.inventory[EKEY(q.id)] = 1;
     this.unrevealed.delete(q.id);
-    this.g.ops.setQuest(q.id, MISSED);
+    this.g.ops.setQuest(q.id, 'missed');
     this.g.bus.emit('quest:progress', { questId: q.id, ...p, missed: true });
     if (!quiet) this.sayAlone(`${q.name.toUpperCase()}: MISSED. NEXT FLIGHT!`);
   }
@@ -384,7 +381,7 @@ class Quest implements Module {
   /** True when a quest was closed as missed (also reads the pre-polish marker on an 'active' quest). */
   missed(id: string) { const s = this.st(id); return s === 'missed' || (s === 'active' && !!this.g.state.inventory[XKEY(id)]); }
   /** Quest status including 'missed' (ui journal / HUD). */
-  status(id: string): QState { return this.missed(id) ? 'missed' : this.st(id); }
+  status(id: string): QuestState { return this.missed(id) ? 'missed' : this.st(id); }
 
   private bump(q: NQuest) {
     const s = this.g.state; const k = PKEY(q.id); const need = q.complete.count;
@@ -539,7 +536,7 @@ class Quest implements Module {
       const rest = [...evts.slice(i0), arrive];
       const iDone = rest.findIndex(e => hit(q.complete, e) && q.complete.count <= 1);
       const iGone = rest.findIndex(e => q.expire.some(t => hit(t, e)));
-      if (iGone >= 0 && (iDone < 0 || iGone < iDone)) { seeded.push(q.id); this.g.ops.setQuest(q.id, MISSED); continue; }
+      if (iGone >= 0 && (iDone < 0 || iGone < iDone)) { seeded.push(q.id); this.g.ops.setQuest(q.id, 'missed'); continue; }
       // arriving here counts when the quest is "reach this sector" (a deep link to the nebula finishes the route)
       const n = evts.slice(i0).filter(e => hit(q.complete, e)).length + (q.complete.on === 'area:enter' && hit(q.complete, arrive) ? 1 : 0);
       seeded.push(q.id); this.touched[q.id] = this.g.tick - 1;
