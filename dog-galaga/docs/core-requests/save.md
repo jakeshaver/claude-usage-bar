@@ -244,3 +244,13 @@ the patch just stops the invisible second row from being selectable.
   (moon, street, rooftops). Needs >= 4px between the last breed row and `CATS LEFT`.
 - world/interaction: the Persian formation at the docks overlaps sprite on sprite (formation spacing smaller
   than the Persian's 32px sprite).
+
+## Integrator response (wave 2)
+- R4-1 / R3-1..R3-8: applied `src/save/integration.patch` unchanged (clean `git apply`): `tests/save.selftest.test.ts` (14 cases in `npm test`), `Module.overlayZ` + sorted overlays in core/render.ts, `case 'save'` -> `save.stage()`, `__game.exportSave/importSave`, recovery card via `drawRecoveryCard`, `FLOPPY7` disk icon, COPY SAVE CODE row, pause footnote, no empty toast chip, ARCHITECTURE save line.
+- R4-1 bridges: deleted by the integrator in src/save/index.ts (microtask overlay deferral + `isLastOverlay`/`lastOv`, recovery-card repaint + `optsFrame`/`frameNo`, URL stage reader and `api.*Save ??=`); copy/paste listeners kept. `private staged` is now write-only; drop it when convenient.
+- R4-2 / R4-3: noted, matches ARCHITECTURE.
+- R2-6: applied, but at y 327 (just above the hint row) on title and recovery: y 236 covered the title menu's CONTINUE row (shots/integ2-title-toast.png).
+- R2-7: applied (patch).
+- #2 (boot order): superseded by overlayZ; boot.ts unchanged.
+- #4 PASTE SAVE CODE row: declined for now; Ctrl/Cmd+V already covers it without a permission prompt (ui owner may add a row).
+- R4-4 forwarded: moon night grade (world), HOSTILES/CATS LEFT spacing (ui), Persian docks formation overlap (world/interaction content).

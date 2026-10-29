@@ -84,3 +84,10 @@
 4. **FYI, bus:** the bestiary now marks a wave's breeds as seen on `wave:start` (payload `{ areaId, waveIndex }`,
    emitted by interaction) and the stats page reads `boss:defeat` (`{ bossId }`) and `cat:boop` (`{ breed }`).
    Please keep those payload fields stable. It also reads `g.mods.ui.bestChain` for the BEST CHAIN card.
+
+## Integrator response (wave 2)
+- R3-1 applied: `Action` gains `pageL`/`pageR` (KeyQ/PageUp/gamepad 4, KeyE/PageDown/gamepad 5; pad presses set `lastDevice`). Integrator seam in src/journal: the Q/E/PageUp/PageDown keydown branch and the shoulder poll + `pad` field are removed; Tab/Shift+Tab stay journal-local.
+- R1-1 / R2-1 / R3-2 applied: showcase sets `settingsFrom = 'title'`, seeds through `wantsDemo()` + `journal.seedDemo()` (so `open()` does not seed twice), sets `tab` before `open()`, and `--viewer=N`; tools/screenshot.mjs forwards `tab` and `viewer`.
+- R2-2 / R3-3 applied: ui.overlay draws only the journal (plus touch deck) while it is open.
+- R1-2, R1-3, R2-3, R2-4, R3-4: noted; names and payloads kept stable and documented in ARCHITECTURE.
+- quest R2-12 (draw missed quests with NEXT FLIGHT!) and memories #7 (polaroid blink arg) are yours if wanted.

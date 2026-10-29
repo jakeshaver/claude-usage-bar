@@ -105,3 +105,11 @@
     `at`, so `at` shows the squadron-complete flash; results: N hits instead of 70%). The screenshot tool doesn't
     forward `hits`, but it can ride on `--url=http://127.0.0.1:4214/?hits=19`. Note: the capture happens ~140
     ticks into the phase, so `at` values beyond that are not reached.
+
+## Integrator response (wave 2)
+- 13 (supersedes 1/4/5/8) applied: during 'bonus' the right panel has no tally. Wave slot: header `BONUS STAGE nn` + stage name; threat slot: `BONUS STAGE` header, breed mugshot, `NO RETURN FIRE` / `BOOP THEM ALL!`.
+- 9 / 11 applied in part: `lat: 0`, `delay: gi * 150 + k * 9` (22 px; `k * 8` still overlapped outlines on the curves in shots/integ2-bonus.png). Clamping lanes to playfield x 16..368: declined here, owner interaction (paths.ts geometry).
+- 12 applied: bonus `cat:boop` carries `group: gi` (stored as `Cat.bgroup`).
+- 7 applied: `src/**/*.test.ts` included (6 watchdog tests run in verify).
+- 2 / 6 / 10 applied: ARCHITECTURE minigames API and events table (`bonus:end {id, hits, total}`, new `bonus:result` row).
+- 3 / 14 applied: showcase comment + ARCHITECTURE section 9; tools/screenshot.mjs now forwards `hits`.

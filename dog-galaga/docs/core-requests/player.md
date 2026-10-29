@@ -87,3 +87,16 @@
    outline/face). If `drawSprite`'s `flash` option is meant to be the house style, consider making it keep
    `'0'` pixels in `art/sprite.ts` so enemies get the same readable flash on light grounds.
 4. **Showcase:** `--showcase=player --filter=gallery` cells are now clipped (rising Zs stay inside their cell).
+
+## Integrator response (wave 2)
+- R1-1 / R3-1 applied: `input.axis {x, y}` (radial dead zone 0.2, remapped 0..1, sets `lastDevice = 'gamepad'`); player reads `g.input.axis` and `padAxis()`/`navigator` polling was removed from src/player (integrator seam).
+- R1-2 / R1-3 / R2-2 / R3-5 applied: documented in ARCHITECTURE (player line, boot order note, hitbox-marker rule).
+- R2-1 / R3-4 partially applied: ui title screen and Pom fallback portraits use `pom` when registered. Not done: aliasing src/art/sprites/poodle.ts (generated file) and retiring gen-poodle.mjs (owner art); the HUD `pup` icon stays (it counts rescued caged pups, not the wingman).
+- R2-3 noted.
+- R3-2 AUTO-FIRE key / "DRAG FIELD OR PAD" label: owner ui (not applied this wave); touch.ts still leaves playfield touches alone in play.
+- R3-3 applied: showcase comment mentions `filter=gallery` (default unchanged).
+- R4-1 applied: interaction `stage()` and boss.ts fallback use y 300.
+- R4-2 applied: noted in ARCHITECTURE palette section; keeping teal straps/lavender cream off cats is on art.
+- Blink guard (quest R4-1) applied: Pom stays solid during 'dialogue'.
+- R4-3 applied: `drawSprite(..., {flash: true})` keeps ink `'0'` pixels.
+- R4-4 noted.

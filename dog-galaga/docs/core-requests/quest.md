@@ -332,3 +332,24 @@ module fixed on its own.
 - Field-level quest validation (critic R3-9): `reward.score: 'abc'` becomes 0, bad item counts and flags are
   dropped one by one, a bad count becomes 1, bad expire/track/dialogue fields are dropped; each is reported.
 - Boss banter hooks (critic R3-7) waiting on content item 6.
+
+## Integrator response (wave 2)
+Round 4 (earlier rounds' repeats are covered by the same changes):
+- 1 applied: player render skips the blink while scene is 'dialogue'.
+- 2 applied: `dialogueBox` docks via `quest.dock(h + 3)`; new optional 3rd arg `dock` so src/quest/sheet.ts (one-line seam) passes 'bottom' and the review sheet keeps its five stacked boxes.
+- 3 applied: vitest include is now `['tests/**/*.test.ts', 'src/**/*.test.ts']`; quest check runs in verify (~33 s).
+- 4 applied: `park_pals` completes on `area:clear` park (the NOTE is gone).
+- 5 applied: HUD reads `tracked()` (no find() fallback when the engine has it) and `goal()`.
+- 6 applied: 26 taunt-/defeat- nodes in content/dialogue.json; tools/lint-content.ts counts them as reachable for every area boss.
+- 7 noted. 8 applied ("The Sky Ace is out of the fight.").
+- 9 applied, with `at` only (not `advance`, which the boot path also reads); tools/screenshot.mjs forwards `sheet`.
+- 10 applied: tool calls `quest.skipAll?.()` before its advance loop.
+- 11 applied (in audio, small seam): the sound hint waits for play/map with no title card, no pending briefing and no open menu.
+- 12 no action. 13 applied in ARCHITECTURE (quest API line + quest schema).
+Earlier rounds still open before this wave:
+- R1-1/R2-11 visibleLines, R1-2/R2-7/R3-7 skipAll in ui: applied. R1-4 boop_brigade starts on `area:enter` backyard: applied. R1-5/R2-14/R3-9: ARCHITECTURE applied.
+- R2-8 speaker voices: declined here, owner audio (sfx's extra `{voice, pitch}` arg is ignored safely today).
+- R2-12 missed quests in the journal: owner journal (`status(id)` / `goal()` available).
+- R2-13 explicit `track`/`expire` in schema: declined for now; the engine derives both and content does not use them.
+- R3-8 sector quests: applied (cafe_rush, docks_catch, factory_unravel, moon_litter, nebula_sober, station_dock); `empress_audience` declined as a duplicate of `home_again`.
+- R3-10: forwarded (docks formation overlap: interaction/content; moon night grade: world; subtitle clipping: ui).

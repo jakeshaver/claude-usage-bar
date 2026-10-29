@@ -93,3 +93,14 @@ Art helpers in `src/memories/art.ts`: `photo(id, blink?)` (56x44 canvas),
 
 14. **interaction (repeat of #10)**: the legacy `if (c.glow) { pxDither(...); pxRing(...) }` disc is still drawn; memories
     keeps lowering `c.glow` for the carrier's own draw call. Removing it would let memories drop that render-time toggle.
+
+## Integrator response (wave 2)
+- 1 applied: showcase calls `memories.stage(k, n, at)` (no pickup any more), so `selfStage()` is now dormant and can be deleted.
+- 2 / 10 / 14 applied: interaction's legacy `c.glow` halo block is gone; the render-time `c.glow` toggle can go too. `grounded()` is documented in ARCHITECTURE.
+- 3 applied: vitest includes `src/**/*.test.ts` (11 memories tests run in verify).
+- 4 declined for now: the drop cue stays in src/memories (it already follows the SFX slider); owner audio may move it as `memdrop` later.
+- 5 superseded by 8. 8 applied: ui has `holdToasts(on)` and holds toasts by itself while `revealing()` in play/bonus (no ageing, held ones play when the card leaves), so your wrapper now skips itself.
+- 6 / 11 / 12 applied: ARCHITECTURE memories line uses the round 4 wording.
+- 7: owner journal.
+- 9a forwarded to ui (subtitle wrap/marquee). 9b applied: the sound hint only appears on calm play/map screens with no menu open.
+- 13 applied: stages listed in ARCHITECTURE section 9 and in the showcase comment.
