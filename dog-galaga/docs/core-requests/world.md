@@ -289,3 +289,13 @@ night with day-coloured pendant pools); sky and space tilesets keep their own ba
   `world/tiles.ts`: by day and at night `catEye` windows use `4` / `3` (was `t` / `u`), the conduit panel glow `3`
   (was `u`) and the sponson running lights `3` / `4` (was `u` / `t`). Dawn pink and dusk amber are unchanged. The
   ARCHITECTURE wording says "dim lavender by day and night" for the window light; adjust if you prefer another pair.
+
+## Polish 6
+
+- ARCHITECTURE.md (integrator): please update the world lighting notes to match polish 6:
+  - Night lawns: the ground keeps the dark teal-green `k` at night (TOD_RAMP.night `k:k`), blades go deep-night (`j:1`), tips teal (`i:n`) at half the daytime tip density; night canopies are plum-shadowed with green tops.
+  - Lamp pools: `WARM_LIFT` now lifts each material one value step in its own family (dark ground -> plum -> slate grey -> grey; only the palest grey warms to tan), default `poolLift` is `[1, 1, 2, 2]` (1-2 steps), and only the small hot centre under the lamp head takes one extra warm step (`WARM_HOT`). Street and alley pools are no longer clipped at the kerb. Street night ramp keeps sidewalks a step above the road with darker seams.
+  - Nebula: solid 2-3 step cloud masses sampled on a 2x2 grid (no dither fringes), occasional bright star clusters; the cat-eye galaxy has crisp steps.
+  - Mothership: one landmark per segment cycling over six (cat-face bulkhead, cat-eye windows to space, hangar bay, yarn-reactor core, Empress banners, paw-print markings); the left conduit alternates yarn cable / pipe bundle / cable tray with junction boxes at seams.
+  - Station: eight pod module types (habitat, observation, garden, dock, grooming, cargo, comms, nap) walked in a fixed stride.
+  - Sky dawn: bands indigo -> periwinkle -> violet -> rose -> pink -> peach -> gold, clouds lit from below.

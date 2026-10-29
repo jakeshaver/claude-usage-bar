@@ -65,8 +65,9 @@ export const TOD_RAMP: Record<Tod, Ramp> = {
   // lawns olive-gold: the dark green ground under a carpet of green and sun-browned blades with orange tips; woods a step deeper,
   // stone cools to indigo for contrast against the warm ground, blues to violet
   dusk: remap('6:7 7:8 8:9 9:a a:b b:v c:d f:g g:h h:b r:h i:f j:k l:m s:m m:n o:p p:q 1:v 2:v 3:2 4:3 5:4 t:u'),
-  // dark but legible: lawns one dark teal-green (blades and tufts melt into it), stone periwinkle/indigo, creams to periwinkle
-  night: remap('6:o 7:p 8:q 9:a a:b b:v c:e d:e e:v f:9 g:a h:b r:e i:k j:q k:1 l:m m:n n:2 s:p o:p p:q q:1 1:0 2:1 3:2 4:3 5:4 t:u u:2'),
+  // dark but legible: lawns keep the dark teal-green ground (k) under a carpet of deep-night blades (j -> 1) with a few
+  // moonlit teal tips (i -> n), so the lawn reads as dark grass, never asphalt; stone periwinkle/indigo, creams to periwinkle
+  night: remap('6:o 7:p 8:q 9:a a:b b:v c:e d:e e:v f:9 g:a h:b r:e i:n j:1 k:k l:m m:n n:2 s:p o:p p:q q:1 1:0 2:1 3:2 4:3 5:4 t:u u:2'),
 };
 /** Low sun on the sunward faces: warm amber at dusk (west faces), peach-pink at dawn (top / east edges). */
 export const RIM_RAMP: Partial<Record<Tod, Ramp>> = {
@@ -80,13 +81,16 @@ export const RIM_RAMP: Partial<Record<Tod, Ramp>> = {
  * Four steps from the rim inward (edge, middle, core, a small hot centre). Grass keeps its blades (lit green,
  * then gold-tipped yellow-green), water lifts through teal. No pixel is painted with a flat fill.
  */
-// warm light lifts each material in its own family: night-dark ground through plum to warm brown, mid greys a neutral
-// step first and then into light brown / tan at the heart, woods to lighter woods, oranges to yellow, blues through teal (never a brown overlay, never lavender or white)
-const WARM_LIFT = remap('0:1 1:v v:b b:a a:9 9:8 8:7 7:7 6:6 2:v q:p 3:p p:9 4:9 o:8 5:8 h:g g:f f:7 e:h d:g c:7 r:g u:3 t:8 n:m m:s l:s s:7');
+// lamp light lifts each material one value step in its own family (never a brown / tan overlay): night-dark ground
+// through plum to slate grey, greys to lighter greys (only the palest grey warms to tan), woods to lighter woods,
+// oranges to yellow, blues through teal; pools are 1-2 steps (edge / middle one step, core two)
+const WARM_LIFT = remap('0:1 1:v v:q 2:q q:p 3:p p:o 4:o o:8 5:7 8:7 7:7 6:6 9:8 a:9 b:a h:g g:f f:7 e:d d:c c:7 r:g u:t t:c n:m m:s l:s s:7 k:j j:i i:f');
 function liftN(v: number, n: number) { for (let i = 0; i < n; i++) v = WARM_LIFT.a[v]; return v; }
+// the small hot centre right under the lamp head: the 2-step lift, then one warm step (greys to tan / light brown)
+const WARM_HOT = remap('v:b q:a p:9 o:8 3:9 4:8 2:v');
 const GK = KEY.indexOf('k'), GJ = KEY.indexOf('j'), GI = KEY.indexOf('i');
 /** grass under a lamp, by ring (edge..hot) for the day indices k (ground), j (blade), i (tip) */
-export const GRASS_LIT: [string, string, string][] = [['k', 'j', 'j'], ['j', 'j', 'i'], ['j', 'i', 'f'], ['i', 'f', '7']];
+export const GRASS_LIT: [string, string, string][] = [['k', 'k', 'j'], ['k', 'j', 'i'], ['j', 'j', 'i'], ['j', 'i', 'i']];
 const lampCache = new WeakMap<Ramp, Map<string, Ramp[]>>();
 /** the four lamp ring ramps (edge, middle, core, hot), built from the area's night remap; lifts = warm steps per ring */
 export function lampRamps(night: Ramp, lifts: number[] = [1, 2, 3, 4], grass: [string, string, string][] = GRASS_LIT): Ramp[] {
@@ -95,7 +99,7 @@ export function lampRamps(night: Ramp, lifts: number[] = [1, 2, 3, 4], grass: [s
   let r = m.get(key); if (r) return r;
   r = lifts.map((n, ring) => {
     const a = new Uint8Array(32);
-    for (let i = 0; i < 32; i++) a[i] = liftN(night.a[i], n);
+    for (let i = 0; i < 32; i++) a[i] = ring === 3 ? WARM_HOT.a[liftN(night.a[i], n)] : liftN(night.a[i], n);
     const g = grass[ring]; a[GK] = KEY.indexOf(g[0]); a[GJ] = KEY.indexOf(g[1]); a[GI] = KEY.indexOf(g[2]);
     a[0] = ring >= 2 ? 1 : 0; // ink outlines stay outlines
     return { a, b: a, lv: new Uint8Array(32), id: false };
@@ -180,7 +184,7 @@ export class Painter {
   /** lamp pools are scaled by this (busy tilesets keep them small) */
   poolScale = 0.55;
   /** warm lift steps of the four lamp rings (edge, middle, core, hot): lower = a softer, lower-contrast pool */
-  poolLift = [1, 2, 3, 4];
+  poolLift = [1, 1, 2, 2];
   /** lit grass per lamp ring (edge..hot) for the day indices k, j, i */
   grassLit: [string, string, string][] = GRASS_LIT;
   /** cast-shadow ramp override (interiors keep plain shade instead of the outdoor sky-tinted one) */
