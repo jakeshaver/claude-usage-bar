@@ -347,3 +347,13 @@
    on a solid ink plate (same words, colours, y 160, same phase/timer test, skipped while `trans` or a menu is up), so
    turds and pickups no longer read through its strokes. world can drop its own `text(...)` call for the banner, or
    keep it (ui's plate covers it exactly).
+3. **world (sector title card, round 2):** `titleCard()` in `src/world/index.ts` returns before any text once `hh < 30`
+   (`if (hh < 30) return;`), so while the panel folds shut it shows an empty dark plate with only frame + scanlines for
+   ~10 frames (critic: park, wave 2, dusk, advance 40). Please either clip the text to the shrinking panel instead of
+   hiding it (`ctx.save(); ctx.beginPath(); ctx.rect(x0, y0 + 1, x1 - x0, y1 - y0 - 2); ctx.clip(); ... ctx.restore();`
+   around the text block, and drop the early return), or make the vertical close faster than the text fade (e.g.
+   `tall` from `(left - 10) / 4` on the closing side) so the plate never outlives its words.
+4. **memories (card gutter, round 2):** `hudSlots().card` is now `{ x: RX+5, y: 245, w: 118, h: 111 }` (was RX+4 / 120)
+   so the card's right border no longer doubles up with the panel frame at zoom 1. Please draw the keyboard card at
+   `card.x` with width `card.w` (not a hard-coded 120). While no card shows, ui now draws an idle ALBUM plate in the
+   top 36px of the slot (y 245..281); it is skipped whenever `memories.panelCard()` is true, as before.

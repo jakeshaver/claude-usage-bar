@@ -142,7 +142,7 @@ const END_ROWS = 6;
 /** credits window bottom (y): 8px above a sky band seam (true sunset 158, good night 150), so the roll slides up out
  *  from behind the seam's stepped lines, well above the skyline (never a cut through buildings) */
 const END_WIN_BOT = { true: 150, good: 142 };
-const END_FLY = 360, END_LAG = 26, END_MAX_PUPS = 16, END_WIN_TOP = 4, END_LINE = 24, END_FADE = 27;
+const END_FLY = 360, END_LAG = 26, END_MAX_PUPS = 16, END_WIN_TOP = 4, END_LINE = 24, END_FADE = 16;
 /** Ending diorama: Pom's spot on the lawn (2x sitting pose centre). */
 const END_POM_X = 320, END_POM_Y = 292;
 /** Good ending: the two tall lamps on poles along the lawn edge (their glow is drawn behind the fence). */
@@ -157,16 +157,25 @@ const PARTY_POSE: Record<number, 'bow' | 'chase' | 'back' | 'loop'> = { 4: 'back
 /** Good ending: the pups who made it home play too (two chase each other round Pom, one chases its own tail). */
 const GOOD_POSE: Record<number, 'chase' | 'loop'> = { 0: 'loop', 1: 'loop', 2: 'chase' };
 /**
- * Runner laps: a flat oval just behind Pom (its front edge stays above her sort line, so the runners always pass
- * behind her and never through her or the prompt plate), the second runner a third of a lap behind
- * the first (never both hidden behind Pom at once). The true ending's party
- * pups sit outside the wider oval (PARTY_SLOTS); the good ending's tighter one runs between the lanterns.
+ * Runner laps: zoomies on the open lawn left of Pom (clear of her exclusion box, so a runner never slips behind her
+ * paw or tail). The two runners sit half a lap apart on an oval 32px deep, so they chase and never stack (at worst one
+ * passes a full sprite height behind the other). Every other pup and lantern sits right of Pom or far left.
  */
-const LAPS = { true: { cx: 320, cy: 300, rx: 90, ry: 8 }, good: { cx: 320, cy: 302, rx: 56, ry: 6 } };
-/** True ending spots by pup index (0 = the rider, 1-2 runners' landing spots, 3 bow, 4 on its back, 5 tail chaser). */
+const LAPS = { true: { cx: 194, cy: 320, rx: 60, ry: 16 }, good: { cx: 194, cy: 320, rx: 60, ry: 16 } };
+/** Seated Pom's exclusion box (her 68x72 2x silhouette + 4px): no landed pup ever stands inside it, and pups flying
+ *  in to a spot on her far side arc over her head instead of crossing her. */
+const POM_BOX = { l: 282, r: 358, t: 252, b: 332 };
+/** True ending spots by pup index (0 = the rider, 1-2 runners' landing spots on their oval, 3 bow, 4 on its back,
+ *  5 tail chaser at the far left): every pair at least 6px apart, none inside POM_BOX. */
 const PARTY_SLOTS: { x: number; base: number; flip: boolean }[] = [
-  { x: 440, base: 304, flip: false }, { x: 262, base: 306, flip: true }, { x: 378, base: 306, flip: false },
-  { x: 178, base: 314, flip: true }, { x: 442, base: 346, flip: false }, { x: 138, base: 324, flip: true },
+  { x: 440, base: 304, flip: false }, { x: 238, base: 330, flip: true }, { x: 150, base: 310, flip: true },
+  { x: 382, base: 346, flip: false }, { x: 440, base: 348, flip: false }, { x: 76, base: 330, flip: true },
+];
+/** Good ending spots (0-1 runners on the left oval, 2 tail chaser, then the sitting pups / lanterns right of Pom). */
+const GOOD_SLOTS: { x: number; base: number; flip: boolean }[] = [
+  { x: 238, base: 330, flip: true }, { x: 150, base: 310, flip: true }, { x: 376, base: 306, flip: false },
+  { x: 430, base: 306, flip: false }, { x: 476, base: 306, flip: false }, { x: 400, base: 346, flip: false },
+  { x: 448, base: 346, flip: false }, { x: 496, base: 346, flip: false },
 ];
 /**
  * Concentric solid glow rings: every pixel inside ring k is lifted one palette step per ring that contains it
@@ -230,7 +239,7 @@ const RES_PUP = 0, RES_ALB = 35, RES_ALB_W = 50, RES_BOX = 88, RES_BOX_R = 112, 
  * outside its own clip: the compact line has no label, only the boxes pulse.
  */
 const HUD_SLOTS = {
-  card: { x: PF_X + PF_W + 4, y: 245, w: 120, h: 111 },
+  card: { x: PF_X + PF_W + 5, y: 245, w: 118, h: 111 },
   album: { x: PF_X + PF_W + 10 + RES_ALB + 8, y: HUD_Y.rescued + 8, tx: PF_X + PF_W + 10 + RES_ALB + 17, ty: HUD_Y.rescued + 5 },
   strip: { x: W + 20, w: PF_X + PF_W + 10 + RES_BOX_R - (W + 20), row: HUD_Y.rescued + 5 },
 };
@@ -264,27 +273,25 @@ const DOWN_SRC: Record<string, string> = {
 const u32of = (hex: string) => { const n = parseInt(hex.slice(1), 16); return (0xff000000 | (n & 0xff) << 16 | (n & 0xff00) | (n >> 16 & 0xff)) >>> 0; };
 let DOWN: Map<number, number> | null = null;
 /**
- * Fade an offscreen layer out at its top and bottom edges in solid bands (no dither): the outer third of the fade is
- * cut away, the middle third drops two palette steps, the inner third one step (ink drops out in both).
+ * Step a whole offscreen layer down `n` palette steps toward ink (ink drops out): the credits retire one item at a
+ * time this way, so no glyph row or sprite is ever shown cut in half. Returns the [top, bottom] painted rows ([-1, -1]
+ * when empty).
  */
-function stepFade(c: CanvasRenderingContext2D, w: number, h: number, fade: number, bottom = true) {
+function stepLayer(c: CanvasRenderingContext2D, w: number, h: number, n: number): [number, number] {
   if (!DOWN) { DOWN = new Map(); for (const k of KEY) DOWN.set(u32of(col(k)), u32of(col(DOWN_SRC[k] ?? '0'))); }
-  const dn = DOWN;
-  const band = (y0: number, n: number, f: (v: number) => number) => {
-    if (n <= 0) return; let img: ImageData; try { img = c.getImageData(0, y0, w, n); } catch { return; }
-    const d = new Uint32Array(img.data.buffer);
-    for (let i = 0; i < d.length; i++) { const v = d[i]; if (v >>> 24) d[i] = f(v); }
-    c.putImageData(img, 0, y0);
-  };
-  const cut = Math.ceil(fade / 3), mid = Math.ceil(fade * 2 / 3);
-  // ink (plates, outlines) drops out inside the fade so the plates retreat with a clean cut instead of leaving dark
-  // slivers over the sky; everything else steps down the palette toward ink, and whatever reaches ink drops out too
-  const ink = u32of(col('0'));
-  const two = (v: number) => { const a = dn.get(v) ?? v; const r = dn.get(a) ?? a; return r === ink ? 0 : r; };
-  const one = (v: number) => { const r = dn.get(v) ?? v; return r === ink ? 0 : r; };
-  c.clearRect(0, 0, w, cut); band(cut, mid - cut, two); band(mid, fade - mid, one);
-  if (!bottom) return;
-  c.clearRect(0, h - cut, w, cut); band(h - mid, mid - cut, two); band(h - fade, fade - mid, one);
+  let img: ImageData; try { img = c.getImageData(0, 0, w, h); } catch { return [0, h - 1]; }
+  const d = new Uint32Array(img.data.buffer); const ink = u32of(col('0')); let top = -1, bot = -1;
+  for (let i = 0; i < d.length; i++) {
+    let v = d[i]; if (!(v >>> 24)) continue;
+    if (top < 0) top = Math.floor(i / w);
+    bot = i;
+    if (!n) continue;
+    for (let k = 0; k < n && v; k++) { v = DOWN.get(v) ?? v; if (v === ink) v = 0; }
+    if (n && d[i] === ink) v = 0;
+    d[i] = v;
+  }
+  if (n) c.putImageData(img, 0, 0);
+  return [top, bot < 0 ? -1 : Math.floor(bot / w)];
 }
 /** Centred credits text with a full 1px ink outline on a solid ink plate (reads over any sky band). */
 function inked(ctx: CanvasRenderingContext2D, s: string, cx: number, y: number, c: string) {
@@ -321,7 +328,7 @@ class UI implements Module {
   t = 0; sel = 0; menuOpen: Menu = 'none'; settingsFrom: Menu | 'title' = 'pause';
   /** Toast stack: the first TOAST_CAP (one in a live wave / boss) are on screen and ageing; the rest wait in line. */
   toasts: Toast[] = [];
-  mapSel = 0; endingT = 0; shownScore = 0; lastHearts = -1; heartFlash = 0;
+  mapSel = 0; endingT = 0; shownScore = 0; hiChase = 0; lastHearts = -1; heartFlash = 0;
   chain = 0; bestChain = 0; lastBoop = -999; chainPop = 0;
   powMax: Record<string, number> = {}; waveCats = 0; bossBarOn = false;
   /** Conversation parked while the pause menu is open during dialogue (quest.update idles without it). */
@@ -731,7 +738,8 @@ class UI implements Module {
     if (sc !== 'boot') this.soundChip(g, ctx);
     // toasts first: an open menu dims them along with the playfield. While a memory card shows in play/bonus they
     // stay off screen (still held, not ageing) and come back in place when it leaves.
-    if (!((sc === 'play' || sc === 'bonus') && g.mods.memories?.showing?.())) this.drawToasts(ctx);
+    // An open menu hides them outright (the sound hint never peeks out under the pause plate).
+    if (this.menuOpen === 'none' && !((sc === 'play' || sc === 'bonus') && g.mods.memories?.showing?.())) this.drawToasts(ctx);
     if (this.menuOpen === 'pause') this.pause(g, ctx);
     if (this.menuOpen === 'settings') this.settings(g, ctx);
     if (this.menuOpen === 'journal') g.mods.journal?.draw(g, ctx);
@@ -829,8 +837,12 @@ class UI implements Module {
     header(ctx, 'SCORE', x0, 50, w0, accL, t);
     num(ctx, String(Math.min(this.shownScore, 99999999)).padStart(8, '0'), x0 + 1, 61, C.text, { hi: C.ice, shadow: C.ink });
     icon(ctx, 'star', x0, 78, C.gold); text(ctx, 'HI', x0 + 10, 78, C.dim);
-    // the attract demo: the player's real best, or the demo's own score once it passes it (HI never reads below SCORE)
-    text(ctx, String(this.demo ? Math.max(this.demo.real.hiScore ?? 0, Math.min(this.shownScore, 99999999)) : s.hiScore).padStart(8, '0'), x0 + w0, 78, C.gold, { align: 'right' });
+    // HI counts with SCORE: while this run holds the record it reads the counting score (never ahead of it), else the
+    // record the run is chasing. The attract demo: the player's real best, or the demo's own score once it passes it.
+    const shown = Math.min(this.shownScore, 99999999);
+    if (!this.demo && s.hiScore > s.score) this.hiChase = s.hiScore;
+    const hiNow = this.demo ? Math.max(this.demo.real.hiScore ?? 0, shown) : s.hiScore > s.score ? s.hiScore : Math.max(shown, Math.min(this.hiChase, s.hiScore));
+    text(ctx, String(hiNow).padStart(8, '0'), x0 + w0, 78, C.gold, { align: 'right' });
     // power-up bay: four fixed slots (lit when active, silhouettes when empty); labels stay readable
     const PY = 100;
     header(ctx, 'POWER-UPS', x0, PY, w0, C.line, t);
@@ -940,8 +952,8 @@ class UI implements Module {
       const pr = g.mods.quest?.progress?.(q);
       if (pr && pr.need > 1) {
         // the counter keeps its width; the bar takes what is left with a 4px gap (never runs into the numbers)
-        // counters use thousands commas, the way quest toasts print them (0/1,500)
-        const cm = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); const lbl = `${cm(Math.min(pr.have, pr.need))}/${cm(pr.need)}`; const cells = Math.max(3, Math.min(10, Math.floor((w0 - 10 - textWidth(lbl) - 5) / 6)));
+        // plain digits (0/1500): at HUD size the font's comma reads as a decimal point
+        const lbl = `${Math.min(pr.have, pr.need)}/${pr.need}`; const cells = Math.max(3, Math.min(10, Math.floor((w0 - 10 - textWidth(lbl) - 5) / 6)));
         segBar(ctx, x1 + 10, QY + 23, cells, 5, 4, pr.have / pr.need, C.violet); text(ctx, lbl, x1 + w0, QY + 22, C.text, { align: 'right' });
       }
       else { text(ctx, Q?.goal?.(q) || 'IN PROGRESS', x1 + 10, QY + 22, C.dim); if (!Q?.goal) for (let i = 0; i < 3; i++) rect(ctx, x1 + 78 + i * 4, QY + 27, 2, 2, ((t >> 4) % 4) > i ? C.violet : C.peri); }
@@ -958,9 +970,12 @@ class UI implements Module {
       header(ctx, 'BONUS STAGE', x1, TY, w0, C.gold, t, true);
       const MD = g.mods.minigames?.def; const en = MD ? g.content.enemies.find(e => e.id === MD.breed) : null;
       if (en) {
-        chamferFill(ctx, x1, TY + 14, 36, 36, C.night, 3); drawSprite(ctx, en.sprite, x1 + 18, TY + 32);
-        text(ctx, 'NO RETURN', x1 + 42, TY + 18, C.text); text(ctx, 'FIRE', x1 + 42, TY + 27, C.text);
-        text(ctx, 'BOOP THEM', x1 + 42, TY + 38, C.gold); text(ctx, 'ALL!', x1 + 42, TY + 47, C.gold);
+        // the breed on its own band (stars either side), then two full-width lines: never a ragged wrap beside an icon
+        chamferFill(ctx, x1, TY + 13, w0, 26, C.night, 3); chamferLine(ctx, x1, TY + 13, w0, 26, darkOf(C.gold), 3);
+        drawSprite(ctx, en.sprite, x1 + w0 / 2, TY + 26, { frame: frameCount(en.sprite) > 1 ? (t >> 4) % 2 : 0 });
+        icon(ctx, 'star', x1 + 14, TY + 22, C.gold); icon(ctx, 'star', x1 + w0 - 21, TY + 22, C.gold);
+        text(ctx, 'NO FIRE BACK', x1 + w0 / 2, TY + 45, C.text, { align: 'center' });
+        text(ctx, 'BOOP THEM ALL!', x1 + w0 / 2, TY + 56, C.gold, { align: 'center' });
       }
     } else this.roster(g, ctx, x1, TY, w0);
     // the compact RESCUED line (hidden while the touch deck owns the panel below y 236; the pause card still lists
@@ -976,6 +991,7 @@ class UI implements Module {
       // the card slot: stage flags + DAY / flight clock footer only while no memory card is up (the slot is the card's)
       if (!g.mods.memories?.panelCard?.()) {
         const tod = s.tod; const tc = tod === 'night' ? C.violet : tod === 'dusk' ? C.pink : tod === 'dawn' ? C.orange : C.gold;
+        if (A) this.albumIdle(g, ctx, A, x1, w0, accS);
         this.sectorFlags(g, ctx, x1, HUD_Y.flags, w0);
         dither(ctx, x1, HUD_Y.foot - 9, w0, 1, C.indigo, 'sparse');
         const fy = HUD_Y.foot;
@@ -1210,6 +1226,25 @@ class UI implements Module {
       if (on) rect(ctx, px + 2, ty + 1, 4, 3, C.burnt);
     });
   }
+  /**
+   * The idle card slot: an empty photo frame on a quiet plate (where the next memory card will appear), with how many
+   * of this sector's photos are still out there, so the panel foot never reads as a dead block.
+   */
+  albumIdle(g: Game, ctx: CanvasRenderingContext2D, A: { id: string }, x: number, w: number, glow: string) {
+    const s = g.state; const y = HUD_SLOTS.card.y, h = 36;
+    const mems = (g.mods.memories?.placed?.(A.id) ?? g.content.memories.filter(m => m.area === A.id)) as { id: string }[];
+    const left = mems.filter(m => !s.memories.includes(m.id)).length;
+    chamferFill(ctx, x, y, w, h, C.ink, 4); chamferLine(ctx, x, y, w, h, darkOf(glow), 4);
+    // the empty print: a tilted cream-edged frame with a dashed inner border
+    const fx = x + 6, fy = y + 6;
+    chamferFill(ctx, fx, fy, 22, 24, C.night, 1); chamferLine(ctx, fx, fy, 22, 24, C.indigo, 1);
+    for (let k = 0; k < 14; k += 3) { rect(ctx, fx + 4 + k, fy + 3, 2, 1, C.peri); rect(ctx, fx + 4 + k, fy + 16, 2, 1, C.peri); }
+    for (let k = 0; k < 12; k += 3) { rect(ctx, fx + 3, fy + 4 + k, 1, 2, C.peri); rect(ctx, fx + 18, fy + 4 + k, 1, 2, C.peri); }
+    if ((this.t >> 5) % 2) rect(ctx, fx + 10, fy + 9, 2, 3, C.peri);
+    text(ctx, 'ALBUM', x + 34, y + 8, C.dim);
+    const msg = !mems.length ? 'NONE HERE' : left ? `${left} TO FIND` : 'ALL FILED';
+    text(ctx, msg, x + 34, y + 20, !mems.length ? C.peri : left ? C.pale : C.gold);
+  }
   /** Stage pennants (Galaga's level badges): 5x9 per sector, 8px pitch, centred in w; cleared = gold, here = pink. */
   sectorFlags(g: Game, ctx: CanvasRenderingContext2D, x: number, y: number, w: number) {
     const areas = g.content.areas; const n = areas.length; const pitch = Math.min(8, Math.floor(w / Math.max(1, n)));
@@ -1401,8 +1436,9 @@ class UI implements Module {
       let x = sx0, y = sy0;
       if (i === diver && diving) {
         const side = i < 3 ? -1 : i > 3 ? 1 : ((active & 1) ? 1 : -1);
-        // outward loop that stays clear of the sun disc
-        const path = (v: number): [number, number] => [sx0 + side * 54 * Math.sin(v * Math.PI), sy0 - 18 * Math.sin(v * Math.PI * 2)];
+        // outward arch that stays clear of the sun disc and hops over its neighbour (never through it): up and out,
+        // then back into its slot
+        const path = (v: number): [number, number] => [sx0 + side * 54 * Math.sin(v * Math.PI), sy0 - 26 * Math.sin(v * Math.PI)];
         [x, y] = path(u);
         for (let j = 1; j <= 3; j++) {
           const v = u - j * 0.04; if (v <= 0) break; const [tx, ty] = path(v);
@@ -1432,6 +1468,7 @@ class UI implements Module {
     const items = this.titleItems(); const off = this.titleDisabled();
     const mh = items.length * 15 + 14; const my = 230; const mw = 176, mx = W / 2 - mw / 2;
     // two cats take turns peeking over the menu frame's top edge (drawn first, so the frame hides the rest of them)
+    let paws: (() => void) | null = null;
     if (this.titleT > TITLE_IN + 40) {
       const pt = (this.titleT - TITLE_IN - 40) % PEEK, who = Math.floor((this.titleT - TITLE_IN - 40) / PEEK) % 2;
       const k = pt < 14 ? pt / 14 : pt < 110 ? 1 : pt < 124 ? 1 - (pt - 110) / 14 : 0;
@@ -1440,11 +1477,21 @@ class UI implements Module {
         // a look left, a look right, then a blink while it is up
         const peek = Math.round(smooth(k) * 21); const look = pt > 40 && pt < 75 ? (who ? -2 : 2) : 0;
         drawSprite(ctx, spr, px + look, my + 16 - peek, { frame: pt > 80 && pt < 90 ? 1 : 0 });
+        // two paws gripping the frame's top rail (drawn over it), so the cut reads as a cat hiding behind the menu
+        if (peek >= 12) {
+          const fur = who ? C.cream : C.orange, dk = who ? C.burnt : C.burnt; const lift = peek < 18 ? 1 : 0;
+          paws = () => { for (const dx of [-7, 3]) {
+            const bx = px + look + dx, by = my - 2 + lift;
+            rect(ctx, bx, by, 5, 4, C.ink); rect(ctx, bx + 1, by + 1, 3, 2, fur);
+            rect(ctx, bx + 1, by + 3, 1, 1, dk); rect(ctx, bx + 3, by + 3, 1, 1, dk); // toes over the rail
+          } };
+        }
       }
     }
     frame(ctx, mx, my, mw, mh, C.line, C.night, 6);
     scanlines(ctx, mx + 2, my + 2, mw - 4, mh - 4);
     ticks(ctx, mx, my, mw, mh, (t >> 4) % 2 ? C.line : C.deep, 7, 3);
+    if (paws) (paws as () => void)();
     this.rows = menu(ctx, items, this.sel, W / 2, my + 9, t, 15, ['play', 'new', 'book', 'gear'], 158, { disabled: off, tag: off.map(x => x ? 'NO SAVE' : '') });
     const hs = `HI-SCORE ${String(g.state.hiScore).padStart(8, '0')}`; const hx = Math.round(W / 2 - (textWidth(hs) + 10) / 2);
     chamferFill(ctx, hx - 6, my + mh + 6, textWidth(hs) + 22, 13, C.ink, 3); chamferLine(ctx, hx - 6, my + mh + 6, textWidth(hs) + 22, 13, C.burnt, 3);
@@ -1822,13 +1869,16 @@ class UI implements Module {
       for (let r = 0; r < list.length; r += 3) {
         const row = list.slice(r, r + 3);
         const nl = Math.max(...row.map(e => e.lines.length + (e.role ? 1 : 0)));
-        items.push({ h: sh + 8 + nl * LH, draw: (ctx, y, t) => row.forEach((e, i) => {
-          const x = cx + (i - (row.length - 1) / 2) * cell;
-          drawSprite(ctx, e.sprite, x, y + sh / 2, { frame: frameCount(e.sprite) > 1 ? ((t >> 4) + i) % 2 : 0 });
+        // the sprites, then each text row as its own item: the window retires (and admits) whole items only, so
+        // small items keep it full while no glyph row is ever shown cut
+        const xs = (i: number) => cx + (i - (row.length - 1) / 2) * cell;
+        items.push({ h: sh + 1, draw: (ctx, y, t) => row.forEach((e, i) => drawSprite(ctx, e.sprite, xs(i), y + sh / 2, { frame: frameCount(e.sprite) > 1 ? ((t >> 4) + i) % 2 : 0 })) });
+        for (let k = 0; k < nl; k++) items.push({ h: LH, draw: (ctx, y) => row.forEach((e, i) => {
           // names and role lines carry a full 1px ink outline, so they read on every band of either sky
-          e.lines.forEach((l, k) => inked(ctx, l, x, y + sh + 4 + k * LH, C.text));
-          if (e.role) inked(ctx, e.role, x, y + sh + 4 + e.lines.length * LH, C.gold);
+          if (k < e.lines.length) inked(ctx, e.lines[k], xs(i), y + 3, C.text);
+          else if (k === e.lines.length && e.role) inked(ctx, e.role, xs(i), y + 3, C.gold);
         }) });
+        gap(7);
       }
     };
     const ens = g.content.enemies.filter(e => SHEETS[e.sprite]);
@@ -1992,9 +2042,19 @@ class UI implements Module {
   /** Where pup i sits on the lawn (2x sitting pose): back row beside Pom, then a front row clear of the prompt. */
   pupSlot(i: number, tru = false): { x: number; base: number; flip: boolean } {
     if (tru && PARTY_SLOTS[i]) return PARTY_SLOTS[i];
-    const side = i % 2 ? -1 : 1, k = i >> 1;
-    if (k < 4) return { x: END_POM_X + side * (48 + k * 34), base: 306, flip: side > 0 };
-    return { x: END_POM_X + side * (92 + (k - 4) * 40), base: 344, flip: side > 0 };
+    if (!tru && GOOD_SLOTS[i]) return GOOD_SLOTS[i];
+    // overflow (more pups than spots): a third row along the front edge, right of the prompt plate
+    const k = i - (tru ? PARTY_SLOTS.length : GOOD_SLOTS.length);
+    return { x: 548 + (k % 3) * 34, base: 348 - Math.floor(k / 3) * 30, flip: false };
+  }
+  /**
+   * A flying pup's centre y, lifted so its 32x28 sprite clears POM_BOX once she has landed: pups bound for a spot on
+   * her far side hop over her head (a smooth ramp either side of the box, never a jump), never across her silhouette.
+   */
+  overPom(x: number, y: number, crossing: boolean): number {
+    if (!crossing) return y;
+    const d = Math.max(0, POM_BOX.l - (x + 16), (x - 16) - POM_BOX.r);
+    return Math.min(y, POM_BOX.t - 14 + d * 4);
   }
   /** Flight path home (u 0..1): in from the right, high, a lazy wave over the skyline, down onto the lawn by Pom's spot. */
   homePath(u: number): [number, number] {
@@ -2066,7 +2126,7 @@ class UI implements Module {
       const ui = (T - lagI * END_LAG) / END_FLY; if (ui <= 0) continue;
       if (ui < 1) {
         const [px, py] = this.homePath(ui); const w = smooth((ui - 0.7) / 0.3);
-        const x = Math.round(px + (slot.x - END_POM_X) * w), y = Math.round(py + Math.sin((T + i * 20) / 9) * 3 * (1 - w) + (slot.base - 16 - END_POM_Y) * w);
+        const x = Math.round(px + (slot.x - END_POM_X) * w), y = this.overPom(x, Math.round(py + Math.sin((T + i * 20) / 9) * 3 * (1 - w) + (slot.base - 16 - END_POM_Y) * w), u >= 1 && slot.x < END_POM_X);
         draws.push({ y, f: () => ui < 0.9 ? draw2x(ctx, 'end_pup_fly', x, y, { recolor: coat, frame: ((T >> 3) + i) % 2 }) : draw2x(ctx, 'end_pup_sit', x, y, { recolor: coat, flipX: slot.flip }) });
         continue;
       }
@@ -2075,14 +2135,14 @@ class UI implements Module {
       const bob = since < 10 ? -Math.round(Math.sin(since / 10 * Math.PI) * 6) : ((T >> 2) + i * 7) % 61 < 6 ? -Math.round(Math.sin((((T >> 2) + i * 7) % 61) / 6 * Math.PI) * 4) : 0;
       const pose = since >= 10 ? (tru ? PARTY_POSE[i] : GOOD_POSE[i]) : undefined;
       if (pose === 'loop') {
-        // laps round Pom on one shared clock with a fixed gap (so they chase and never meet); each
-        // trots over from its landing spot onto the oval first; the whole lap stays behind Pom (she hides them mid-pass)
+        // zoomies on the open lawn left of Pom, one shared clock, half a lap apart (so they chase and never meet);
+        // each trots over from its landing spot (on the oval's edge) onto the lap first
         const L = tru ? LAPS.true : LAPS.good; const nth = tru ? i - 1 : i;
-        const run = since - 10; const a = (T - END_FLY) * 0.03 + (nth ? Math.PI * 0.62 : 0);
+        const run = since - 10; const a = (T - END_FLY) * 0.03 + (nth ? Math.PI : 0);
         const ox = L.cx + Math.sin(a) * L.rx, oy = L.cy - Math.cos(a) * L.ry; const k = smooth(run / 30);
         const px = Math.round(slot.x + (ox - slot.x) * k), base = Math.round(slot.base + (oy - slot.base) * k);
         const hop = -Math.abs(Math.round(Math.sin(run * 0.3) * 3)); const left = k < 1 ? ox < slot.x : Math.cos(a) < 0;
-        draws.push({ y: base, f: () => this.behindPom(ctx, px, base - 14 + hop, 20, 16, c => draw2x(c, 'end_pup_stand', px, base - 14 + hop, { recolor: coat, flipX: left, frame: (T >> 2) % 2 })) }); continue;
+        draws.push({ y: base, f: () => draw2x(ctx, 'end_pup_stand', px, base - 14 + hop, { recolor: coat, flipX: left, frame: (T >> 2) % 2 }) }); continue;
       }
       if (pose === 'back') { draws.push({ y: slot.base, f: () => draw2x(ctx, 'end_pup_back', slot.x + 2, slot.base - 13, { recolor: coat, frame: (T >> 3) % 2 }) }); continue; }
       if (pose === 'bow') {
@@ -2250,17 +2310,37 @@ class UI implements Module {
   /** Credits roll in the sky window (y 4 down to END_WIN_BOT: the bottom edge is a clean cut tucked under a sky band
    *  seam, far above the skyline): drawn to an offscreen, the top edge faded in solid palette steps (stepFade). */
   private credCv: HTMLCanvasElement | null = null;
+  private itemCv: HTMLCanvasElement | null = null;
   creditsWindow(ctx: CanvasRenderingContext2D, P: NonNullable<UI['plan']>, off: number, t: number) {
     const top = END_WIN_TOP, h = END_WIN_BOT[P.kind] - END_WIN_TOP; const FADE = END_FADE;
     if (typeof document === 'undefined') return;
     if (!this.credCv || this.credCv.height !== h) { this.credCv = document.createElement('canvas'); this.credCv.width = W; this.credCv.height = h; }
     const c = this.credCv.getContext('2d'); if (!c) return;
     c.globalCompositeOperation = 'source-over'; c.imageSmoothingEnabled = false; c.clearRect(0, 0, W, h);
+    // each item is composed on its own scratch layer (with headroom for sprites that rise above their row), then
+    // retired whole near the top edge: one palette step down, two steps down, gone. Nothing is ever clipped at the
+    // top or bottom, so no half glyph row or half sprite ever shows; the cast grid is split into a sprite row and
+    // one item per text row so the window stays full.
+    const PAD = 40;
+    if (!this.itemCv) { this.itemCv = document.createElement('canvas'); this.itemCv.width = W; this.itemCv.height = 200; }
+    const ic = this.itemCv.getContext('2d');
     let y = h - off;
-    for (const it of P.credits) { if (y + it.h > -80 && y < h + 10) it.draw(c, y, t); y += it.h; }
-    // the top edge (open sky) fades in solid steps; the bottom is a clean cut just above a band seam, so plates and
-    // sprites rise out from behind the seam whole
-    stepFade(c, W, h, FADE, false);
+    for (const it of P.credits) {
+      if (y + it.h > -PAD && y < h + 10 && ic) {
+        const ih = Math.min(this.itemCv.height, it.h + PAD * 2);
+        ic.globalCompositeOperation = 'source-over'; ic.imageSmoothingEnabled = false; ic.clearRect(0, 0, W, this.itemCv.height);
+        it.draw(ic, PAD, t);
+        const [ct, cb] = stepLayer(ic, W, ih, 0);
+        if (ct >= 0) {
+          // the item's painted rows in window space: it steps in whole above the bottom seam and out whole at the top
+          const top0 = y - PAD + ct, room = h - 1 - (y - PAD + cb);
+          const lvl = (d: number, f: number) => d >= f ? 0 : d >= f / 2 ? 1 : d >= 0 ? 2 : -1;
+          const a = lvl(top0 - 2, FADE), b = lvl(room, 8); const lv = a < 0 || b < 0 ? -1 : Math.max(a, b);
+          if (lv >= 0) { if (lv) stepLayer(ic, W, ih, lv); c.drawImage(this.itemCv, 0, 0, W, ih, 0, y - PAD, W, ih); }
+        }
+      }
+      y += it.h;
+    }
     ctx.drawImage(this.credCv, 0, top);
   }
   private cardCv: HTMLCanvasElement | null = null;
