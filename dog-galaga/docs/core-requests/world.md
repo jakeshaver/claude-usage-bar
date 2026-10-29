@@ -194,3 +194,20 @@ night with day-coloured pendant pools); sky and space tilesets keep their own ba
 - Re the forwarded interaction request (polish 3): the backyard's opening segment keeps its middle-lot feature below
   segment row 120 (under the spawn rows), and segment 1's middle-lot feature stays in its upper half (off screen at
   wave start). The bird-bath "fountain" and the patio no longer sit under the opening rack.
+
+### Polish 4 round 2
+
+- For effects (src/effects/index.ts, burst kind 'poof', the critic's issue #9, seen in every area at day / dusk): the
+  big central puff (`SEQ.puffBig` spawned in one flat colour `P('7')`, plus the `P('7')` ring) reads as a large flat
+  white silhouette with no shading, the most programmer-art element on screen mid-play. Please give the puff a shaded
+  multi-colour frame set instead of a one-colour mask: a 1px lavender-grey outline (`4`), a cream body (`7`), a
+  pale-lavender shade crescent on the lower-right of each lobe (`5`), a white highlight on the upper-left lobes (`6`),
+  built from 3-4 overlapping round lobes rather than one disc, and deflating over its frames into 2-3 smaller lobes.
+  The ring could be drawn in `5` (or dashed) so it does not add a second flat white shape.
+- ARCHITECTURE.md section 2 (wording only): please replace the lamp-pool sentence from round 1 ("Outdoor lamp pools are
+  three solid stepped rings ... instead of painting a disc.") with: "Outdoor lamp pools light what they land on: each
+  pixel's night colour (the area's own night remap) is lifted one warm step per ring along `WARM_LIFT` (dark -> plum ->
+  warm brown -> amber -> orange / cream), in four rings (edge, middle, core, a small hot centre) under a visible lamp
+  post / head, each ring edge a 1px 50% seam; grass keeps its blades and goes green -> lime -> yellow toward the core.
+  So seams, cracks and plank gaps keep their contrast inside a pool and no pool is a flat fill." Also add: "Dawn / dusk
+  sunbeams and shafts can set `Painter.beamShade`, so props' cast shadows cut through the light."

@@ -4,7 +4,7 @@
 // low-noise, mostly neutral mid-tones with a guaranteed value gap from the
 // darkest cat colours (indigo / dark brown bodies with ink outlines), so cats,
 // turds and hairballs pop (Galaga readability).
-import { Rng } from '../core/rng';
+import { Rng, hash } from '../core/rng';
 import { col, KEY } from '../core/palette';
 import type { Tod } from '../core/types';
 import { Painter, spans, bayer, ramp, remap, TOD_RAMP, type Ramp } from './paint';
@@ -55,6 +55,8 @@ function everyScreen(scroll: number, period: number, offset: number, fn: (sy: nu
 }
 /** tree canopy seen from above: outlined leafy clumps, lit top-left, shaded bottom-right */
 function canopy(p: Painter, cx: number, cy: number, r: number, rng: Rng, keys = ['1', 'k', 'j']) {
+  // night: the leaves turn a moonlit blue-green (never the lawn's own dark green, so the canopy keeps its fill)
+  if (p.tod === 'night') keys = keys[1] === 'k' ? ['2', 'm', '4'] : keys[2] === 'k' ? ['0', '2', 'm'] : keys;
   const [shade, body, hi] = keys;
   const seed = rng.int(0, 1e6);
   const clumps: [number, number, number][] = [[cx, cy, r * 0.62]];
@@ -94,10 +96,11 @@ function field(p: Painter, keys: string[], f: (x: number, y: number) => number, 
  * tips, dawn a sparser one with peach tips (i -> pink), dusk a dense carpet of brown blades with orange tips (olive-gold
  * at a glance), night all blades melt into one dark teal-green (lamp pools bring them back).
  */
-function lawnBlades(p: Painter, x0: number, y0: number, w: number, h: number, base = 'k') {
+function lawnBlades(p: Painter, x0: number, y0: number, w: number, h: number, base = 'k', calm = false) {
   // (night keeps a carpet too: it melts into the ground, and only shows where a lamp pool lights it)
-  const dens = p.tod === 'day' ? 0.26 : p.tod === 'dawn' ? 0.12 : p.tod === 'dusk' ? 0.34 : 0.2;
-  const tipP = p.tod === 'dusk' ? 0.5 : p.tod === 'dawn' ? 0.45 : 0.25;
+  // calm: a mown garden lawn (sparser blades, few bright tips, so a dusk lawn stays quiet)
+  const dens = (p.tod === 'day' ? 0.26 : p.tod === 'dawn' ? 0.12 : p.tod === 'dusk' ? 0.34 : 0.2) * (calm ? 0.6 : 1);
+  const tipP = (p.tod === 'dusk' ? 0.5 : p.tod === 'dawn' ? 0.45 : 0.25) * (calm ? 0.25 : 1);
   const kb = KEY.indexOf(base), kj = KEY.indexOf('j'), ki = KEY.indexOf('i'), k9 = KEY.indexOf('9');
   const B = p.buf, W = p.w, H = p.h;
   const put = (xx: number, yy: number, k: number) => { if (xx < x0 || xx >= x0 + w || xx >= W || yy >= H || yy < 0) return; const o = yy * W + xx; if (B[o] === kb) B[o] = k; };
@@ -105,28 +108,31 @@ function lawnBlades(p: Painter, x0: number, y0: number, w: number, h: number, ba
     const g = (Math.imul((x + 7) * 73856093 ^ (y + 3) * 19349663, 0x27d4eb2d) >>> 0);
     if ((g & 1023) / 1024 > dens * 2.2) continue;
     const bx = x + (g >>> 10) % 3, by = y + 1 + ((g >>> 13) & 1), len = 2 + ((g >>> 15) & 1);
-    const body = p.tod === 'dusk' && ((g >>> 20) & 1) ? k9 : kj; // dusk: half the blades sun-browned (olive-gold at a glance)
+    const body = p.tod === 'dusk' && !calm && ((g >>> 20) & 1) ? k9 : kj; // dusk: half the blades sun-browned (olive-gold at a glance)
     for (let j = 0; j < len; j++) { put(bx, by + j, body); put(bx + 1, by + j, body); }
     // a pointed 1px tip on one side of the blade top (lime by day, peach at dawn, orange at dusk)
     put(bx + ((g >>> 18) & 1), by - 1, ((g >>> 22) & 1023) / 1024 < tipP ? ki : body);
   }
 }
 function tuft(p: Painter, k: string, x: number, y: number) { p.r(k, x, y, 1, 2); p.r(k, x + 2, y - 1, 1, 3); p.r(k, x + 4, y, 1, 2); }
-function grass(p: Painter, x: number, y: number, w: number, h: number, rng: Rng, base = 'k', hi = 'j', density = 1) {
-  p.r(base, x, y, w, h); lawnBlades(p, x, y, w, h, base);
+function grass(p: Painter, x: number, y: number, w: number, h: number, rng: Rng, base = 'k', hi = 'j', density = 1, calm = false) {
+  p.r(base, x, y, w, h); lawnBlades(p, x, y, w, h, base, calm);
   const n = Math.floor((w * h) / 520 * density);
   for (let i = 0; i < n; i++) tuft(p, rng.chance(0.75) ? hi : '1', x + rng.int(1, w - 6), y + rng.int(2, h - 2));
 }
-/** street lamp in 3/4 view: foot at (x, y), a post rising 16px, a lantern head (lit after dusk); the pool is centred on the foot */
-function lamp(p: Painter, x: number, y: number, r = 40, clip?: [number, number, number, number], spill = false) {
+/** street lamp in 3/4 view: foot at (x, y), a post rising 16px, a lantern head (lit after dusk); the pool is centred on the foot.
+ * arm != 0: a gooseneck lamp whose head hangs out `arm` px to the side (over a path), with its pool centred under the head */
+function lamp(p: Painter, x: number, y: number, r = 40, clip?: [number, number, number, number], spill = false, arm = 0) {
   p.shRect(x - 1, y - 1, 3, 3, 16);
+  const hx = x + arm;
   p.obj(() => {
     p.r('0', x - 2, y - 1, 5, 3); p.r('q', x - 1, y, 3, 1);
     p.r('0', x - 1, y - 17, 3, 17); p.r('p', x, y - 16, 1, 16);
-    p.r('0', x - 3, y - 23, 7, 7); p.r('q', x - 2, y - 22, 5, 5); p.r('0', x - 2, y - 24, 5, 1);
-    p.glow('p', 'f', x - 1, y - 21, 3, 3, 1, 0); p.glow('o', '7', x, y - 20, 1, 1, 1, 0);
+    if (arm) { const a0 = Math.min(x, hx), a1 = Math.max(x, hx); p.r('0', a0, y - 19, a1 - a0 + 1, 3); p.r('p', a0 + 1, y - 18, a1 - a0 - 1, 1); }
+    p.r('0', hx - 3, y - 23, 7, 7); p.r('q', hx - 2, y - 22, 5, 5); p.r('0', hx - 2, y - 24, 5, 1);
+    p.glow('p', 'f', hx - 1, y - 21, 3, 3, 1, 0); p.glow('o', '7', hx, y - 20, 1, 1, 1, 0);
   });
-  p.pool(x, y + 1, r, clip, spill);
+  p.pool(hx, y + 1, r, clip, spill);
 }
 function crate(p: Painter, x: number, y: number, w = 20, h = 20, k = 'a') {
   p.shRect(x, y, w, h, 8);
@@ -249,7 +255,7 @@ function cable(p: Painter, x0: number, x1: number, y: number, sag: number, k = '
 
 // ---------------------------------------------------------------- BACKYARD
 /** red doghouse with a pitched roof (ridge front-to-back), shingles, eave shadow, arched entrance and a POM name plate */
-function doghouse(p: Painter, x: number, y: number) {
+function doghouse(p: Painter, x: number, y: number, bowl = true) {
   const w = 36, rh = 28;
   p.shRect(x, y, w, rh + 10, 16);
   p.obj(() => {
@@ -271,7 +277,7 @@ function doghouse(p: Painter, x: number, y: number) {
     p.r('0', x + 3, y + rh + 1, 6, 6); p.glow('b', 'f', x + 4, y + rh + 2, 4, 4, 1, 0.5);
   });
   // bowl + bone
-  p.obj(() => {
+  if (bowl) p.obj(() => {
     p.disc('0', x + 50, y + 34, 5); p.disc('n', x + 50, y + 34, 4); p.disc('a', x + 50, y + 34, 2);
     p.r('0', x + 40, y + 49, 10, 4); p.r('7', x + 41, y + 50, 8, 2); p.r('7', x + 40, y + 49, 2, 1); p.r('7', x + 40, y + 52, 2, 1); p.r('7', x + 48, y + 49, 2, 1); p.r('7', x + 48, y + 52, 2, 1);
   });
@@ -419,92 +425,139 @@ function sandbox(p: Painter, x: number, y: number) {
     p.r('0', x + 6, y + 8, 2, 8); p.r('m', x + 5, y + 6, 4, 3);
   });
 }
-/** BBQ corner: a kettle grill, a cooler and two folding lawn chairs */
-function bbqCorner(p: Painter, x: number, y: number) {
-  grill(p, x + 10, y + 10);
-  p.shRect(x + 24, y + 2, 16, 12, 6);
-  p.obj(() => { p.r('0', x + 24, y + 2, 16, 12); p.r('m', x + 25, y + 3, 14, 10); p.r('6', x + 25, y + 3, 14, 3); p.r('0', x + 29, y + 4, 6, 1); });
-  for (const [cx, cy] of [[x + 4, y + 30], [x + 28, y + 32]]) { p.shRect(cx, cy, 14, 14, 6); p.obj(() => { p.r('0', cx, cy, 14, 14); for (let j = 0; j < 12; j += 3) p.r(j % 6 ? 'g' : '7', cx + 1, cy + 1 + j, 12, 3); p.r('0', cx, cy + 6, 14, 1); }); }
+/** lawn chairs and a cooler (for the patio) */
+function chairsCooler(p: Painter, x: number, y: number) {
+  p.shRect(x + 20, y, 16, 12, 6);
+  p.obj(() => { p.r('0', x + 20, y, 16, 12); p.r('m', x + 21, y + 1, 14, 10); p.r('6', x + 21, y + 1, 14, 3); p.r('0', x + 25, y + 2, 6, 1); });
+  for (const [cx, cy, k] of [[x, y + 2, 'g'], [x + 2, y + 22, 'm']] as [number, number, string][]) {
+    p.shRect(cx, cy, 14, 14, 6);
+    p.obj(() => { p.r('0', cx, cy, 14, 14); for (let j = 0; j < 12; j += 3) p.r(j % 6 ? k : '7', cx + 1, cy + 1 + j, 12, 3); p.r('0', cx, cy + 6, 14, 1); p.r('0', cx - 1, cy + 3, 1, 9); p.r('0', cx + 14, cy + 3, 1, 9); });
+  }
 }
-const BY_LOTS: [number, number][] = [[0, 144], [148, 300], [304, 448]];
-/** the flagstone path's centre in lot li at world row wy: it winds gently down the yard and straightens out to meet the
- * brownstone's back stoop (middle lot) or the garden gates (side lots) every fifth segment */
-function yardPathX(li: number, wy: number) {
-  const [x0, x1] = BY_LOTS[li]; const cx = li === 1 ? 220 : (x0 + x1) >> 1;
-  const d = ((wy - 684) % 1280 + 1280) % 1280, near = Math.min(d, 1280 - d);
-  const env = Math.min(1, Math.max(0, (near - 16) / 150));
-  return cx + Math.round((Math.sin(wy / 150 + li * 2.1) * 20 + Math.sin(wy / 53 + li) * 3) * env);
+/** a kettle BBQ (3/4 view): red enamel kettle on legs and a wheel, its lid hooked open on the side, a grate of
+ * sausages and a patty over the coals (glowing after dusk), and a side shelf with a plate and tongs */
+function bbq(p: Painter, x: number, y: number) {
+  const cx = x + 14, cy = y + 12;
+  p.shEll(cx, cy + 4, 10, 8, 14);
+  p.obj(() => {
+    p.r('0', cx - 9, cy + 6, 2, 10); p.r('0', cx + 8, cy + 6, 2, 10); p.r('0', cx - 1, cy + 8, 2, 10);
+    p.r('p', cx - 9, cy + 7, 1, 8); p.r('p', cx - 1, cy + 9, 1, 8);
+    p.disc('0', cx - 9, cy + 16, 2); p.r('q', cx - 10, cy + 15, 1, 1);
+    p.ell('0', cx, cy + 2, 11, 9); p.ell('e', cx, cy + 2, 10, 8); p.ell('r', cx - 1, cy + 1, 8, 6); p.r('c', cx - 7, cy + 1, 2, 2);
+    p.ell('0', cx, cy - 1, 10, 6); p.ell('q', cx, cy - 1, 9, 5); p.ell('1', cx, cy - 1, 8, 4);
+    for (let i = -6; i <= 6; i += 3) p.r('p', cx + i, cy - 4, 1, 7);
+    p.r('0', cx - 6, cy - 3, 5, 2); p.r('h', cx - 5, cy - 3, 4, 1); p.r('g', cx - 5, cy - 3, 1, 1);
+    p.r('0', cx - 6, cy, 5, 2); p.r('h', cx - 5, cy, 4, 1);
+    p.disc('0', cx + 4, cy - 1, 3); p.disc('b', cx + 4, cy - 1, 2); p.r('a', cx + 3, cy - 2, 1, 1);
+    p.ell('0', cx + 15, cy - 1, 4, 8); p.ell('e', cx + 15, cy - 1, 3, 7); p.r('r', cx + 13, cy - 6, 1, 8); p.r('0', cx + 18, cy - 2, 2, 3);
+    p.r('0', x - 10, cy - 4, 10, 12); p.r('a', x - 9, cy - 3, 8, 10); p.r('9', x - 9, cy - 3, 8, 1);
+    p.disc('0', x - 5, cy + 1, 3); p.disc('7', x - 5, cy + 1, 2); p.r('h', x - 6, cy + 1, 2, 1);
+    p.r('o', x - 8, cy + 6, 6, 1); p.r('p', x - 8, cy + 5, 1, 1);
+  });
+  for (const [dx, dy] of [[-4, 2], [1, 2], [1, -3], [-1, -1]]) p.glow('1', dx < 0 ? 'g' : 'h', cx + dx, cy + dy, 1, 1, 1.4, 0);
 }
+// ---------------------------------------------------------------- BACKYARD
+// One brownstone backyard every five segments (1280 world px), laid out as a real garden instead of a scatter: from the
+// back stoop under the brownstone, a flagstone path winds down past the patio (BBQ, umbrella table, chairs) and the
+// raised beds, swings by the clothesline and the bird bath, and ends at Pom's doghouse doormat, with a spur of slabs
+// to the kiddie pool. From the doghouse a looser trail of stepping stones runs on to the tool shed at the bottom of the
+// yard. Fences stand only at the yard's edges. Features are placed in yard space (u: 690 = the stoop, falling to -512
+// at the next brownstone's roof), so a feature that crosses a segment edge is drawn identically in both segments.
+const YARD_P = 1280;
+const YARD_PATH: [number, number][] = [[676, 219], [624, 219], [540, 174], [440, 190], [340, 250], [236, 252], [150, 198], [104, 158], [80, 112], [74, 98]];
+const YARD_SPUR: [number, number][] = [[150, 198], [128, 236], [112, 270]];
+const YARD_TRAIL: [number, number][] = [[64, 112], [-40, 150], [-170, 232], [-300, 214], [-400, 150], [-436, 98], [-446, 70]];
+function curveX(pts: [number, number][], u: number) {
+  for (let i = 0; i < pts.length - 1; i++) { const [u0, x0] = pts[i], [u1, x1] = pts[i + 1]; if (u <= u0 && u >= u1) { const t = (u0 - u) / (u0 - u1); return x0 + (x1 - x0) * (1 - Math.cos(t * Math.PI)) / 2; } }
+  return pts[pts.length - 1][1];
+}
+/** stones along a curve, spaced by arc length: [x, u, w, h, kind] */
+function stonesAlong(pts: [number, number][], gap: number, big: boolean) {
+  const out: [number, number, number, number, number][] = [];
+  let lx = -999, lu = 1e9, n = 0;
+  for (let u = pts[0][0]; u >= pts[pts.length - 1][0]; u -= 0.5) {
+    const x = curveX(pts, u); if (Math.hypot(x - lx, u - lu) < gap) continue;
+    const h = Math.imul(n++ * 7919 + (big ? 1 : 2), 0x27d4eb2d) >>> 0;
+    const w = big ? 12 + (h % 3) : 8 + (h % 3), hh = big ? 9 + ((h >>> 3) & 1) : 6 + ((h >>> 3) & 1);
+    out.push([Math.round(x), Math.round(u), w, hh, 0]); lx = x; lu = u;
+  }
+  return out;
+}
+const YARD_STONES = [...stonesAlong(YARD_PATH, 12, true), ...stonesAlong(YARD_SPUR, 12, true), ...stonesAlong(YARD_TRAIL, 19, false)];
 /** one flagstone (ground level): a rounded slab, lit top-left, a darker lower lip */
 function flagstone(p: Painter, x: number, y: number, w: number, h: number) {
   p.r('q', x + 1, y + 1, w - 1, h); p.r('q', x, y + 2, w + 1, h - 2);
   p.r('p', x + 1, y, w - 2, h - 1); p.r('p', x, y + 1, w, h - 3);
   p.r('o', x + 1, y, w - 2, 1); p.r('o', x, y + 1, 1, h - 4);
 }
-/** the path: world-spaced courses of flagstones (one wide slab or a pair), with lawn joints between them */
-function yardPath(p: Painter, z: Seg, li: number, yTop: number) {
-  every(z, 15, li * 5, (y, k) => {
-    if (y - 9 < yTop - 2 || y < -12 || y > SEG + 12) return;
-    const cx = yardPathX(li, z.wy(y - 5)), h = (Math.imul(k * 7919 + li * 104729, 0x27d4eb2d) >>> 0);
-    const jit = (h % 3) - 1;
-    if ((h >>> 4) % 3 === 0) { flagstone(p, cx - 7 + jit, y - 9, 7, 9); flagstone(p, cx + 2 + jit, y - 8, 6, 8); }
-    else flagstone(p, cx - 7 + jit, y - 9, 13 + ((h >>> 7) & 1) * 2, 9);
-  });
-}
-/** a short spur of stepping slabs from the path at row y over to x (a feature's door or edge) */
-function yardSpur(p: Painter, z: Seg, li: number, y: number, x: number) {
-  const px = yardPathX(li, z.wy(y)); const dir = x > px ? 1 : -1;
-  for (let sx = px + dir * 12; dir > 0 ? sx < x - 4 : sx > x + 4; sx += dir * 12) flagstone(p, sx - 4, y - 4, 9, 8);
-}
+/** yard features: [u (top), x (left), height, draw(p, x, y, rng)] */
+type YardFeature = [number, number, number, (p: Painter, x: number, y: number, r: Rng) => void];
+const YARD_FEATURES: YardFeature[] = [
+  // the patio by the stoop: pavers, an umbrella table, the BBQ and a pair of lawn chairs with a cooler
+  [668, 238, 78, (p, x, y) => { patio(p, x, y, 90, 74); umbrellaTable(p, x + 34, y + 30); bbq(p, x + 64, y + 40); }],
+  [664, 340, 40, (p, x, y) => chairsCooler(p, x, y)],
+  // raised beds along the back wall, left of the path
+  [664, 64, 64, (p, x, y, r) => { garden(p, x, y, 60, 26, r); garden(p, x + 8, y + 34, 52, 24, r); }],
+  // the clothesline on the left with a laundry basket under it
+  [520, 40, 70, (p, x, y, r) => { clothesline(p, x + 4, x + 116, y + 6, r); p.shRect(x + 14, y + 40, 18, 12, 4); p.obj(() => { p.r('0', x + 14, y + 40, 18, 12); p.r('9', x + 15, y + 41, 16, 10); for (let i = x + 16; i < x + 31; i += 3) p.r('a', i, y + 43, 1, 7); p.r('7', x + 17, y + 41, 6, 3); p.r('n', x + 23, y + 41, 6, 2); }); }],
+  // a bird bath ringed by flowers, right of the path
+  [508, 300, 50, (p, x, y, r) => { flowerBed(p, x + 26, y + 30, 24, 14, r); birdBath(p, x + 26, y + 12); }],
+  // a shade tree in the right corner, over the fence
+  [470, 360, 60, (p, x, y, r) => { p.shEll(x + 40, y + 26, 24, 20, 26); const sd = r.int(0, 1e6); p.obj(() => canopy(p, x + 40, y + 26, 28, new Rng(sd))); leafLitter(p, x + 30, y + 20, 30, r); }],
+  // the sandbox on the left (the middle stays open for the formation)
+  [340, 50, 34, (p, x, y) => sandbox(p, x, y)],
+  // a bed of tomatoes and beans on the right
+  [300, 340, 30, (p, x, y, r) => garden(p, x, y, 56, 26, r)],
+  // a flower border on the left
+  [214, 70, 30, (p, x, y, r) => { flowerBed(p, x + 20, y + 14, 22, 12, r); }],
+  // Pom's doghouse at the end of the path, with a doormat, a water bowl and a bone on the lawn
+  [128, 72, 56, (p, x, y) => { doghouse(p, x, y, false); p.obj(() => { p.r('0', x + 7, y + 39, 22, 5); p.r('e', x + 8, y + 40, 20, 3); p.r('d', x + 8, y + 40, 20, 1);
+    p.disc('0', x - 12, y + 40, 5); p.disc('n', x - 12, y + 40, 4); p.disc('m', x - 13, y + 39, 2);
+    p.r('0', x - 16, y + 50, 10, 4); p.r('7', x - 15, y + 51, 8, 2); p.r('7', x - 16, y + 50, 2, 1); p.r('7', x - 16, y + 53, 2, 1); p.r('7', x - 8, y + 50, 2, 1); p.r('7', x - 8, y + 53, 2, 1); }); }],
+  // the kiddie pool, with a towel and a beach ball beside it
+  [124, 276, 60, (p, x, y) => { kiddiePool(p, x + 26, y + 28, 24); p.obj(() => { p.r('0', x + 54, y + 34, 18, 14); for (let j = 0; j < 12; j += 4) p.r(j % 8 ? '7' : 'n', x + 55, y + 35 + j, 16, 4);
+    p.disc('0', x + 60, y + 6, 5); p.disc('7', x + 60, y + 6, 4); p.r('r', x + 56, y + 4, 8, 2); p.r('m', x + 58, y + 8, 4, 1); }); }],
+  // veggie rows on the right below the doghouse
+  [-40, 320, 70, (p, x, y, r) => { garden(p, x, y, 70, 28, r); garden(p, x, y + 38, 70, 28, r); }],
+  // a second shade tree over the left fence, its leaves drifting onto the lawn
+  [-200, 10, 60, (p, x, y, r) => { p.shEll(x + 30, y + 26, 22, 18, 26); const sd = r.int(0, 1e6); p.obj(() => canopy(p, x + 30, y + 26, 30, new Rng(sd))); leafLitter(p, x + 40, y + 24, 30, r); }],
+  // a compost corner on the right: two bins and a wheelbarrow of clippings
+  [-290, 330, 40, (p, x, y) => { bin(p, x + 8, y + 8, 'k'); bin(p, x + 24, y + 10, 'p');
+    p.shRect(x + 36, y + 2, 24, 14, 6); p.obj(() => { p.r('0', x + 36, y + 2, 22, 14); p.r('h', x + 37, y + 3, 20, 12); p.r('k', x + 39, y + 4, 16, 6); p.r('j', x + 40, y + 4, 6, 2); p.r('0', x + 58, y + 7, 6, 2); p.disc('0', x + 34, y + 9, 3); p.disc('q', x + 34, y + 9, 2); }); }],
+  // the tool shed at the end of the stepping-stone trail
+  [-392, 46, 40, (p, x, y) => shed(p, x, y)],
+];
 const backyard: LayerDef = { speed: 1, opaque: true, paint(p, z) {
   const r = z.r; const top = z.s % 5 === 2 ? 78 : 0;
-  grass(p, 0, 0, SW, SEG, r, 'k', 'j', 0.5);
+  grass(p, 0, 0, SW, SEG, r, 'k', 'j', 0.35, true);
   if (top) brownstoneBacks(p, r);
-  // each neighbour's yard is laid out round a flagstone path that runs from the brownstone down the lot; the hero
-  // feature (middle lot) and the side lots' features sit beside it with a spur of slabs to their door or edge.
-  // (opening segment: Pom's doghouse in the left lot; the middle lot keeps its feature low, under the spawn rows)
-  const hero = z.s === 0 ? 'yard' : ['dog', 'pool', 'patio', 'clothes', 'bbq', 'garden', 'sandbox', 'shed'][z.s % 8];
-  const side = ['clothes', 'yard', 'garden', 'patio', 'bbq', 'shed', 'sandbox', 'pool'].filter(k => k !== hero);
-  for (let i = side.length - 1; i > 0; i--) { const j = r.int(0, i); [side[i], side[j]] = [side[j], side[i]]; }
-  if (z.s === 0) side[0] = 'dog';
-  BY_LOTS.forEach(([x0, x1], li) => {
-    const kind = li === 1 ? hero : li === 0 ? side[0] : side[1];
-    const y0 = top + 14, y1 = SEG - 8;
-    border(p, li === 2 ? x1 - 12 : li === 1 ? x0 + 4 : x0, top + 2, 10, SEG - top - 2, r);
-    yardPath(p, z, li, top ? top + 2 : -20);
-    // the feature's row: the middle lot of the first two segments keeps clear of the formation's spawn rows
-    const lo = li === 1 && z.s === 0 ? 120 : y0 + 10, hi = li === 1 && z.s === 1 ? 120 : y1 - 40;
-    const place = (kind: string, fy: number) => {
-    const px = yardPathX(li, z.wy(fy + 20)), right = px < ((x0 + x1) >> 1); // the feature goes on the roomier side of the path
-    const fx = right ? Math.min(x1 - 14, px + 16) : Math.max(x0 + 14, px - 16); // inner edge, next to the path
-    const at = (w: number) => right ? fx : fx - w; // left x of a feature w wide
-    if (kind === 'dog') { const dx = at(56); doghouse(p, dx + (right ? 4 : 20), fy); yardSpur(p, z, li, fy + 44, dx + (right ? 22 : 38)); p.obj(() => { const tx = dx + (right ? 4 : 20), ty = fy + 66; p.r('0', tx - 1, ty - 1, 16, 4); p.r('8', tx, ty, 14, 2); p.r('h', tx + 3, ty, 2, 2); p.r('h', tx + 9, ty, 2, 2); }); }
-    else if (kind === 'pool') { const cx = at(52) + 26; kiddiePool(p, cx, fy + 26, 24); yardSpur(p, z, li, fy + 26, right ? cx - 24 : cx + 24); p.obj(() => { const tx = right ? cx - 8 : cx - 8, ty = fy + 54; p.r('0', tx - 1, ty - 1, 18, 14); for (let j = 0; j < 12; j += 4) p.r(j % 8 ? '7' : 'n', tx, ty + j, 16, 4); }); }
-    else if (kind === 'patio') { const w = Math.min(64, (right ? x1 - 14 - px : px - x0 - 14) - 8), pxl = right ? px + 8 : px - 8 - w; patio(p, pxl, fy, w, 72); umbrellaTable(p, pxl + (w >> 1), fy + 34); grill(p, right ? pxl + w - 10 : pxl + 10, fy + 64); }
-    else if (kind === 'garden') { const w = 48; const gx = at(w); garden(p, gx, fy, w, 30, r); garden(p, gx, fy + 38, w, 26, r); yardSpur(p, z, li, fy + 34, right ? gx : gx + w); p.obj(() => { const wx = gx + 14, wy = fy + 70; p.r('0', wx, wy, 12, 10); p.r('k', wx + 1, wy + 1, 10, 8); p.r('j', wx + 1, wy + 1, 10, 1); p.r('0', wx + 12, wy + 2, 6, 2); }); }
-    else if (kind === 'clothes') { clothesline(p, x0 + 14, x1 - 14, fy + 6, r); const bx = at(30); p.obj(() => { p.r('0', bx + 4, fy + 30, 16, 12); p.r('7', bx + 5, fy + 31, 14, 10); p.r('9', bx + 5, fy + 31, 14, 2); p.r('n', bx + 7, fy + 34, 6, 4); p.r('e', bx + 12, fy + 35, 5, 4); }); bin(p, bx + 8, fy + 60); bin(p, bx + 24, fy + 60, 'n'); }
-    else if (kind === 'bbq') { const bx = at(44); bbqCorner(p, bx, fy + 8); yardSpur(p, z, li, fy + 20, right ? bx : bx + 44); }
-    else if (kind === 'sandbox') { const bx = at(40); sandbox(p, bx, fy + 8); yardSpur(p, z, li, fy + 24, right ? bx : bx + 40); }
-    else if (kind === 'shed') { const bx = at(40); shed(p, bx, fy); yardSpur(p, z, li, fy + 40, bx + 11); }
-    else { const cx = at(40) + 20; birdBath(p, cx, fy + 16); flowerBed(p, cx + (right ? 4 : -4), fy + 52, 18, 10, r); }
-    };
-    if (li === 1) place(kind, r.int(lo, Math.max(lo, hi - 60)));
-    else { // side lots: the main feature in one half of the segment, a smaller one in the other
-      const upper = r.chance(0.5), mid = (y0 + y1) >> 1;
-      const minor = ['yard', 'garden', 'sandbox', 'bbq'].filter(k => k !== kind && !(z.s === 0 && li === 0 && k === 'bbq'))[r.int(0, 2)];
-      place(kind, upper ? r.int(y0 + 6, Math.max(y0 + 6, mid - 76)) : r.int(mid, y1 - 90));
-      place(minor, upper ? r.int(mid + 10, y1 - 80) : r.int(y0 + 6, Math.max(y0 + 6, mid - 86)));
+  const lo = z.s * SEG, hi = lo + SEG;
+  // all the yards that overlap this segment (each yard spans world rows 1280k-512 .. 1280k+690)
+  for (let k = Math.floor((lo - 700) / YARD_P); k <= Math.floor((hi + 600) / YARD_P); k++) {
+    const yOf = (u: number) => hi - (YARD_P * k + u);
+    // the flagstones sit in a bed of fine gravel, so the path reads as one continuous walk, not a scatter
+    for (let y = 0; y < SEG; y++) { const u = hi - y - YARD_P * k;
+      for (const [pts, w] of [[YARD_PATH, 18], [YARD_SPUR, 14]] as [[number, number][], number][]) {
+        if (u > pts[0][0] + 4 || u < pts[pts.length - 1][0] - 4 || (top && y < top + 4)) continue;
+        const x = Math.round(curveX(pts, Math.min(pts[0][0], Math.max(pts[pts.length - 1][0], u))));
+        p.r('b', x - (w >> 1) - 1, y, w + 2, 1); p.r('a', x - (w >> 1), y, w, 1);
+        const g = Math.imul((y + hi) * 2654435761 ^ x, 0x27d4eb2d) >>> 0; p.r(g & 1 ? '9' : 'b', x - (w >> 1) + 1 + (g >>> 3) % (w - 2), y, 1, 1);
+      }
     }
-    if (li !== 1 && r.chance(0.35)) stringLights(p, x0 + 10, top + 16, x1 - 10, top + 20, r);
-  });
-  fenceV(p, 144, top ? top - 8 : 0, SEG, r); fenceV(p, 300, top ? top - 8 : 0, SEG, r);
+    for (const [x, u, w, h, kind] of YARD_STONES) { const y = yOf(u); if (y < -14 || y > SEG + 14 || (top && y < top + 4)) continue;
+      if (kind) { flagstone(p, x - 7, y - 4, 7, h); flagstone(p, x + 1, y - 3, 6, h - 1); } else flagstone(p, x - (w >> 1), y - (h >> 1), w, h); }
+    YARD_FEATURES.forEach(([u, x, h, draw], i) => { const y = yOf(u); if (y + h + 40 < 0 || y - 40 > SEG) return; draw(p, x, y, new Rng(hash(z.seed, k, i))); });
+  }
+  // fences and shrub borders only at the yard's edges
+  for (const [fx, bx] of [[18, 26], [424, 412]]) { border(p, bx, top + 2, 10, SEG - top - 2, r); fenceV(p, fx, top ? top - 8 : 0, SEG, r); }
   if (top) {
-    fenceH(p, 0, SW, top - 8);
-    // garden gates where the side lots' paths meet the back fence
-    for (const gx of [yardPathX(0, z.wy(top)), yardPathX(2, z.wy(top))]) p.obj(() => { const x = gx - 8, y = top - 9; p.r('0', x - 2, y - 2, 20, 14); p.r('9', x, y, 16, 10); for (let i = x + 1; i < x + 16; i += 4) p.r('a', i, y + 1, 2, 9); p.r('8', x, y, 16, 1); p.r('0', x - 2, y - 3, 3, 15); p.r('0', x + 15, y - 3, 3, 15); p.r('f', x + 12, y + 4, 1, 2); });
-    // the brownstone's back stoop: iron-railed steps down into the middle yard
+    stringLights(p, 236, top + 6, 330, top + 8, r);
+    // the brownstone's back stoop: iron-railed steps down into the yard, a porch light by the door
     const sx = 206, sy = top - 18; p.shRect(sx, sy, 26, 24, 10);
-    p.obj(() => { p.r('0', sx - 1, sy - 1, 28, 26); for (let i = 0; i < 6; i++) { p.r(i % 2 ? '9' : '8', sx, sy + i * 4, 26, 3); p.r('a', sx, sy + i * 4 + 3, 26, 1); } p.r('0', sx - 1, sy - 2, 2, 27); p.r('0', sx + 25, sy - 2, 2, 27); p.r('q', sx - 1, sy - 2, 1, 27); p.r('q', sx + 25, sy - 2, 1, 27); });
+    p.obj(() => { p.r('0', sx - 1, sy - 1, 28, 26); for (let i = 0; i < 6; i++) { p.r(i % 2 ? '9' : '8', sx, sy + i * 4, 26, 3); p.r('a', sx, sy + i * 4 + 3, 26, 1); } p.r('0', sx - 1, sy - 2, 2, 27); p.r('0', sx + 25, sy - 2, 2, 27); p.r('q', sx - 1, sy - 2, 1, 27); p.r('q', sx + 25, sy - 2, 1, 27);
+      p.r('0', sx + 29, sy - 12, 5, 6); });
+    p.glow('q', 'f', sx + 30, sy - 11, 3, 4, 1.5, 0);
+    p.pool(sx + 13, top + 14, 46);
   }
 } };
 /** fast foreground: overhanging trees, the odd branch and utility wires */
@@ -635,6 +688,9 @@ function pond(p: Painter, cx: number, cy: number, rng: Rng) {
   for (let i = 0; i < 5; i++) { const x = cx + rng.int(-36, 36), y = cy + rng.int(-16, 16); p.ell('k', x, y, 5, 4); p.r('n', x, y - 1, 4, 1); p.r('j', x - 3, y - 2, 2, 1); }
   for (let i = 0; i < 14; i++) { const a = rng.range(2.4, 4.0), rx = cx + Math.cos(a) * 50, ry = cy + Math.sin(a) * 30; p.r('0', rx, ry - 4, 1, 6); p.r('k', rx + 1, ry - 5, 1, 6); p.r('a', rx + 1, ry - 6, 1, 2); }
   p.r('m', cx - 20, cy - 8, 8, 1); p.r('m', cx + 10, cy + 6, 6, 1);
+  // night: the moon floats on the water (a pale disc broken by ripples), so the pond never reads as a black hole
+  if (p.tod === 'night') { const mx = cx - 18, my = cy + 2; p.ell('s', mx, my, 6, 4); p.ell('6', mx - 1, my - 1, 4, 2); p.r('2', mx - 6, my + 1, 12, 1);
+    for (const [ox, oy, w] of [[-12, 7, 7], [6, 6, 5], [-4, 10, 9], [10, -4, 4]]) p.r('m', mx + ox, my + oy, w, 1); }
   for (const [dx, dy] of [[14, -6], [24, 2]]) { const x = cx + dx, y = cy + dy; p.r('4', x - 4, y + 4, 10, 1); p.r('0', x - 1, y - 1, 8, 5); p.r('7', x, y, 6, 3); p.r('o', x + 1, y + 2, 4, 1); p.r('0', x + 5, y - 2, 3, 3); p.r('k', x + 5, y - 1, 2, 1); p.r('g', x + 8, y - 1, 1, 1); }
 }
 /** drinking fountain for dogs and people: round stone basin, water, low bowl tier */
@@ -827,7 +883,7 @@ const park: LayerDef = { speed: 1, opaque: true, paint(p, z) {
   // flower bed tucked against the fence
   if (r.chance(0.6)) { const fx = r.chance(0.5) ? 50 : 398, fy = r.int(30, 220); p.ell('0', fx, fy, 12, 8); p.ell('b', fx, fy, 11, 7); for (let k2 = 0; k2 < 10; k2++) { const a = r.range(0, 6.28), d = r.range(0, 1); p.r(r.pick(['d', '7', 't']), fx + Math.cos(a) * d * 8, fy + Math.sin(a) * d * 4, 1, 1); } }
   // lamps along the path (world-spaced), a bench, and paw prints in the gravel
-  every(z, 192, 40, y => { if (y > -40 && y < SEG + 40) lamp(p, px(y) + 18, y, 40, undefined, true); });
+  every(z, 192, 40, y => { if (y > -40 && y < SEG + 40) lamp(p, px(y) + 18, y, 40, undefined, true, -14); }); // gooseneck: the pool falls on the gravel
   bench(p, px(60) + 18, 40, true);
   for (let y = 6, i = 0; y < SEG; y += 11, i++) if ((z.s + (y >> 6)) % 3 === 0) { const x = px(y) + (i % 2 ? 3 : -4); p.r('1', x, y + 1, 3, 2); p.r('1', x - 1, y - 1, 1, 1); p.r('1', x + 1, y - 2, 1, 1); p.r('1', x + 3, y - 1, 1, 1); }
 } };
@@ -843,11 +899,19 @@ function bags(p: Painter, x: number, y: number, rng: Rng) {
 /** puddle: a filled pixel oval that mirrors the sky by day and the bodega neon after dark (hard bands, no strokes) */
 function puddle(p: Painter, x: number, y: number, rng: Rng) {
   const rx = rng.int(12, 18), ry = rng.int(5, 7);
+  // damp asphalt round the water (a darker wet halo), then the water mirroring the sky
+  p.ell('v', x + 1, y + 1, rx + 5, ry + 3);
   p.ell('1', x, y, rx + 1, ry + 1); p.ell('n', x, y, rx, ry); p.ell('2', x + 2, y + 1, rx - 4, ry - 2);
-  const k = rng.pick(['d', 'l']); const k2 = k === 'd' ? 'e' : 'm';
-  // the reflection: two broken 2px bands (sky by day, the neon after dark), never 1px scanlines
-  spans(x - 2, y, rx * 0.6, ry * 0.6, (sx, sy, w) => { if (((sy - y + 8) & 3) < 2) p.glow('3', sy < y ? k : k2, sx + ((sy & 2) ? 2 : 0), sy, Math.max(2, w - 4), 1, 1, 0.5); });
-  p.r('m', x - rx + 4, y - ry + 2, 5, 1); p.r('3', x - rx + 5, y - ry + 3, 3, 1);
+  const k = rng.pick(['d', 'l', 'f']); const k2 = k === 'd' ? 'e' : k === 'l' ? 'm' : 'g';
+  // reflections: 2px vertical streaks, a sign's light stretched down the wet surface (neon after dark, pale sky by day),
+  // broken into dashes by the ripples
+  // (after dark) the sign's glow lies on the water as a soft blot of stacked shimmer dashes, longest in the middle
+  for (let j = -ry + 2, n = 0; j <= ry - 2; j += 2, n++) {
+    const half = Math.floor((rx - 4) * Math.sqrt(Math.max(0, 1 - (j / ry) ** 2)) * 0.6), len = Math.max(2, half);
+    const ox = ((n * 5 + rx) % 3) - 1;
+    p.glow('2', Math.abs(j) < 2 ? k : k2, x - (len >> 1) + ox, y + j, len, 1, 1, 0.8);
+  }
+  p.r('s', x - rx + 4, y - ry + 2, 4, 1); p.r('m', x - rx + 8, y - ry + 2, 3, 1);
 }
 /** sealed crack in the asphalt: tar line (one step darker than the floor, not ink), branching once */
 function cracked(p: Painter, x: number, y: number, rng: Rng) {
@@ -931,8 +995,19 @@ function alleyFloor(p: Painter, z: Seg) {
   p.r('q', 96, 0, 256, SEG);
   // aggregate: a sparse scatter of 2px stones a step lighter (shapes, not speckle)
   for (let i = 0; i < 26; i++) { const x = r.int(136, 308), y = r.int(0, SEG - 2); p.r('p', x, y, 2, 1); p.r('v', x, y + 1, 2, 1); }
-  // a repair slab: saw-cut outline with a lit lip on the far edge
-  if (r.chance(0.7)) { const w = r.int(30, 56), h = r.int(18, 30), x = r.int(140, 300 - w), y = r.int(0, SEG - h); p.frame('1', x, y, w, h); p.r('p', x + 1, y + 1, w - 2, 1); p.r('p', x + 1, y + 1, 1, h - 2); }
+  // resurfacing patchwork: the lane is old asphalt cut by utility trenches and square repairs in a darker, newer mix,
+  // each bounded by a straight poured-tar seam (1px dark line, a fatter blob where the pour pooled) with a sun-bleached
+  // lip on the far side. World-spaced, so a trench runs on from one segment into the next.
+  const seam = (x: number, y: number, w: number, h: number) => {
+    p.r('v', x, y, w, h);
+    p.r('1', x - 1, y, 1, h); p.r('1', x + w, y, 1, h); p.r('1', x - 1, y - 1, w + 2, 1); p.r('1', x - 1, y + h, w + 2, 1);
+    p.r('p', x + w + 1, y, 1, h); p.r('p', x, y + h + 1, w, 1);
+    for (let j = y + 6; j < y + h - 4; j += 23) { const g = grain(x, j); p.r('1', (g & 1) ? x - 2 : x + w - 1, j, 3, 2); }
+  };
+  // square repairs where the utilities dug in
+  for (let i = 0; i < 2; i++) if (r.chance(0.7)) { const w = r.int(26, 44), h = r.int(18, 30), x = r.int(140, 300 - w), y = r.int(0, SEG - h); seam(x, y, w, h); }
+  // fine aggregate: a sparse scatter of 1px pale stones and dark pits (shapes stay readable, never a halftone)
+  for (let i = 0; i < 70; i++) { const x = r.int(110, 338), y = r.int(0, SEG - 1); p.r(i & 1 ? 'p' : 'v', x, y, 1, 1); }
   // granite setts along both walls: 6x4 stones in staggered rows, lit top-left, mortar between
   for (const [x0, x1] of [[104, 130], [318, 344]]) {
     p.r('v', x0, 0, x1 - x0, SEG);
@@ -953,8 +1028,6 @@ function alleyFloor(p: Painter, z: Seg) {
     p.frame('f', bx, by, bw, bh);
     for (let d = 6; d < bw + bh; d += 7) for (let k = 0; k < bh; k++) { const x = bx + d - k; if (x > bx && x < bx + bw - 1 && k > 0 && k < bh - 1 && grain(x, by + k) > 180) p.r('f', x, by + k, 1, 1); }
     for (let i = 0; i < 18; i++) p.r('q', bx + r.int(0, bw - 1), by + r.int(0, bh - 1), r.int(1, 3), 1); }
-  // tar snakes: crack sealant poured in 2px wandering lines
-  for (let i = 0; i < 5; i++) { let cx = r.int(140, 300), cy = r.int(-10, SEG - 30); const n = r.int(6, 12); for (let k = 0; k < n; k++) { const nx = Math.max(136, Math.min(308, cx + r.int(-5, 5))), ny = cy + r.int(3, 7); for (let t = 0; t <= 4; t++) p.r('1', Math.round(cx + (nx - cx) * t / 4), Math.round(cy + (ny - cy) * t / 4), 2, 2); cx = nx; cy = ny; } }
   // utility covers: a square water-valve box and a small round gas cap
   for (let i = 0; i < 2; i++) { const ux = r.int(140, 300), uy = r.int(10, SEG - 20);
     if (i === 0) { p.r('1', ux - 1, uy - 1, 12, 12); p.r('p', ux, uy, 10, 10); p.r('q', ux + 1, uy + 1, 8, 8); for (let j = 2; j < 9; j += 3) p.r('p', ux + 2, uy + j, 6, 2); p.r('o', ux, uy, 10, 1); }
@@ -966,7 +1039,7 @@ function alleyFloor(p: Painter, z: Seg) {
     p.r('0', 217, y + 2, 14, 10); for (let i = 0; i < 3; i++) p.r('q', 219 + i * 4, y + 3, 2, 8); p.r('p', 217, y + 2, 14, 1); });
 }
 const alley: LayerDef = { speed: 1, opaque: true, paint(p, z) {
-  const r = z.r;
+  const r = z.r; p.beamShade = true; p.poolScale = 0.85;
   alleyFloor(p, z);
   // the low sun slants between the tenements at dawn (peach, from the east) and dusk (amber, from the west):
   // a couple of crisp diagonal shafts across the floor, world-spaced so they run on across segments
@@ -976,8 +1049,9 @@ const alley: LayerDef = { speed: 1, opaque: true, paint(p, z) {
     p.sunRamp = ALLEY_SUN[p.tod]!; p.sunSoft = ALLEY_SOFT[p.tod]!; const dawn = p.tod === 'dawn';
     every(z, 150, 30, y => { const h = 14 + (Math.abs(Math.round(z.wy(y))) % 3) * 4, tl = 0.38;
       // dusk: from the west wall, slanting down to the east; dawn: from the east wall, slanting down to the west
-      if (dawn) { p.shaft(104, y - h - 4 + Math.round(240 * tl), 240, h + 8, -tl, true); p.shaft(104, y - h + Math.round(240 * tl), 240, h, -tl); }
-      else { p.shaft(104, y - h - 4, 240, h + 8, tl, true); p.shaft(104, y - h, 240, h, tl); }
+      // a broad warm halo with a narrower bright core along its middle (the light falls off toward its edges)
+      const c = h >> 1, o = dawn ? Math.round(240 * tl) : 0, t2 = dawn ? -tl : tl;
+      p.shaft(104, y - h - 5 + o, 240, h + 10, t2, true); p.shaft(104, y - h + (c >> 1) + o, 240, c, t2);
       // the lit floor of the gap itself, where the shaft enters the alley
       p.shaft(dawn ? 344 : 60, y - h, 44, h, 0);
       gaps.push([y - h, h]); });
@@ -1042,6 +1116,8 @@ const alley: LayerDef = { speed: 1, opaque: true, paint(p, z) {
     p.obj(() => { const nx = 376, ny = ay + 14; for (const [dx, dy, w, h] of [[0, 0, 10, 1], [0, 0, 1, 12], [9, 0, 1, 12], [0, 11, 10, 1], [3, 4, 4, 4]]) p.glow('n', dx === 3 ? 'c' : 'l', nx + dx, ny + dy, w, h); });
     alleyLamp(p, 338, ay + 27, false); p.pool(332, ay + 27, 34, [104, 0, 240, SEG]);
   }
+  // a second gooseneck lamp on the opposite wall, so the night alley is strung with a few warm pools, not one
+  { const left = z.s % 2 === 1, ly = r.int(30, 220); if (!used.some(([l, a, b]) => l === left && ly + 10 > a && ly - 10 < b)) { alleyLamp(p, left ? 110 : 338, ly, left); p.pool(left ? 118 : 330, ly, 32, [104, 0, 240, SEG]); used.push([left, ly - 10, ly + 10]); } }
   // a back door with a caged wall lamp (the light pool has a source), a step and a doormat
   const free = (left: boolean, y: number, h: number) => !used.some(([l, a, b]) => l === left && y + h > a && y < b);
   for (let t = 0; t < 12; t++) { const left = r.chance(0.5), wx = left ? 104 : 344, wy = r.int(36, 214); if (!free(left, wy - 14, 30)) continue; backDoor(p, wx, wy, left); p.pool(wx + (left ? 6 : -6), wy + 4, 30); used.push([left, wy - 14, wy + 16]); break; }
@@ -1680,6 +1756,9 @@ function workLamp(p: Painter, x: number, y: number, r: number) {
   p.glow('q', 'f', x - 1, y - 1, 3, 3, 1, 0); p.glow('p', '7', x, y, 1, 1, 1, 0);
   p.pool(x, y, r);
 }
+/** the dusk sun shafts in the factory (applied to day indices): amber core, a warm brown halo */
+const FACTORY_SUN = remap('q:h v:a p:g o:f 1:b 2:e 3:e a:h b:a 9:g');
+const FACTORY_SOFT = remap('q:a v:b p:h o:g 1:v 2:v 3:e a:a b:b 9:h');
 const factory: LayerDef = { speed: 1, paint(p, z) {
   const r = z.r;
   // steel floor plates with open grate panels (machinery shows through)
@@ -1713,8 +1792,11 @@ const factory: LayerDef = { speed: 1, paint(p, z) {
   every(z, 64, 24, y => { if (y > 2 && y < SEG - 4) p.obj(() => { p.r('0', 38, y - 1, 12, 5); p.r('q', 39, y, 10, 3); }); p.glow('q', (Math.round(z.wy(y)) >> 6) % 3 ? 'i' : 'r', 42, y, 4, 3, 1.3, 0); });
   if (r.chance(0.5)) steamVent(p, r.int(150, 300), r.int(10, 240));
   if (r.chance(0.4)) yarnPile(p, r.int(150, 290), r.int(20, 230), 3, r);
-  p.poolScale = 0.8; workLamp(p, r.int(170, 290), r.int(60, 190), 60);
-  if (r.chance(0.6)) workLamp(p, r.chance(0.5) ? 70 : 350, r.int(60, 190), 44);
+  p.poolScale = 0.8; workLamp(p, r.int(170, 290), r.int(60, 190), 40);
+  if (r.chance(0.6)) workLamp(p, r.chance(0.5) ? 70 : 350, r.int(60, 190), 34);
+  // golden hour: the low sun slants in through the high west windows in long amber shafts (props' shadows cut them)
+  if (p.tod === 'dusk') { p.sunRamp = FACTORY_SUN; p.sunSoft = FACTORY_SOFT; p.beamShade = true;
+    every(z, 180, 50, y => { p.shaft(26, y - 34, 350, 34, 0.42, true); p.shaft(26, y - 24, 350, 12, 0.42); }); }
 } };
 const girdersFg: LayerDef = { speed: 1.4, paint(p, z) {
   const r = z.r;
@@ -1835,47 +1917,49 @@ function nebulaGas(x: number, wy: number, seed: number) {
   const side = Math.min(1, Math.abs(x - SW / 2) / 190); const calm = 0.5 + 0.5 * side * side * (3 - 2 * side);
   return { g: (body * 0.84 + fil * fil * 0.14 + 0.02) * calm, m: (mag * 0.78 + fil * fil * 0.14) * calm };
 }
-/** cool gas ramp (dark veil -> soft core) and warm ramp: few, close values (colourful but low contrast) */
-const NEB_G: [number, string][] = [[0.38, '1'], [0.47, '2'], [0.555, 'n'], [0.635, 'k'], [0.76, 'm']];
-const NEB_M: [number, string][] = [[0.44, 'v'], [0.545, 'e'], [0.725, 'd']];
+/** gas value steps: a dark veil, an indigo haze, then three steps inside each cloud family (soft core last) */
+const NEB_T = [0.34, 0.43, 0.53, 0.67, 0.85];
+/** cloud families by hue: teal catnip, violet, rose (step 1, 2, 3); the steps are close in value (low contrast) */
+const NEB_FAM = [['n', 'm', 's'], ['3', '4', '5'], ['e', 'd', 'c']].map(f => f.map(k => KEY.indexOf(k)));
+const NEB_BASE = ['1', '2'].map(k => KEY.indexOf(k));
 /**
- * The catnip nebula: big soft clouds of catnip gas (indigo, deep blue and dark green veils, plum and dark magenta
- * blooms) on deep space with two depths of stars. Few, close-valued bands from a world-space domain-warped field, so
- * the clouds are large calm shapes that flow across segments without seams; only the sides reach the brighter cores,
- * the column behind the formation gets the darkest veils.
+ * The catnip nebula: big soft clouds of catnip gas on deep space, over a slower layer of far stars. A world-space
+ * domain-warped density field picks the value step (veil, haze, then three steps inside each cloud) and a second,
+ * broader field picks the cloud's family (teal, violet, rose). Every step edge and family edge melts over a few pixels
+ * of ordered dither, so the clouds have soft rims and internal gradation instead of flat poster bands; only the sides
+ * reach the bright cores, the column behind the formation keeps to the dark veils.
  */
 const nebulaMain: LayerDef = { speed: 1, paint(p, z) {
   const r = z.r; const seed = z.seed | 0;
-  const G = NEB_G.map(([t, k]) => [t, KEY.indexOf(k)] as [number, number]), M = NEB_M.map(([t, k]) => [t, KEY.indexOf(k)] as [number, number]);
   const B = p.buf;
-  // the field is sampled every 2px and interpolated per pixel (smooth 1px band edges at a quarter of the cost)
-  const GW = (SW >> 1) + 1, GH = (SEG >> 1) + 1, fg = new Float32Array(GW * GH), fm = new Float32Array(GW * GH);
-  for (let j = 0; j < GH; j++) { const wy = z.wy(j * 2); for (let i = 0; i < GW; i++) { const v = nebulaGas(i * 2, wy, seed); fg[j * GW + i] = v.g; fm[j * GW + i] = v.m; } }
+  const GW = (SW >> 1) + 1, GH = (SEG >> 1) + 1, fg = new Float32Array(GW * GH), fh = new Float32Array(GW * GH);
+  for (let j = 0; j < GH; j++) { const wy = z.wy(j * 2); for (let i = 0; i < GW; i++) { const v = nebulaGas(i * 2, wy, seed); fg[j * GW + i] = Math.max(v.g, v.m * 0.96); fh[j * GW + i] = fbm(i * 2 / 260 + 5.1, wy / 300, seed + 91, 3); } }
   const lerp = (f: Float32Array, x: number, y: number) => { const i = x >> 1, j = y >> 1, u = (x & 1) * 0.5, v = (y & 1) * 0.5, o = j * GW + i;
     const a = f[o] + (f[o + 1] - f[o]) * u, b = f[o + GW] + (f[o + GW + 1] - f[o + GW]) * u; return a + (b - a) * v; };
+  const W = 0.36; // the share of each step that melts into the next through the dither
   for (let y = 0; y < SEG; y++) for (let x = 0; x < SW; x++) {
-    const g = lerp(fg, x, y), m = lerp(fm, x, y);
-    let gi = -1, mi = -1;
-    for (let i = 0; i < G.length; i++) if (g >= G[i][0]) gi = i;
-    for (let i = 0; i < M.length; i++) if (m >= M[i][0]) mi = i;
-    // magenta wins where its band is the brighter of the two (it blooms through the green)
-    if (mi >= 1 && mi + 1 > gi) B[y * SW + x] = M[mi][1];
-    else if (gi >= 0) B[y * SW + x] = G[gi][1];
-    else if (mi === 0) B[y * SW + x] = M[0][1];
+    const g = lerp(fg, x, y), th = bayer(x >> 1, y >> 1) / 16; // dither in 2x2 cells: soft, and never a 1px checker or stripe
+    let b = 0; while (b < NEB_T.length && g >= NEB_T[b]) b++;
+    if (b < NEB_T.length) { const lo = b ? NEB_T[b - 1] : NEB_T[0] - 0.08, fr = (g - lo) / (NEB_T[b] - lo); if (fr > 1 - W && (fr - (1 - W)) / W > th) b++; }
+    if (b === 0) continue;
+    if (b <= 2) { B[y * SW + x] = NEB_BASE[b - 1]; continue; }
+    const h = lerp(fh, x, y) + (th - 0.5) * 0.08; // family edges dither over a short stretch too
+    const f = h < 0.45 ? 0 : h < 0.55 ? 1 : 2;
+    B[y * SW + x] = NEB_FAM[f][b - 3];
   }
   // stars over the veils: mostly faint, a few bright ones with a 4-point glint
-  stars(p, r, 60, ['2', '3', '3', '4', 'v']);
-  stars(p, r, 14, ['5', 't', 's']);
+  stars(p, r, 50, ['2', '3', '3', '4', 'v']);
+  stars(p, r, 12, ['5', 't', 's']);
   for (let i = 0; i < 4; i++) { const x = r.int(4, SW - 4), y = r.int(4, SEG - 4); p.r('6', x, y, 1, 1); p.r('s', x - 1, y, 1, 1); p.r('s', x + 1, y, 1, 1); p.r('s', x, y - 1, 1, 1); p.r('s', x, y + 1, 1, 1); p.r('4', x - 2, y, 1, 1); p.r('4', x + 2, y, 1, 1); }
   if (r.chance(0.7)) catnipLeaf(p, r.chance(0.5) ? r.int(16, 90) : r.int(SW - 90, SW - 16), r.int(20, SEG - 20), r);
 } };
-/** nebula hours: day deep space; dawn cooler (teal-blue gas, plum void); dusk the gas glows rose and violet (never
- * brown); night a step darker with the cores still lit */
+/** nebula hours: day the full catnip colours; dawn lavender (teal and rose cool toward violet, so pink cats pop);
+ * dusk warm rose and violet; night a step darker, the cores still lit */
 const NEBULA_RAMPS: Partial<Record<Tod, Ramp>> = {
   day: remap(''),
-  dawn: remap('0:1 1:v k:n e:e d:d'),
-  dusk: remap('0:1 1:v 2:v n:2 k:e m:d e:e d:u'),
-  night: remap('1:0 2:1 n:2 k:n m:k e:v d:e 4:3 5:4'),
+  dawn: remap('1:v n:3 m:4 s:5 e:u d:t c:t'),
+  dusk: remap('1:v n:e m:d s:c 3:u 4:t 5:c'),
+  night: remap('2:1 3:2 4:3 5:4 n:2 m:n s:m e:v d:e c:d'),
 };
 const streaksFg: LayerDef = { speed: 1.9, paint(p, z) {
   const r = z.r; for (let i = 0; i < 8; i++) { const x = r.int(0, SW), y = r.int(0, SEG); p.r(r.pick(['2', '3']), x, y, 1, r.int(4, 8)); }
@@ -1894,6 +1978,10 @@ function clump(p: Painter, x: number, y: number, r: number, rng: Rng) {
  * under the lit lip, a shadowed floor with a sunlit far side; big ones get an ejecta skirt and litter clumps */
 function crater(p: Painter, cx: number, cy: number, rr: number, rng: Rng, litter: boolean) {
   const ry = Math.round(rr * 0.75);
+  if (rr >= 16) { // bright ejecta rays: long tapering streaks thrown out over the plain (kept inside the segment)
+    for (let i = 0; i < 7; i++) { const a = (i / 7) * 6.28 + rng.range(0, 0.6), l1 = rr * rng.range(2.2, 3.6);
+      for (let t = rr + 2; t < l1; t++) { const x = cx + Math.cos(a) * t, y = cy + Math.sin(a) * t * 0.75; if (y < 2 || y > SEG - 3) break; const wdt = t < (rr + l1) / 2 ? 2 : 1; p.r('i', x, y, wdt, wdt); } }
+  }
   if (rr >= 10) { // ejecta skirt: a ring of scattered pebbles just outside the rim
     for (let i = 0; i < rr; i++) { const a = rng.range(0, 6.28), d = rng.range(rr + 3, rr * 1.45 + 3); const x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d * 0.75; p.r('q', x, y + 1, 2, 1); p.r('o', x, y, 2, 1); }
   }
@@ -1920,13 +2008,17 @@ function scoopMarks(p: Painter, x: number, y: number, w: number, rng: Rng) {
 function regolith(p: Painter, z: Seg) {
   p.r('p', 0, 0, SW, SEG);
   const r = z.r;
-  // one small mare patch toward a side (a lumpy union of ellipses, kept inside the segment so no seam cuts it)
-  { const cx = r.chance(0.5) ? r.int(70, 130) : r.int(270, 300), cy = r.int(40, SEG - 40);
-    for (let k = 0; k < 4; k++) { const x = cx + r.int(-18, 18), y = cy + r.int(-8, 8); p.ell('q', x, y, r.int(10, 16), r.int(6, 9)); }
-    for (let k = 0; k < 3; k++) p.r('p', cx + r.int(-16, 16), cy + r.int(-8, 8), r.int(2, 4), 1); }
-  // highland patches: brighter dusty ground in big soft lobes, and a second, darker mare across the field
-  for (let i = 0; i < 2; i++) { const cx = r.int(70, 280), cy = r.int(20, SEG - 20);
-    for (let k = 0; k < 5; k++) { const x = cx + r.int(-26, 26), y = cy + r.int(-12, 12), rx = r.int(12, 20), ry = r.int(6, 10); p.ell(i ? 'i' : 'q', x, y, rx, ry); } }
+  // large-scale value: dark maria and bright highlands from a world-space field (continuous across segments), their
+  // shores melting over a few pixels of 2x2 dither, so the plain is never one flat grey sheet
+  { const seed = (z.seed | 0) + 5, B = p.buf, kq = KEY.indexOf('q'), ki = KEY.indexOf('i');
+    const GW = (SW >> 2) + 2, GH = (SEG >> 2) + 2, f = new Float32Array(GW * GH);
+    for (let j = 0; j < GH; j++) { const wy = z.wy(j * 4); for (let i = 0; i < GW; i++) f[j * GW + i] = fbm(i * 4 / 150, wy / 190, seed, 4); }
+    for (let y = 0; y < SEG; y++) for (let x = 0; x < SW; x++) {
+      const i = x >> 2, j = y >> 2, u = (x & 3) / 4, w = (y & 3) / 4, o = j * GW + i;
+      const a = f[o] + (f[o + 1] - f[o]) * u, b = f[o + GW] + (f[o + GW + 1] - f[o + GW]) * u, v = a + (b - a) * w;
+      const th = bayer(x >> 1, y >> 1) / 16;
+      if (v < 0.4 - th * 0.035) B[y * SW + x] = kq; else if (v > 0.585 + th * 0.035) B[y * SW + x] = ki;
+    } }
   // litter granules of clay: little warm pebble clusters (the box's real colour shows through the dust)
   for (let i = 0; i < 7; i++) { const cx = r.int(50, 330), cy = r.int(6, SEG - 6); for (let k = 0; k < 4; k++) { const x = cx + r.int(-6, 6), y = cy + r.int(-4, 4); p.r('a', x, y + 1, 2, 1); p.r('9', x, y, 2, 1); } }
   // a few low, broad mounds of the darker tone (small and rounded, never long slabs)
@@ -1990,7 +2082,7 @@ function rover(p: Painter, x: number, y: number) {
 /** x of the left crater ridge's inner foot at row y (world-spaced so it runs on across segments) */
 const ridgeX = (z: Seg, y: number) => { const w = z.wy(y); return 34 + Math.round(Math.sin(w / 83) * 6 + Math.sin(w / 29) * 2); };
 /** x where the moon's surface ends on the right (the limb), row y */
-const limbW = (w: number) => 340 + Math.round(Math.sin(w / 97) * 5 + Math.sin(w / 23) * 2);
+const limbW = (w: number) => 302 + Math.round(Math.sin(w / 97) * 5 + Math.sin(w / 23) * 2);
 const limbX = (z: Seg, y: number) => limbW(z.wy(y));
 /**
  * Left edge: the rim of the Great Litter-Box Crater. Seen from above: the outer slope in the
@@ -1999,7 +2091,7 @@ const limbX = (z: Seg, y: number) => limbW(z.wy(y));
 function craterRidge(p: Painter, z: Seg) {
   p.shRect(0, 0, 30, SEG, 10);
   p.obj(() => {
-    for (let y = 0; y < SEG; y++) { const x = ridgeX(z, y); p.r('o', 0, y, x - 14, 1); p.r('o', x - 16, y, 4, 1); p.r('7', x - 15, y, 1, 1); p.r('q', x - 12, y, 9, 1); p.r('v', x - 3, y, 3, 1); }
+    for (let y = 0; y < SEG; y++) { const x = ridgeX(z, y); p.r('i', 0, y, x - 14, 1); p.r('o', x - 16, y, 4, 1); p.r('7', x - 15, y, 1, 1); p.r('q', x - 12, y, 9, 1); p.r('v', x - 3, y, 3, 1); }
     // terraces on the outer slope: short lit / shaded ledges
     every(z, 40, 7, y => { if (y < -4 || y > SEG + 4) return; const x = ridgeX(z, y) - 22; p.r('p', x - 10, y, 12, 1); p.r('q', x - 10, y + 1, 10, 1); });
     // landslide scars on the inner slope
@@ -2014,37 +2106,42 @@ function craterRidge(p: Painter, z: Seg) {
 function moonLimb(p: Painter, z: Seg) {
   const r = z.r;
   p.obj(() => {
-    for (let y = 0; y < SEG; y++) { const x = limbX(z, y); p.r('0', x, y, SW - x, 1); p.r('o', x - 1, y, 1, 1); p.r('q', x - 4, y, 3, 1); }
+    for (let y = 0; y < SEG; y++) { const x = limbX(z, y); p.r('0', x, y, SW - x, 1); p.r('i', x - 1, y, 1, 1); p.r('q', x - 4, y, 3, 1); }
     // horizon peaks: low bumps on the limb, lit on their sunward side
-    every(z, 36, 11, y => { if (y < -6 || y > SEG + 6) return; const x = limbX(z, y); for (let j = -5; j <= 5; j++) { const h = 4 - Math.abs(j) * 0.7; if (h > 0) { p.r('q', x, y + j, Math.ceil(h), 1); p.r('o', x + Math.ceil(h), y + j, 1, 1); } } });
+    every(z, 36, 11, y => { if (y < -6 || y > SEG + 6) return; const x = limbX(z, y); for (let j = -5; j <= 5; j++) { const h = 4 - Math.abs(j) * 0.7; if (h > 0) { p.r('q', x, y + j, Math.ceil(h), 1); p.r('i', x + Math.ceil(h), y + j, 1, 1); } } });
     for (let i = 0; i < 16; i++) { const y = r.int(0, SEG - 1), x = r.int(limbX(z, y) + 4, SW - 1); p.r(r.pick(['4', '5', '5', '6']), x, y, 1, 1); }
     // dusk: the low sun grazes the limb, an amber rim with a magenta afterglow fading into space (emissive, final colours)
-    if (p.tod === 'dusk') for (let y = 0; y < SEG; y++) { const x = limbX(z, y); emit(p, 'g', x - 1, y, 1, 1); emit(p, 'h', x, y, 2, 1); emit(p, 'e', x + 2, y, 3, 1); emit(p, 'v', x + 5, y, 4, 1); }
+    if (p.tod === 'dusk') for (let y = 0; y < SEG; y++) { const x = limbX(z, y); emit(p, 'h', x - 1, y, 1, 1); emit(p, 'e', x, y, 1, 1); emit(p, 'v', x + 1, y, 3, 1); }
   });
 }
 /** the Earth (Maya is down there), painted once per hour in its own colours: full by day, a terminator at dawn / dusk,
  * a thin lit crescent with city lights at night */
-const EARTH_R = 26;
+const EARTH_R = 36;
 function paintEarth(p: Painter, tod: Tod) {
   const c = EARTH_R + 2, R = EARTH_R;
-  p.disc('s', c, c, R + 1); p.disc('n', c, c, R); p.disc('m', c - 4, c - 4, R - 7); p.disc('n', c + 2, c + 2, R - 11);
-  // continents and ice caps
-  p.ell('j', c - 9, c - 6, 8, 5); p.ell('k', c - 6, c - 3, 4, 3); p.ell('j', c - 12, c + 2, 3, 4); p.ell('j', c + 6, c + 8, 7, 5); p.ell('k', c + 8, c + 10, 3, 2); p.ell('8', c - 1, c + 11, 4, 2); p.ell('j', c + 11, c - 8, 4, 3); p.ell('8', c + 13, c - 7, 2, 1);
-  p.ell('6', c, c - R + 2, 6, 1); p.ell('6', c, c + R - 2, 5, 1);
+  const k = R / 26, E = (key: string, dx: number, dy: number, rx: number, ry: number) => p.ell(key, c + dx * k, c + dy * k, rx * k, ry * k);
+  const L = (key: string, dx: number, dy: number, w: number) => p.r(key, Math.round(c + dx * k), Math.round(c + dy * k), Math.round(w * k), 1);
+  p.disc('s', c, c, R + 1); p.disc('n', c, c, R); p.disc('m', c - 4 * k, c - 4 * k, R - 7 * k); p.disc('n', c + 2 * k, c + 2 * k, R - 11 * k);
+  // continents (lit coasts, darker inland), deserts and ice caps
+  E('k', -9, -5, 9, 6); E('j', -10, -6, 8, 5); E('k', -6, -3, 4, 3); E('j', -12, 3, 3, 5); E('8', -8, -8, 3, 2);
+  E('k', 7, 9, 8, 6); E('j', 6, 8, 7, 5); E('8', 8, 10, 3, 2); E('j', 11, -8, 5, 3); E('8', 13, -7, 2, 1); E('j', 15, 1, 2, 4);
+  E('6', 0, -24, 7, 1.5); E('6', 0, 24, 6, 1.5);
   // cloud streaks
-  p.r('6', c - 17, c + 4, 10, 1); p.r('5', c - 14, c + 5, 6, 1); p.r('6', c + 1, c - 14, 11, 1); p.r('5', c + 3, c - 13, 6, 1); p.r('5', c - 6, c + 18, 10, 1); p.r('6', c + 7, c + 1, 7, 1); p.r('6', c - 4, c - 1, 5, 1);
+  L('6', -17, 4, 10); L('5', -14, 5, 6); L('6', 1, -14, 11); L('5', 3, -13, 6); L('5', -6, 18, 10); L('6', 7, 1, 7); L('6', -4, -1, 5); L('6', -20, -12, 6); L('5', 10, 15, 8);
   // night side: the terminator moves with the hour (sun from the left by day, low at dawn/dusk, behind at night)
-  const term = tod === 'day' ? R + 4 : tod === 'night' ? -R + 7 : tod === 'dawn' ? 4 : 2;
+  const term = tod === 'day' ? R + 4 : tod === 'night' ? -R + 9 : tod === 'dawn' ? 6 : 3;
   const B = p.buf, W = p.w;
   for (let y = 0; y < p.h; y++) for (let x = 0; x < W; x++) { const o = y * W + x; if (B[o] === 255) continue; const dx = x - c, dy = y - c; if (dx - dy * 0.25 > term) B[o] = dx - dy * 0.25 > term + 2 ? KEY.indexOf('1') : KEY.indexOf('2'); }
-  if (tod === 'night') for (const [x, y] of [[4, -3], [8, 5], [11, -8], [6, 10], [13, 2], [2, 12], [9, -12], [16, -2], [12, 9], [18, 6]]) p.r((x + y) & 1 ? 'f' : 'g', c + x, c + y, 1, 1);
+  if (tod === 'night') for (const [x, y] of [[4, -3], [8, 5], [11, -8], [6, 10], [13, 2], [2, 12], [9, -12], [16, -2], [12, 9], [18, 6], [20, -6], [7, 17], [15, 12], [22, 3], [3, -16]]) p.r((x + y) & 1 ? 'f' : 'g', Math.round(c + x * R / 26), Math.round(c + y * R / 26), 1, 1);
 }
 /** the earthrise: a slow-drifting, always-present landmark in the space beyond the moon's limb (screen-space parallax,
  * clipped row by row by the horizon so it sits behind the limb) */
 const moonFx = (ctx: CanvasRenderingContext2D, scroll: number, _t: number, _seed: number, tod: Tod, bg: Background) => {
   const H = 360, D = (EARTH_R + 2) * 2;
   const earth = bg.painted('earth', D, D, tod, p => paintEarth(p, tod), false);
-  const ex = 380, ey = Math.round(150 + Math.sin(scroll / 2600) * 80);
+  // the Earth is far away: it hangs at the right of the view whatever the camera pan, in the band of space past the limb
+  const camX = 128 - Math.round(ctx.getTransform().e);
+  const ex = camX + 384 - (EARTH_R + 6), ey = Math.round(150 + Math.sin(scroll / 2600) * 70);
   for (let j = 0; j < D; j++) {
     const sy = ey - (D >> 1) + j; if (sy < 0 || sy >= H) continue;
     const x0 = Math.max(ex - (D >> 1), limbW(H - sy + scroll) + 6); const sx = x0 - (ex - (D >> 1)); if (sx >= D) continue;
@@ -2078,27 +2175,27 @@ function pomFlag(p: Painter, fx: number, fy: number) {
 const moon: LayerDef = { speed: 1, opaque: true, paint(p, z) {
   const r = z.r;
   regolith(p, z);
-  for (let i = 0; i < 3; i++) crater(p, r.int(60, 320), r.int(10, SEG - 10), r.int(4, 9), r, false);
-  if (r.chance(0.6)) crater(p, r.int(80, 300), r.int(20, SEG - 20), r.int(10, 14), r, false);
-  if (r.chance(0.7)) rayCrater(p, r.chance(0.5) ? r.int(70, 120) : r.int(280, 312), r.int(30, SEG - 30), r.int(5, 8), r);
+  for (let i = 0; i < 3; i++) crater(p, r.int(60, 286), r.int(10, SEG - 10), r.int(4, 9), r, false);
+  if (r.chance(0.6)) crater(p, r.int(80, 270), r.int(20, SEG - 20), r.int(10, 14), r, false);
+  if (r.chance(0.7)) rayCrater(p, r.chance(0.5) ? r.int(70, 120) : r.int(250, 280), r.int(30, SEG - 30), r.int(5, 8), r);
   const kind = z.s % 4; // 0 litter crater, 1 lander, 2 rover, 3 flag + boulders
-  crater(p, r.int(150, 270), r.int(30, SEG - 30), r.int(16, 24), r, true);
-  if (kind === 0) crater(p, r.chance(0.5) ? r.int(84, 120) : r.int(270, 296), r.int(50, SEG - 50), r.int(26, 32), r, true);
-  if (z.s % 2 === 0) scoopMarks(p, r.int(90, 300), r.int(10, 120), r.int(26, 40), r);
-  for (let i = 0; i < 6; i++) clump(p, r.int(60, 320), r.int(10, SEG - 10), r.int(3, 6), r);
+  crater(p, r.int(140, 250), r.int(30, SEG - 30), r.int(16, 24), r, true);
+  if (kind === 0) crater(p, r.chance(0.5) ? r.int(84, 120) : r.int(240, 262), r.int(50, SEG - 50), r.int(26, 32), r, true);
+  if (z.s % 2 === 0) scoopMarks(p, r.int(90, 260), r.int(10, 120), r.int(26, 40), r);
+  for (let i = 0; i < 6; i++) clump(p, r.int(60, 286), r.int(10, SEG - 10), r.int(3, 6), r);
   // a paw-print trail wandering up the tray (Pom was here first)
-  pawTrail(p, r.int(250, 330), 0, SEG, r.range(-0.15, 0.15));
-  if (r.chance(0.6)) buriedToy(p, r.int(70, 320), r.int(20, SEG - 20), r.int(0, 1));
-  const left = r.chance(0.5); const ex = left ? r.int(72, 96) : r.int(290, 306), ey = r.int(60, 190);
+  pawTrail(p, r.int(230, 280), 0, SEG, r.range(-0.15, 0.15));
+  if (r.chance(0.6)) buriedToy(p, r.int(70, 286), r.int(20, SEG - 20), r.int(0, 1));
+  const left = r.chance(0.5); const ex = left ? r.int(72, 96) : r.int(244, 258), ey = r.int(60, 190);
   if (kind === 1) { lander(p, ex, ey); pomFlag(p, ex + (left ? 30 : -46), ey + 30); }
   else if (kind === 2) rover(p, ex, r.int(30, 170));
   else if (kind === 3) { pomFlag(p, ex, ey); boulder(p, ex + 24, ey + 20, 5); boulder(p, ex - 14, ey + 36, 3); }
-  for (let i = 0; i < 2; i++) boulder(p, r.chance(0.5) ? r.int(50, 100) : r.int(300, 325), r.int(12, SEG - 12), r.int(2, 4));
+  for (let i = 0; i < 2; i++) boulder(p, r.chance(0.5) ? r.int(50, 100) : r.int(262, 284), r.int(12, SEG - 12), r.int(2, 4));
   // a scatter of rocks across the field (they cast the long low-sun shadows at dawn and dusk)
-  for (let i = 0; i < 5; i++) { const bx = r.int(60, 320), by = r.int(10, SEG - 10); boulder(p, bx, by, r.int(3, 6)); if (r.chance(0.6)) boulder(p, bx + r.int(6, 12), by + r.int(-6, 6), 2); }
-  if (kind === 0 || kind === 2) bowlCrater(p, left ? r.int(270, 306) : r.int(90, 150), r.int(40, SEG - 40), r.int(16, 20), r);
+  for (let i = 0; i < 5; i++) { const bx = r.int(60, 286), by = r.int(10, SEG - 10); boulder(p, bx, by, r.int(3, 6)); if (r.chance(0.6)) boulder(p, bx + r.int(6, 12), by + r.int(-6, 6), 2); }
+  if (kind === 0 || kind === 2) bowlCrater(p, left ? r.int(240, 270) : r.int(90, 150), r.int(40, SEG - 40), r.int(16, 20), r);
   // a second, fainter boot-and-paw trail from the lander out across the field
-  if (kind === 1 || kind === 3) pawTrail(p, left ? r.int(110, 150) : r.int(280, 310), r.int(0, 60), SEG, left ? 0.2 : -0.2);
+  if (kind === 1 || kind === 3) pawTrail(p, left ? r.int(110, 150) : r.int(240, 275), r.int(0, 60), SEG, left ? 0.2 : -0.2);
   // edges: the Great Litter-Box Crater's rim on the left, the moon's limb (space, and the Earth now and then) on the right
   craterRidge(p, z); moonLimb(p, z);
 } };
@@ -2348,9 +2445,12 @@ const both = (...fs: ((px: Px, scroll: number, t: number, seed: number, tod: Tod
  * light on every lip and pink sky in the glass; a warm dusk (sunset-brown decks, burnt-orange silver roofs, orange
  * glass, magenta haze in the streets, plum shadows cast long); a dark navy night with warm lit windows */
 const ROOF_RAMPS: Partial<Record<Tod, Ramp>> = {
-  day: remap('q:p v:q p:o o:7 1:q 2:3 3:4 n:m m:s b:a a:9'),
-  dawn: remap('q:4 v:3 p:5 o:c 1:2 2:3 3:c n:c m:7 b:v a:9 9:8', TOD_RAMP.dawn),
-  dusk: remap('q:a v:v p:e o:g 1:v 2:b 3:e n:g m:f b:b a:b 9:h', TOD_RAMP.dusk),
+  // bright noon: silver-coated decks with cream copings, crisp grey shadows, sky-blue glass, a hazy blue street below
+  day: remap('q:o v:p p:7 o:7 1:2 2:3 3:4 n:m m:s b:a a:9'),
+  // first light: peach decks and pink copings under cool lavender shadows, pink sky in the glass, a periwinkle street
+  dawn: remap('q:9 v:4 p:c o:7 1:3 2:4 3:c n:c m:7 b:a a:8 9:8', TOD_RAMP.dawn),
+  // sunset: burnt-orange decks with magenta seams and long magenta shadows, gold copings, orange glass, magenta haze below
+  dusk: remap('q:h v:e p:g o:f 1:v 2:e 3:d n:g m:f b:b a:h 9:g', TOD_RAMP.dusk),
   night: remap('q:2 v:1 p:3 o:4 1:0 2:1 3:2 n:2 m:3', TOD_RAMP.night),
 };
 /** docks: the water stays water at every hour and mirrors the sky. Day: blue water, grey planks. Dawn: periwinkle
@@ -2359,7 +2459,7 @@ const ROOF_RAMPS: Partial<Record<Tod, Ramp>> = {
  * with indigo ripples, the planks a moonlit step above it */
 const DOCK_RAMPS: Partial<Record<Tod, Ramp>> = {
   dawn: remap('n:3 2:4 m:c s:c 5:c p:9 q:a o:8', TOD_RAMP.dawn),
-  dusk: remap('n:2 2:e m:t l:t s:8 5:t 4:3 p:a o:9 q:b', TOD_RAMP.dusk),
+  dusk: remap('n:v 2:e m:t l:t s:8 5:t 4:3 p:a o:9 q:b', TOD_RAMP.dusk),
   night: remap('n:1 2:2 m:n p:q o:p', TOD_RAMP.night),
 };
 /** alley: grey asphalt and granite setts by day; a cool lavender dawn (peach on the top edges); a dusk of plum
@@ -2375,11 +2475,12 @@ const ALLEY_RAMPS: Partial<Record<Tod, Ramp>> = {
 /** inside the alley's low-sun shafts (applied to day indices) */
 /** the soft halo round each shaft: a step of the same warm light */
 const ALLEY_SOFT: Partial<Record<Tod, Ramp>> = {
-  dawn: remap('q:a p:9 v:b o:8 1:v 2:3 n:m 3:4 a:a b:b 7:c f:7'),
+  // dawn: a cool lavender glow round a peach core (lighter than the periwinkle shade, never brown)
+  dawn: remap('q:4 p:5 v:3 o:7 1:2 2:3 n:m 3:4 a:9 b:a 7:c f:7'),
   dusk: remap('q:a p:h v:b o:g 1:v 2:e n:m 3:4 a:h b:a 9:h f:7'),
 };
 const ALLEY_SUN: Partial<Record<Tod, Ramp>> = {
-  dawn: remap('q:9 p:8 v:a o:c 1:v 2:3 n:m 3:4 a:9 b:a 7:6 f:7'),
+  dawn: remap('q:c p:7 v:9 o:6 1:3 2:4 n:m 3:5 a:9 b:a 7:6 f:7'),
   dusk: remap('q:h p:g v:b o:f 1:v 2:e n:m 3:4 a:g b:a 9:g f:7'),
 };
 /** park: by night the path stays a step above the dark lawn */
@@ -2390,7 +2491,7 @@ const MOON_RAMPS: Partial<Record<Tod, Ramp>> = {
   // an indigo night. Value falls day > dawn > dusk > night.
   // ('i' marks the brighter highland dust: always one step above the base ground)
   day: remap('8:9 7:8 i:o'),
-  dawn: remap('p:3 o:c q:2 v:1 8:c 7:5 9:a a:b 6:5 5:c i:4'),
+  dawn: remap('p:3 o:5 q:2 v:1 8:c 7:c 9:a a:b 6:5 5:c i:4'),
   dusk: remap('p:q o:9 q:v v:1 8:g 7:8 6:f 9:h 5:8 i:p'),
   night: remap('o:3 p:2 q:1 v:0 9:a 8:9 7:8 6:5 5:4 4:3 3:2 2:1 i:3'),
 };
@@ -2410,7 +2511,9 @@ const MOTHER_RAMPS: Partial<Record<Tod, Ramp>> = {
   dusk: remap('0:1 1:v v:q 2:a o:8 5:8 6:7 4:3'),
 };
 /** street: a sunlit day (pale sidewalks and roofs a step up from the asphalt) */
-const STREET_RAMPS: Partial<Record<Tod, Ramp>> = { day: ramp('q:p p:o') };
+const STREET_RAMPS: Partial<Record<Tod, Ramp>> = { day: ramp('q:p p:o'),
+  // first light: a cool periwinkle road, lavender sidewalks with pink-peach kerbs and copings, peach brick
+  dawn: remap('v:3 1:2 q:4 p:c o:7 2:3 3:4 a:9 b:a', TOD_RAMP.dawn) };
 export const TILESETS: Record<string, Tileset> = {
   backyard: { id: 'backyard', speed: 0.4, base: 'k', main: backyard, fg: yardFg(['1', 'k', 'j'], 0.6, 0), anim: both(flyers('birds', 460), flyers('leaves', 610)) },
   street: { id: 'street', speed: 0.6, base: 'v', ramps: STREET_RAMPS, main: street, fg: yardFg(['1', 'k', 'j'], 0.7, 0), anim: both(steamAnim(188, 300, 120), flyers('birds', 540)) },
@@ -2424,15 +2527,17 @@ export const TILESETS: Record<string, Tileset> = {
       const [k0, k1] = tod === 'night' ? ['3', '4'] : tod === 'dusk' ? ['t', '8'] : tod === 'dawn' ? ['c', '7'] : ['m', '4'];
       // dusk: the low sun lays a shimmering path across the water (screen-fixed, like a real reflection): stacked
       // horizontal dashes, widest and brightest at its core, breaking up toward its edges
-      if (tod === 'dusk') for (let y = 1; y < 360; y += 2) {
-        const row = y >> 1, hh = (Math.imul(row * 2654435761 ^ ((t >> 4) + row * 7) * 40503, 0x27d4eb2d) >>> 0);
-        if (hh % 5 < 2) continue; // broken up: the path is a scatter of glitter, not a ladder
-        const sway = Math.round(Math.sin(row * 0.31 + t / 40) * 4), spread = 9 + ((hh >>> 8) % 9);
-        const n = 1 + ((hh >>> 12) & 1);
+      if (tod === 'dusk') for (let y = 0; y < 360; y++) {
+        // a broad column of glitter under the low sun, over the open water: a near-solid gold core of short horizontal
+        // dashes, thinning to orange and then magenta flecks toward its edges (and toward the top, where it is farthest)
+        const row = y, hh = (Math.imul(row * 2654435761 ^ ((t >> 3) + row * 7) * 40503, 0x27d4eb2d) >>> 0);
+        if ((row & 1) && hh % 3) continue;
+        const sway = Math.round(Math.sin(row * 0.21 + t / 50) * 3), spread = 14 + Math.round(y / 30) + ((hh >>> 8) % 6);
+        const n = 2 + ((hh >>> 12) % 3);
         for (let k = 0; k < n; k++) {
-          const off = (((hh >>> (14 + k * 5)) % (spread * 2 + 1)) - spread), x = 338 + sway + off;
-          const len = 2 + ((hh >>> (20 + k * 3)) % 5), core = Math.abs(off) < spread * 0.45;
-          ctx.fillStyle = col(core ? ((hh >>> 26) & 1 ? 'f' : 'g') : (hh >>> 27) & 1 ? 'g' : 'h'); ctx.fillRect(x - (len >> 1), y, len, 1);
+          const off = (((hh >>> (13 + k * 4)) % (spread * 2 + 1)) - spread), x = 252 + sway + off, a = Math.abs(off) / spread;
+          const len = 2 + ((hh >>> (20 + k * 2)) % 4) + (a < 0.3 ? 3 : 0);
+          ctx.fillStyle = col(a < 0.25 ? ((hh >>> (26 + k)) & 1 ? '7' : 'f') : a < 0.55 ? 'g' : a < 0.8 ? 'h' : 'd'); ctx.fillRect(x - (len >> 1), y, len, 1);
         }
       }
       for (let i = 0; i < 26; i++) {
