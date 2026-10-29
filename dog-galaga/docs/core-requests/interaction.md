@@ -338,3 +338,42 @@ Round 2 (interaction only). Please update the ARCHITECTURE interaction entry:
   to panel") covers it. The card now stays inside the right HUD column during its slide, and the title sits on its own
   line. If the zoom-1 cafe overlap is still visible after this merge, send it to memories again.
 - Verified: bot green on all paths; the docks autopilot shot at wave 4 renders with zero errors.
+
+## Polish 5
+
+Round 1 (interaction only, no core changes needed). Please update the ARCHITECTURE interaction entry:
+- **Big Cat entrance:** `ENTER_T` 176 ticks: Galaga '88 WARNING bands (two hazard-striped gold/ink bands with red edges
+  slide across the playfield from opposite sides, a blinking `WARNING` label and the Big Cat's name between them, 104
+  ticks, drawn only while the scene is `'play'`), then the Big Cat descends straight down the middle of its range from
+  tick 56 with its escort squad in formation (`spawnEscorts` during the entrance parks the squad in `'form'`; the wings
+  ride wider and trail higher, `Boss.formK()`, and close into their slots as it arrives; a thud + small shake on
+  landing). A re-entrance after a nap is a 110-tick swoop without the bands.
+- **Escort wings:** wide lanes fly a swept-back V: inner pair beside and just below the boss (`+-side, +26`), outer pair a
+  row lower and 44 px further out (`+82`), with 6 escorts a pair of shoulders closing the V's lower row (`+-(r+16)`,
+  `+82`). `ext = side + 44` (the drift range is narrower). Mothership low V: 10 px more air under the saucer rim
+  (outer pair `bot + 24`, inner pair 40 px lower).
+- **Choreography per phase:** phase 0 = signature attack; phase 1 cycles `[signature, ring, signature, second]`; phase 2
+  cycles `[signature, curtain, second, signature, ring]`. `ring`: 12-16 slow hairballs (the backyard Big Cat's at 0.55x)
+  with a gap aimed at Pom (two offset rings in phase 2), telegraphed by a swelling dashed ring and a lime notch at the
+  gap. `curtain`: 3 (backyard tier) or 4 volleys shed across the lane every 28 ticks from emitters 60 px apart (between
+  the escort rows), drifting alternately left/right; telegraphed by lit emitters with their two drift dashes. Phase 2
+  `fan` is two fans crossing. The boss bullet cap grows `+9 per phase` (+6 more during a curtain).
+- **Phase-change beat:** 9-tick hit-stop, a gold (phase 1) / red (phase 2) flash, the WARNING bands again for 60 ticks
+  labelled `PHASE 2 / GETTING GRUMPY` or `FINAL PHASE / MAXIMUM GRUMPY`, plus the existing boom, shockwave and refill.
+- **Defeat:** at 0 hp the Big Cat is knocked out (`'ko'`, 44 ticks, invulnerable): hit-stop 10, white flash, every
+  hairball pops into a sparkle, the escorts scatter outward (never back across its body), it staggers red-hot with
+  dizzy stars and little booms, then the usual `bigboop` finale and `boss:defeat`.
+- **Small Big Cats** (tiers 0-1, no craft) wear a slowly turning double dashed halo; their telegraphs are 1.35x (charge
+  lane, fan edges, aim line, spiral ring, summon rings).
+- **Signature outlines:** every signature wave sketches the rack's outline with pixel bracket corners on each target
+  cell (popping in in arrival order during the 54-tick tell, gone as each cat lands); street ambush darkens the next
+  column from the top just before it slams in and lands on growing dither shadows; moon float's brackets close in as
+  the cats drift down. Mothership remixes inherit these.
+- **Orbit** runs `ORBIT_INSET` 10 px inside the gutter lines (no HUD clipping with the camera panned).
+- **Streams:** each entry lane's step grows until two cats one step apart are at least `STREAM_AIR` 40 px apart
+  (1.25 sprite heights) anywhere on the shared path.
+- **On-screen cap:** `formation.ON_CAP` 24: a wave never parks more than 24 cats; the rest are reinforcements (station
+  wave 3: 24 on screen + 9 reinforcements).
+- Showcase stages: `?showcase=interaction&stage=entrance|phasebeat|ko` (`&at=`, `&phase=`), `&atk=ring|curtain|fan|...`
+  forces the staged attack (tools/screenshot.mjs does not forward `atk`: pass it in `--url=...?atk=ring`). Boss stages
+  now skip the taunt dialogue. REQUEST (tools, optional): forward `atk` in tools/screenshot.mjs.
