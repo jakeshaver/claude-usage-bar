@@ -562,6 +562,7 @@ export function recoveredStamp(ctx: Ctx, x: number, y: number, label: (c: Ctx, s
   // A rubber-stamp print on the polaroid's chin (never over the photo): 'RECOVERED' in deep-blue ink, struck a hair
   // crooked (the right half sits 1px higher), with a ruled underline and a couple of ink-starved pixels.
   x = Math.round(x); y = Math.round(y);
+  R(ctx, x - 1, y - 1, 55, 12, '5');   // solid chin-coloured backing (1px pad): no chin dither runs through the letters
   label(ctx, 'RECOV', x, y + 1); label(ctx, 'ERED', x + 30, y);
   R(ctx, x, y + 9, 29, 1, 'n'); R(ctx, x + 29, y + 8, 24, 1, 'n');
   P(ctx, x + 7, y + 9, 'm'); P(ctx, x + 40, y + 8, 'm'); P(ctx, x + 50, y + 8, 'm');

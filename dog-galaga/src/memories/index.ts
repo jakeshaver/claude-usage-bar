@@ -515,17 +515,23 @@ class Memories implements Module {
     // the polaroid (64x62, taped on). A bundle shows the rest of the stack peeking out behind it.
     const px = x + SLOT_DX, py = y + SLOT_DY;
     const left = bundle && !page.summary ? n - 1 - page.i : 0;
+    // a long memory gets the half polaroid (32x31) so its whole body fits (never on the compact card or a summary page)
+    const tight = !compact && !page.summary && tightCard(m, h);
+    const photoH = tight ? 31 : 62;
     for (const [ox, oy, k, need] of [[6, -1, '4', 2], [3, 1, '5', 1]] as [number, number, string, number][]) {
       if (left < need || filing) continue;
+      if (tight) { rect(px + 16 + ox - 1, py + oy - 1, 34, photoH + 2, '0'); rect(px + 16 + ox, py + oy, 32, photoH, k); rect(px + 16 + ox + 31, py + oy, 1, photoH, '3'); continue; }
       rect(px + ox - 1, py + oy - 1, 66, 64, '0'); rect(px + ox, py + oy, 64, 62, k); rect(px + ox + 63, py + oy, 1, 62, '3');
     }
     if (filing) {
       // the photo has lifted out: four photo corners mark the empty slot, and it says where the photo went
-      for (const [cx, cy, dx, dy] of [[px, py, 1, 1], [px + 63, py, -1, 1], [px, py + 61, 1, -1], [px + 63, py + 61, -1, -1]]) {
+      const sx0 = tight ? px + 16 : px, sw = tight ? 32 : 64;
+      for (const [cx, cy, dx, dy] of [[sx0, py, 1, 1], [sx0 + sw - 1, py, -1, 1], [sx0, py + photoH - 1, 1, -1], [sx0 + sw - 1, py + photoH - 1, -1, -1]]) {
         rect(dx > 0 ? cx : cx - 3, cy, 4, 1, '4'); rect(cx, dy > 0 ? cy : cy - 3, 1, 4, '4');
       }
-      text(ctx, 'INTO THE', px + 32, py + 22, col('4'), { align: 'center' });
-      text(ctx, 'ALBUM!', px + 32, py + 32, col(lost ? 'l' : 'f'), { align: 'center', shadow: col('0') });
+      const ly0 = tight ? py + 6 : py + 22;
+      text(ctx, 'INTO THE', px + 32, ly0, col('4'), { align: 'center' });
+      text(ctx, 'ALBUM!', px + 32, ly0 + 10, col(lost ? 'l' : 'f'), { align: 'center', shadow: col('0') });
     } else if (page.summary) {
       // the rest of the backlog: a fanned little stack of half-size polaroids dropping onto the slot
       const rest = r.ids.slice(page.i, page.i + 3); const k0 = r.t - page.at;
@@ -537,20 +543,21 @@ class Memories implements Module {
     } else {
       const drop = bundle && page.cur > 0 ? Math.max(0, 3 - (r.t - page.at)) : 0;   // each new page drops into place
       const blink = page.dev >= 1 && (r.t - IN) % 64 >= 56;
-      polaroid(ctx, m.id, px, py - drop, page.dev, 1, blink, lost);
-      if (lost && page.dev >= 0.5) recoveredStamp(ctx, px + 5, py - drop + 50, (c, str, sx, sy) => text(c, str, sx, sy, col('n')));
+      if (tight) halfPolaroid(ctx, m.id, px + 16, py - drop, lost);
+      else polaroid(ctx, m.id, px, py - drop, page.dev, 1, blink, lost);
+      if (lost && !tight && page.dev >= 0.5) recoveredStamp(ctx, px + 5, py - drop + 50, (c, str, sx, sy) => text(c, str, sx, sy, col('n')));
     }
     // title: always the 1x font (one size on every card and page), up to two lines (compact: two, no body)
     const more = n - page.i;
     const title = page.summary ? `+${more} MORE PHOTOS` : m.title.toUpperCase();
     const body = page.summary ? `ALL ${n} ARE SAFE IN THE ALBUM. READ EVERY ONE IN THE JOURNAL.` : m.text.toUpperCase();
-    const ty = y + SLOT_DY + 67;
+    const ty = y + SLOT_DY + photoH + 5;
     const tl = clampLines(wrap(title, 18), 2);
     tl.forEach((ln, i) => text(ctx, ln, x + w / 2, ty + i * 9, col('6'), { shadow: col('0'), align: 'center' }));
     if (compact) return;
     // body: the whole memory in a window down to the foot bevel. When it runs one or two lines long, the window
     // scrolls up 1px at a time once the photo has had its moment, so the last line (the payoff) is always read.
-    const by = ty + tl.length * 9 + 2, bottom = y + h - 6;   // bottom: the last pixel row a glyph may use
+    const by = ty + tl.length * 9 + 4, bottom = y + h - 6;   // bottom: the last pixel row a glyph may use
     const room = Math.floor((bottom - by - 6) / 9) + 1;
     const lines = wrap(body, 18); const over = Math.max(0, lines.length - room) * 9;
     const sc = over ? Math.min(over, Math.max(0, Math.floor((r.t - page.at - (bundle ? 46 : 76)) / (bundle ? 2 : 3)))) : 0;
@@ -571,7 +578,11 @@ class Memories implements Module {
       const sx = CARD_X + SLOT_DX + 32, sy = CARD_Y + SLOT_DY + 31;
       const u = clamp01((f - 0.18) / 0.82); const e = u * u * (3 - 2 * u);
       const cx = Math.round(sx + (ALBUM_X - sx) * e), cy = Math.round(sy + (ALBUM_Y - sy) * e - Math.sin(Math.PI * e) * 16);
-      if (f < 0.25) polaroid(ctx, id, sx - 32, sy - 31 - Math.round(f * 16), 1, 1, false, lost);
+      // the lift never rises past the header's dashed rule row (CARD_Y + 16), so the kicker stays readable
+      const lift = Math.min(SLOT_DY - 16, Math.round(f * 16));
+      const m = g.content.memories.find(q => q.id === id); const compact = !!g.mods.ui?.touch?.visible?.(g);
+      const tight = !!m && !compact && tightCard(m, CARD_H);
+      if (f < 0.25) { if (tight) halfPolaroid(ctx, id, sx - 16, CARD_Y + SLOT_DY - lift, lost); else polaroid(ctx, id, sx - 32, sy - 31 - lift, 1, 1, false, lost); }
       else if (f < 0.55) halfPolaroid(ctx, id, cx - 16, cy - 15, lost);
       else tinyPolaroid(ctx, id, cx, cy);
       if (f >= 0.25 && (k & 1)) pxSpark(ctx, cx + (k & 2 ? 7 : -7), cy + 4, lost ? 'l' : 'f', 1);
@@ -626,6 +637,16 @@ function oneLine(s: string, cols: number): string {
 }
 
 /** At most `max` wrapped lines; a cut last line ends in an ellipsis. */
+/**
+ * True when a single memory's body would not fit under the full 64x62 polaroid on the tall card: the card then shows
+ * the 32x31 half polaroid instead, so the last body line is on screen without waiting for the scroll.
+ */
+function tightCard(m: MemoryDef, h: number): boolean {
+  const tl = clampLines(wrap(m.title.toUpperCase(), 18), 2).length;
+  const by = CARD_Y + SLOT_DY + 67 + tl * 9 + 4, bottom = CARD_Y + h - 6;
+  return wrap(m.text.toUpperCase(), 18).length > Math.floor((bottom - by - 6) / 9) + 1;
+}
+
 function clampLines(lines: string[], max: number): string[] {
   if (max <= 0) return [];
   if (lines.length <= max) return lines;
