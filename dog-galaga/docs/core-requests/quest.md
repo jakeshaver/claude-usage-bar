@@ -132,3 +132,88 @@ Ranked by how much each one shows in the game. Everything the quest module could
 - Wave-count quests are kept equal to the area's wave total, and the check flags any mismatch.
 - Bonanza feasibility: a fair pilot (real input path, player speed, cooldown, turd cap) clears all 3 layouts
   40/40, so `bonus:result` is no longer rewritten. The shortest cat window is 182 ticks (bonus_clouds).
+
+## Round 3 (builder)
+
+Ranked by what the player sees. The quest module did everything it could alone (see "Done in src/quest (round 3)").
+
+1. **tools/screenshot.mjs `--skipDialogue` must call `skipAll()` (now blocking; requested in rounds 1 and 2).**
+   `toolSkipLink()` (the URL check in production code, critic R2-4) is deleted, so a deep link plays exactly like
+   normal play: the briefing waits for the sector title card. During that wait `quest.dlg` is null
+   (the briefing is staged), so the tool's current loop skips nothing and `--skipDialogue --advance=60` shots
+   show the briefing box. One-line fix at tools/screenshot.mjs:38, inside the `page.evaluate`:
+   ```js
+   g.mods.quest?.skipAll?.();
+   for (let n = 0; n < 60 && g.state.scene === 'dialogue' && g.mods.quest?.dlg; n++) g.mods.quest.advance();
+   ```
+2. **vite.config.ts: run the quest check in `npm run verify`** (critic R2-3). `test.include` is
+   `['tests/**/*.test.ts']`, so `src/quest/quest.test.ts` never runs. Either
+   `include: ['tests/**/*.test.ts', 'src/**/*.test.ts']`, or copy it to `tests/quest.test.ts` with
+   `import { runQuestCheck } from '../src/quest/check';`. About 35 s. It now also covers: no crash toast for
+   content misses, stage progress equal to the HUD's wave count, a press finishing the page at once, and the
+   dialogue review sheet.
+3. **content/quests.json `park_pals`** (critic R2-2): change `complete` to
+   `{ "on": "area:clear", "match": { "areaId": "park" } }` (drop `count: 7`). The engine already treats it that
+   way (`deriveQuest`: "every wave" / a count above half the sector's waves becomes `area:clear`) and prints a
+   NOTE until content matches. The HUD now reads PARK PALS 0/11 next to WAVE 1/11 (see item 5).
+4. **player: keep Captain Pom visible during briefings** (critic R2-6, repeat of round 2 item 4).
+   `respawn()` sets `invuln = 120`, but `update()` returns early outside play/bonus, so during the opening
+   briefing `invuln` never counts down and src/player/index.ts:86 keeps her on the blink-off frame: Biscuit's
+   "WAKE UP!" plays over an empty lawn. Fix: `const blink = g.state.scene !== 'dialogue' && this.invuln > 0 && ...`
+   (or count `invuln` down in dialogue too). Optional: a slow 2-frame idle bob while the scene is 'dialogue'.
+5. **ui HUD quest panel: use the engine's `goal()` and `tracked()`** (critic R2-5, repeat of round 2 item 6).
+   src/ui/index.ts ~446-452:
+   ```ts
+   const q = g.mods.quest?.tracked?.() ?? g.content.quests.find(q => s.quests[q.id] === 'active');
+   ...
+   else { text(ctx, g.mods.quest?.goal?.(q) || 'IN PROGRESS', x1 + 10, 128, C.dim); }
+   ```
+   With round 3, sector quests (NIGHT OWL, BIG SAL'S RESPECT, PARK PALS) already report stage progress
+   (cleared stages / waves + boss, the same total as WAVE n/N), so they get the segment bar. The remaining
+   'IN PROGRESS...' line is FIRST FLIGHT (count 1, no sector): `goal()` returns `CLEAR 1 WAVE`.
+6. **showcase: `?showcase=dialogue` should show the review sheet** (critic R2-7). Replace the `case 'quest':
+   case 'dialogue':` line in src/showcase/index.ts with:
+   ```ts
+   case 'quest': case 'dialogue': W_.enterArea(area, 0); W_.titleCard = 0; quiet();
+     if (p.get('node') || p.get('at')) { const at = p.get('at'); g.mods.quest.stage(p.get('node') ?? W_.area(area).intro ?? 'intro-backyard-1', at === null ? undefined : +at); }
+     else g.mods.quest.showSheet();
+     break;
+   ```
+   `showSheet()` draws 5 states with ui's own comm panel, stacked over the playfield, each tagged: gruff
+   Biscuit typing (cursor), bright Pom page done (NEXT arrow), regal Empress on a punctuation beat, the second
+   page of a long line, and the friendly fallback for a missing id. `--node=` / `--at=` keep the single-box view.
+   (Verified with a playwright eval: shots/q3-sheet.png.) The parked-under-pause state is ui's pause menu
+   ('BRIEFING ON HOLD'), which `--showcase=ui --menu=pause` already covers if the showcase opens a briefing first.
+7. **ui `skipDialogue` should call `g.mods.quest.skipAll()`** (repeat of round 2 item 7): the ui loop does
+   nothing while a briefing is staged behind the title card.
+8. **content: a local objective for sectors 5-13** (critic R2-8). Only park, alley and rooftops have one;
+   after them the panel reads NO ACTIVE QUEST. Suggested short ones (all events exist, the engine already
+   shows stage progress n/N and a goal line for these shapes):
+   ```json
+   { "id": "cafe_rush", "name": "Morning Rush", "desc": "Close down the Purrfect Cup Cafe.", "start": {"on":"area:enter","match":{"areaId":"cafe"}}, "complete": {"on":"area:clear","match":{"areaId":"cafe"}}, "reward": {"score": 3000} },
+   { "id": "docks_catch", "name": "Catch of the Day", "desc": "Send Captain Mainsail back to sea.", "start": {"on":"area:enter","match":{"areaId":"docks"}}, "complete": {"on":"boss:defeat","match":{"bossId":"boss_mainsail"}}, "reward": {"score": 3000} },
+   { "id": "factory_unravel", "name": "Unravel It", "desc": "Shut down the Yarn Factory.", "start": {"on":"area:enter","match":{"areaId":"factory"}}, "complete": {"on":"area:clear","match":{"areaId":"factory"}}, "reward": {"score": 3000} },
+   { "id": "moon_litter", "name": "Scoop Duty", "desc": "Clear the Litter Moon.", "start": {"on":"area:enter","match":{"areaId":"moon"}}, "complete": {"on":"area:clear","match":{"areaId":"moon"}}, "reward": {"score": 3000} },
+   { "id": "nebula_sober", "name": "Clear Heads", "desc": "Boop the Catnip Kingpin.", "start": {"on":"area:enter","match":{"areaId":"nebula"}}, "complete": {"on":"boss:defeat","match":{"bossId":"boss_kingpin"}}, "reward": {"score": 3000} },
+   { "id": "station_dock", "name": "Docking Clearance", "desc": "Take Scratching-Post Station.", "start": {"on":"area:enter","match":{"areaId":"station"}}, "complete": {"on":"area:clear","match":{"areaId":"station"}}, "reward": {"score": 3000} },
+   { "id": "empress_audience", "name": "An Audience", "desc": "Face Empress Fluffington.", "start": {"on":"area:enter","match":{"areaId":"mothership"}}, "complete": {"on":"boss:defeat","match":{"bossId":"boss_empress"}}, "reward": {"score": 5000} }
+   ```
+   (sky already has `secret_route`.) The check will prove each is reachable and finished on every path that enters it.
+9. **ARCHITECTURE.md (quest section):** content problems (malformed quest entries, missing dialogue ids,
+   unknown quest ids, bad conditions, event storms) go to `g.contentIssues` as `{file, msg: '[quest] ...'}` and a
+   dev `console.warn`, never to `g.errors` (whose entries become the "A CAT KNOCKED OVER ..." toast). Exceptions
+   caught inside the engine still use `reportError`. New API: `issue(file, msg)`, `stages(q)`, `showSheet(on?)`,
+   `overlay()` (draws the sheet only); `stage(idOrNode, at?)` also accepts an inline node.
+10. **Forwarded from the critic (outside quest):** docks at 2x: Siamese and Persian formations overlap (32px sprites
+    spaced under one sprite width; interaction/content waves); moon at `--tod=night` has no night grade (world);
+    the HUD sector subtitle is clipped to 'WHERE EVERY...' (ui: wrap it into the second line or a ticker).
+
+### Done in src/quest (round 3)
+- Content misses never show the crash toast: `quest.dialogue('does_not_exist_zz')` opens Pom's fallback line and
+  `quest.start('nope_quest')` is ignored, both logged in contentIssues only (shots/q3-missing.png). Malformed
+  quests at boot are reported the same way (the check asserts no `g.errors` and no crash toast).
+- `toolSkipLink()` deleted: no production code reads the URL.
+- Sector quests show stage progress equal to the HUD's count: PARK PALS 0/11 next to WAVE 1/11, BIG SAL'S
+  RESPECT 3/11 next to WAVE 4/11 (shots/q3-park.png, shots/q3-alley.png). `park_pals` finishes on clearing the park.
+- One press finishes a typing page at once; holding stays x4 (asserted in the check).
+- Dialogue review sheet (`showSheet()`, src/quest/sheet.ts).

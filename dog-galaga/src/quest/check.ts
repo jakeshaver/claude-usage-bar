@@ -52,11 +52,9 @@ const nq = normalizeQuests(content.quests, m => problems.push('content quest rej
 for (const q of nq) {
   const raw: any = content.quests.find(x => x.id === q.id);
   const aid = q.complete.match?.areaId as string | undefined; const area = content.areas.find(a => a.id === aid);
-  if (q.complete.on === 'wave:clear' && area) {
-    ok(q.complete.count === area.waves.length, `quest ${q.id}: needs ${q.complete.count} wave clears but ${aid} has ${area.waves.length} waves`);
-    if ((raw?.complete?.count ?? 1) !== area.waves.length) notes.push(`content: quest ${q.id} complete.count ${raw?.complete?.count ?? 1} != ${area.waves.length} waves in ${aid} (engine uses ${q.complete.count}; see docs/core-requests/quest.md)`);
-  }
-  if (/every wave/i.test(q.desc) && !(q.complete.on === 'area:clear' || (q.complete.on === 'wave:clear' && area))) problems.push(`quest ${q.id}: says "every wave" but does not count an area's waves`);
+  if (q.complete.on === 'wave:clear' && area) ok(q.complete.count <= area.waves.length, `quest ${q.id}: needs ${q.complete.count} wave clears but ${aid} has ${area.waves.length} waves`);
+  if (raw?.complete?.on === 'wave:clear' && q.complete.on === 'area:clear') notes.push(`content: quest ${q.id} counts ${raw.complete.count ?? 1} wave clears; the engine completes it on area:clear ${aid} (boss stage included). Please change content (docs/core-requests/quest.md)`);
+  if (/every wave/i.test(q.desc) && q.complete.on !== 'area:clear') problems.push(`quest ${q.id}: says "every wave" but does not finish on clearing the sector (the HUD counts the boss stage too)`);
   if (q.complete.on === 'area:enter' && area) {
     const gated = content.areas.some(a => a.exits.some(e => e.to === aid && e.when));
     if (gated) {
@@ -128,7 +126,10 @@ const good = { id: 'probe', name: 'Probe', desc: 'probe', start: { on: 'probe:go
   if (g) {
     const Q = g.mods.quest;
     ok(Q.quests().length === 1, `malformed quests: expected 1 valid quest, got ${Q.quests().length}`);
-    const qerr = g.errors.filter((e: any) => e.module === 'quest');
+    // content problems go to the quiet channel (contentIssues), never to g.errors (= the crash toast)
+    ok(!g.errors.some((e: any) => e.module === 'quest'), 'malformed quests reported through g.errors (shows the crash toast)');
+    ok(!g.mods.ui.toasts.some((t: any) => /KNOCKED OVER/i.test(t.text)), 'malformed quests raised the crash toast');
+    const qerr = g.contentIssues.filter((e: any) => /^\[quest\]/.test(e.msg)).map((e: any) => ({ message: e.msg }));
     ok(qerr.length >= 5, `malformed quests: expected each bad entry reported, got ${qerr.length}`);
     // loader drops the non-objects itself; the rest must be reported by us
     for (const id of ['no_triggers', 'bad_count', 'bad_cond', 'bad_reward', 'bad_match']) ok(qerr.some((e: any) => e.message.includes(id)), `malformed quest ${id} not reported`);
@@ -163,6 +164,10 @@ const good = { id: 'probe', name: 'Probe', desc: 'probe', start: { on: 'probe:go
   let fired = 0; Q.dialogue('does-not-exist', () => fired++);
   ok(Q.dlg && /squirrel/i.test(Q.dlg.node.text), 'missing dialogue: no fallback line');
   Q.skipAll(); ok(fired === 1 && g.state.scene === 'play', 'missing dialogue: done not called or scene not restored');
+  Q.start('nope_quest_zz');
+  ok(!g.errors.length, 'missing dialogue / unknown quest reported through g.errors (crash toast): ' + g.errors.map((e: any) => e.message).join('; '));
+  ok(!g.mods.ui.toasts.some((t: any) => /KNOCKED OVER/i.test(t.text)), 'missing dialogue / unknown quest showed the crash toast');
+  ok(g.contentIssues.some((e: any) => /does-not-exist/.test(e.msg)) && g.contentIssues.some((e: any) => /nope_quest_zz/.test(e.msg)), 'content misses not reported in contentIssues');
   // dangling next: shows the line, then fallback, then closes
   Q.dialogue('dangling'); ok(Q.dlg?.node.id === 'dangling', 'dangling: first node not shown');
   Q.skipAll(); ok(!Q.dlg && g.state.scene === 'play', 'dangling: conversation did not close');
@@ -177,9 +182,17 @@ const good = { id: 'probe', name: 'Probe', desc: 'probe', start: { on: 'probe:go
   g.autopilot = false;
   for (let i = 0; i < 30; i++) g.step();
   const c30 = Q.dlg.chars; ok(c30 > 5 && c30 < Q.dlg.node.text.length, `typewriter not progressive (chars ${c30})`);
+  {
+    // one press finishes the page at once (holding is the x4 fast-forward); the press is not a page turn
+    const page0 = Q.dlg.page, node0 = Q.dlg.node.id;
+    g.input.synthetic.add('confirm'); g.step(); g.input.synthetic.clear(); g.step();
+    ok(Q.dlg && Q.dlg.chars >= Q.dlg.node.text.length && Q.dlg.page === page0 && Q.dlg.node.id === node0, 'a press did not finish the page instantly');
+    Q.dialogue('intro-backyard-1'); for (let i = 0; i < 30; i++) g.step();
+  }
+  const c30b = Q.dlg.chars;
   g.mods.ui.openPause(); ok(g.paused && !Q.dlg, 'pause did not park the conversation');
   for (let i = 0; i < 60; i++) g.step();
-  g.mods.ui.closeMenus(false); ok(Q.dlg && Q.dlg.chars === c30, 'conversation not resumed intact after pause');
+  g.mods.ui.closeMenus(false); ok(Q.dlg && Q.dlg.chars === c30b, 'conversation not resumed intact after pause');
   // nested: an outro with a callback is never dropped by a later request
   Q.skipAll(); let outro = 0;
   Q.dialogue('loop-1', () => outro++); Q.dialogue('intro-backyard-1');
@@ -252,6 +265,22 @@ for (const d of content.dialogue) for (const p of paginate(d.text)) ok(revealLin
     const a = Q4.stage(id, 30); ok(a && a.chars > 3 && a.chars < a.node.text.length, 'stage(at=30) does not show typing in progress');
     const full = Q4.stage(id); ok(full && full.chars >= full.node.text.length, 'stage() without at is not fully typed');
     const late = Q4.stage(id, 400); ok(late && (late.page > 0 || late.nodes > 1), 'stage(at=400) did not reach a second page or node');
+    const tags = Q4.showSheet(); ok(tags.length >= 5, `dialogue review sheet has ${tags.length} states`);
+    ok(!Q4.dlg && !g4.errors.length, 'review sheet left the engine busy or raised errors');
+    Q4.showSheet(false);
+  }
+  // sector quests measure progress in the HUD's own stages (waves + boss), and finish on clearing the sector
+  {
+    const g5: any = createGame({ headless: true }); g5.autopilot = true; const Q5 = g5.mods.quest;
+    for (const q of Q5.quests()) {
+      const sg = Q5.stages(q); if (!sg) continue;
+      const a = content.areas.find(x => x.id === sg.areaId)!;
+      g5.mods.world.enterArea(a.id, 0); Q5.skipAll(); Q5.start(q.id);
+      const tot = a.waves.length + (a.boss ? 1 : 0);
+      ok(Q5.progress(q).need === tot && Q5.progress(q).have === 0, `quest ${q.id}: progress ${JSON.stringify(Q5.progress(q))} does not match the HUD's ${tot} stages`);
+      g5.state.waveIndex = 3; ok(Q5.progress(q).have === 3, `quest ${q.id}: progress does not follow cleared stages`);
+    }
+    for (const q of Q5.quests()) if (/every wave/i.test(q.desc)) ok(q.complete.on === 'area:clear', `quest ${q.id}: "every wave" does not finish on area:clear`);
   }
 }
 

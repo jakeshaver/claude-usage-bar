@@ -3,6 +3,7 @@ import { evalCond } from '../core/conditions';
 import type { QuestDef, Scene } from '../core/types';
 import { normalizeQuests, matchPayload, deriveQuest, type NQuest } from './validate';
 import { DialogueEngine, revealLines, DLG_COLS, DLG_ROWS, type DlgState } from './dialogue';
+import { buildSheet, drawSheet, type SheetSlot } from './sheet';
 
 /** Events the engine never reacts to (they would only feed back into itself or carry no game meaning). */
 const IGNORED = new Set(['error', 'state:set']);
@@ -44,7 +45,7 @@ class Quest implements Module {
 
   init(g: Game) {
     this.g = g;
-    this.dlgEngine = new DialogueEngine(g);
+    this.dlgEngine = new DialogueEngine(g, (file, msg) => this.issue(file, msg));
     this.quests();
     g.bus.on('*', (p: any) => this.onEvent(p.evt, p));
     g.bus.on('scene:change', (p: any) => { this.dlgEngine.onSceneChange(p.from, p.to); this.flushDeferred(); });
@@ -58,9 +59,24 @@ class Quest implements Module {
     if (src !== this.listSrc) {
       this.listSrc = src;
       const areas = Array.isArray(this.g.content.areas) ? this.g.content.areas : [];
-      this.list = normalizeQuests(src, msg => this.g.reportError('quest', msg)).map(q => deriveQuest(q, areas as any));
+      this.list = normalizeQuests(src, msg => this.issue('quests', msg)).map(q => deriveQuest(q, areas as any));
     }
     return this.list;
+  }
+
+  /**
+   * Quiet channel for content problems (malformed quest entry, missing dialogue id, unknown quest id): they go to
+   * `g.contentIssues` (dev tools / screenshot JSON), never to `g.errors`, whose entries become the player-facing
+   * crash toast. Real exceptions caught by the engine still go through `g.reportError`. Each message is kept once.
+   */
+  issue(file: string, msg: string) {
+    const g = this.g; if (!g) return;
+    const list: { file: string; msg: string }[] = Array.isArray(g.contentIssues) ? g.contentIssues : (g.contentIssues = []);
+    const m = `[quest] ${msg}`;
+    if (list.some(i => i.file === file && i.msg === m)) return;
+    list.push({ file, msg: m });
+    if (list.length > 400) list.shift();
+    if (!g.headless && typeof console !== 'undefined') console.warn(m);
   }
 
   // ---------------- dialogue (ui reads `dlg`; ui's pause menu parks it by setting dlg = null and back) ----------------
@@ -80,6 +96,12 @@ class Quest implements Module {
     this.dlgEngine.update(g);
     if (!g.paused) { this.flushDeferred(); this.flushToasts(); }
   }
+
+  /** Dialogue review sheet (showcase): several engine states drawn at once with ui's own comm panel. */
+  private sheet: SheetSlot[] | null = null;
+  /** Showcase: show the review sheet (voices, typing, punctuation beat, paging, fallback). Off with `false`. */
+  showSheet(on = true) { this.sheet = on ? buildSheet(this.g, this.dlgEngine) : null; return this.sheet?.map(s => s.tag) ?? []; }
+  overlay(g: Game, ctx: CanvasRenderingContext2D) { if (this.sheet) drawSheet(g, ctx, this.sheet, this.dlgEngine); }
 
   /** Open `id` and play `at` ticks of typewriter (showcase stills: typing, punctuation pauses, later pages). */
   stage(id: string, at?: number) { return this.dlgEngine.stage(id, at); }
@@ -113,7 +135,7 @@ class Quest implements Module {
   private matches(t: NQuest['start'], evt: string, p: any) {
     if (t.on !== evt) return false;
     if (!matchPayload(t.match, p)) return false;
-    try { return evalCond(t.when, this.g.state); } catch (e) { this.g.reportError('quest', e); return false; }
+    try { return evalCond(t.when, this.g.state); } catch (e) { this.issue('quests', `bad condition: ${e instanceof Error ? e.message : e}`); return false; }
   }
 
   onEvent(evt: string, p: any) {
@@ -124,7 +146,7 @@ class Quest implements Module {
     try {
       let guard = 0;
       while (this.q.length) {
-        if (++guard > 500) { this.g.reportError('quest', `event storm (${this.q[0].evt}); dropped ${this.q.length} events`); this.q.length = 0; break; }
+        if (++guard > 500) { this.issue('quests', `event storm (${this.q[0].evt}); dropped ${this.q.length} events`); this.q.length = 0; break; }
         const e = this.q.shift()!;
         this.process(e.evt, e.p);
       }
@@ -185,11 +207,35 @@ class Quest implements Module {
     if (have % step === 0) { this.touched[q.id] = this.g.tick; this.say(`${q.name.toUpperCase()} ${fmt(have)}/${fmt(need)}`); }
   }
 
+  /**
+   * A one-shot quest bound to a whole sector ("clear X", "beat X's boss") measures progress in the sector's
+   * stages, counted exactly like the HUD's WAVE n/N (waves plus the boss stage). Null for other quests.
+   */
+  stages(nq: NQuest | undefined): { areaId: string; total: number } | null {
+    if (!nq || nq.complete.count !== 1 || nq.track) return null;
+    const areas = Array.isArray(this.g.content.areas) ? this.g.content.areas : [];
+    const m = nq.complete.match ?? {};
+    let a = null as (typeof areas)[number] | null | undefined;
+    if (nq.complete.on === 'area:clear' && typeof m.areaId === 'string') a = areas.find(x => x?.id === m.areaId);
+    else if (nq.complete.on === 'boss:defeat' && typeof m.bossId === 'string') a = areas.find(x => x?.boss === m.bossId);
+    const n = Array.isArray(a?.waves) ? a!.waves.length : 0;
+    if (!a || !n) return null;
+    return { areaId: a.id, total: n + (a.boss ? 1 : 0) };
+  }
+
   /** {have, need} for a quest (ui HUD and journal). Done quests report full progress. */
   progress(q: Pick<QuestDef, 'id'> & { complete?: { count?: number } }) {
     const id = q?.id ?? '';
     const nq = this.quests().find(x => x.id === id);
     if (nq?.track && this.st(id) !== 'done') { const need = nq.track.memories; return { have: Math.min(need, this.g.state.memories.length), need }; }
+    const sg = this.stages(nq);
+    if (sg) {
+      const s = this.g.state; const need = sg.total;
+      if (this.st(id) === 'done') return { have: need, need };
+      // stages behind Pom in this sector; the last one only counts when the quest itself completes
+      const have = s.areaId === sg.areaId ? Math.max(0, Math.min(need - 1, Math.floor(Number(s.waveIndex) || 0))) : 0;
+      return { have, need };
+    }
     const need = Math.max(1, Math.floor(nq?.complete.count ?? q?.complete?.count ?? 1));
     const have = this.st(id) === 'done' ? need : Math.min(this.g.state.inventory[PKEY(id)] ?? 0, need);
     return { have, need };
@@ -270,7 +316,7 @@ class Quest implements Module {
   /** Force-start a quest by id (debug / scripted). Unknown ids are reported, never thrown. */
   start(id: string) {
     const q = this.quests().find(x => x.id === id);
-    if (!q) { this.g.reportError('quest', `start: unknown quest "${id}"`); return; }
+    if (!q) { this.issue('quests', `start: unknown quest "${id}"`); return; }
     if (this.st(id) === 'locked') this.begin(q);
   }
   available() { return this.quests().filter(q => this.st(q.id) !== 'locked'); }

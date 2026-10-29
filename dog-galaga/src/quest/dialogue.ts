@@ -90,18 +90,6 @@ export function revealLines(text: string, chars: number, cols = DLG_COLS, rows =
   return out;
 }
 
-/**
- * Tool compatibility: `tools/screenshot.mjs --skipDialogue` loads `?area=x` WITHOUT `advance` and then closes the
- * briefing by looping `quest.advance()` while `quest.dlg` is set. A briefing still waiting on the title card has
- * no `dlg` yet, so such a boot-time deep link opens it right away (as before) to stay skippable. Remove once the
- * tool calls `quest.skipAll()` (docs/core-requests/quest.md, round 2).
- */
-function toolSkipLink(g: Game): boolean {
-  if (g.tick !== 0 || typeof location === 'undefined') return false;
-  const q = String(location.search ?? '');
-  return /[?&]area=/.test(q) && !/[?&]advance=/.test(q);
-}
-
 export class DialogueEngine {
   dlg: DlgState | null = null;
   /**
@@ -113,7 +101,8 @@ export class DialogueEngine {
   releasing: { d: DlgState; t: number } | null = null;
   private pending: { id: string; done?: () => void }[] = [];
   private closing = false;
-  constructor(private g: Game) {}
+  /** `issue` reports content problems quietly (no crash toast); see Quest.issue. */
+  constructor(private g: Game, private issue: (file: string, msg: string) => void = (_f, m) => g.reportError('quest', m)) {}
 
   /** Sanitize a content node so ui can always draw it. */
   private clean(n: any): DialogueDef {
@@ -128,7 +117,7 @@ export class DialogueEngine {
     while (id && guard++ < MAX_NODES) {
       const n = this.g.content.dialogue.find(d => d && d.id === id);
       if (!n) {
-        this.g.reportError('quest', `missing dialogue "${id}"`);
+        this.issue('dialogue', `missing dialogue "${id}"`);
         return fallback ? { ...FALLBACK_NODE, id: 'missing:' + id } : null;
       }
       let ok = true;
@@ -150,7 +139,7 @@ export class DialogueEngine {
    * A conversation parked by the pause menu always queues.
    */
   open(nodeId: string, done?: () => void, queue = false) {
-    if (typeof nodeId !== 'string' || !nodeId) { this.g.reportError('quest', `bad dialogue id ${JSON.stringify(nodeId)}`); this.safeDone(done); return; }
+    if (typeof nodeId !== 'string' || !nodeId) { this.issue('dialogue', `bad dialogue id ${JSON.stringify(nodeId)}`); this.safeDone(done); return; }
     if (this.busy()) {
       const cur = this.dlg ?? this.staged;
       if (queue || !cur || cur.done || this.releasing) { this.pending.push({ id: nodeId, done }); return; }
@@ -162,7 +151,7 @@ export class DialogueEngine {
     const sc = this.g.state.scene;
     const prev: Scene = sc === 'dialogue' ? 'play' : sc;
     // one thing to read at a time: a briefing waits for the sector title card (the bot never waits)
-    if (!this.g.autopilot && sc === 'play' && this.card() > CARD_GATE && !toolSkipLink(this.g)) {
+    if (!this.g.autopilot && sc === 'play' && this.card() > CARD_GATE) {
       this.staged = { node, prev, done, t: 0 };
       this.g.setScene('dialogue');
       return;
@@ -291,8 +280,10 @@ export class DialogueEngine {
    * confirm ~45 ticks after it finishes, so stills can show typing in progress, a punctuation pause, a second page.
    * `at` undefined shows the first page fully typed.
    */
-  stage(id: string, at?: number) {
-    this.reset(); this.open(id);
+  stage(id: string | DialogueDef, at?: number) {
+    this.reset();
+    if (typeof id === 'string') this.open(id);
+    else { const sc = this.g.state.scene; this.show(this.clean(id), sc === 'dialogue' ? 'play' : sc); }
     if (this.staged) this.unstage();
     const d0 = this.dlg; if (!d0) return null;
     if (at === undefined || !Number.isFinite(at)) { d0.chars = d0.node.text.length; return d0; }

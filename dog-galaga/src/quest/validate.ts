@@ -123,8 +123,9 @@ function memGate(c: any, depth = 0): number {
 
 /**
  * Keep quest content honest against the sector graph (quests.json and areas.json are edited separately):
- * - "clear every wave in X" (wave:clear matching an areaId) needs exactly as many clears as X has waves;
- *   a stale count is replaced by the real wave total (and noted in `derived`).
+ * - "clear every wave in X" (wave:clear matching an areaId, "every"/"all" in the text or a count above half
+ *   of X's waves) becomes `area:clear` of X, so the boss stage the HUD counts is included; a smaller count
+ *   is capped at X's wave total (both noted in `derived`).
  * - "reach X" (area:enter matching an areaId) where X sits behind a gated exit: the gate's memory threshold
  *   becomes visible progress (`track`), and entering any sibling exit of the gate closes the quest as missed.
  * Explicit `track` / `expire` in content always win.
@@ -135,7 +136,12 @@ export function deriveQuest(q: NQuest, areas: { id: string; waves?: unknown[]; e
   if (typeof aid !== 'string') return out;
   if (out.complete.on === 'wave:clear') {
     const a = areas.find(x => x?.id === aid); const n = Array.isArray(a?.waves) ? a!.waves!.length : 0;
-    if (n > 0 && out.complete.count !== n) { out.derived.push(`count ${out.complete.count} -> ${n} (waves in ${aid})`); out.complete.count = n; }
+    // "clear every wave in X": the HUD counts X's boss stage as a wave too, so the only honest finish line is
+    // clearing the whole sector. Anything that asks for most of the sector's waves means the same thing.
+    if (n > 0 && (/\b(every|all)\b/i.test(`${q.desc} ${q.name}`) || out.complete.count * 2 > n)) {
+      out.derived.push(`wave:clear x${out.complete.count} -> area:clear (whole sector ${aid}, boss stage included)`);
+      out.complete = { ...out.complete, on: 'area:clear', match: { areaId: aid }, count: 1 };
+    } else if (n > 0 && out.complete.count > n) { out.derived.push(`count ${out.complete.count} -> ${n} (waves in ${aid})`); out.complete.count = n; }
   }
   if (out.complete.on === 'area:enter') {
     for (const src of areas) {
