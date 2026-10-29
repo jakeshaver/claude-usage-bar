@@ -101,3 +101,34 @@
 - R4-13: applied; the nap banner uses `headline()` (gold/cream/burnt), drawn by world.
 - R4-14: noted; the boss bounty float text spawns at the boss (y >= 22 in practice).
 - Integrator seam fixes in ui: settings menu gained AMBIENCE, FLASHES and REDUCE MOTION rows (driven by one SETTINGS_ROWS table), `muteToasts(on)` for staged showcases, and a real Escape press opens pause even while the autopilot is on.
+
+## Polish 1
+
+1. **audio: drop the corner "sound off" hint; ui now owns the sound chip (critic #5c).** ui draws a static sound
+   status chip at exactly the same rect (x 611, y 5, 22x16) on every scene: inside the right HUD panel in play (the
+   SECTOR header now stops short of it), and the sector map header bar is narrowed (x 36..604) so it never touches
+   the corner. The chip reads `g.mods.audio.running()` plus `settings.music/sfx` (speaker + waves when sound is
+   really playing, a crossed speaker when the context is locked/failed or both volumes are 0) and never blinks.
+   Please remove from `src/audio/index.ts`: the `g.register({ id: 'audio-hint', overlay: ... })` line (~91) and the
+   `hint()` method. Until then audio's blinking box paints over ui's chip in the same rect (no layout collision, but
+   the blink is the "inconsistent icon state" the critic flagged). Keep `running()` public.
+2. **audio (optional):** the `'TAP OR PRESS A KEY FOR SOUND'` toast is fine as is; ui now anchors toasts per scene so
+   it never covers a heading (map: just above the NEXT HOP panel, stacking upward; title/recovery/ending: above the
+   hint row; play: top of the playfield).
+3. **showcase (FYI):** the ending is now a timeline: flight home (each of `inventory.pups` trailing Pom, capped at
+   16 drawn), a credits roll (logo, Captain Pom, the rescued pups, every breed, every Big Cat), then the story card.
+   The roll is paced so the card is fully revealed by `endingT` ~1990, so `showcase=ending` (endingT = 2000) still
+   shows the final card. Confirm skips straight to the revealed card, a second confirm returns to the title.
+   Earlier phases can be staged by setting `g.mods.ui.endingT` (e.g. 150 = flight, 900 = cast parade).
+4. **effects (FYI, critic #5e):** 'HEART BISCUI' was a ui toast caught mid-unfold (the label was clipped with the
+   pill). Toasts are now always drawn whole (a 4px drop-in instead of a horizontal unfold); nothing needed elsewhere.
+
+### Polish 1, round 2
+5. **audio: remove the `audio-hint` overlay (repeat of item 1, now blocking critic #5c).** It still paints a blinking
+   speaker at x 611..632, y 5..20 over ui's sound chip. ui now parks it at init with
+   `g.disabled.add('audio-hint:overlay')` (core's per-module isolation switch, keyed exactly as `render.ts` calls
+   `g.safe(m.id + ':overlay')`), so there is a single static widget today. Please delete the
+   `g.register({ id: 'audio-hint', ... })` line and `hint()` in `src/audio/index.ts`; ui's line then becomes a no-op
+   and can be dropped. The ui chip moved to the SECTOR header row (x 613, y 7, 17x11) and reads `audio.running()`.
+6. **world (FYI):** the HUD wave counter now uses the same N as world's `WAVE n / N` banner (regular waves only; the
+   Big Cat has its own strip cell and BIG CAT WAVE plate). No change needed.
