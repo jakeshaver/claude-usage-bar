@@ -357,6 +357,57 @@ for (const d of content.dialogue) for (const p of paginate(d.text)) ok(revealLin
     // a deep link to the moon closes secret_route quietly (no MISSED toast on a tool / showcase jump)
     const g7m: any = createGame({ headless: true }); g7m.mods.world.enterArea('moon', 0);
     ok(g7m.state.quests.secret_route === 'missed' && !g7m.mods.quest.heldToasts().some((t: string) => /MISSED/.test(t)), 'deep link to moon: secret_route not closed quietly');
+    // run-end closures read softer than route forfeits (journal / HUD presentation)
+    ok(Q5.look(open0[1] ?? open0[0]).tone === (open0[1] ? 'expired' : 'done'), `run-end closure tone is ${Q5.look(open0[1] ?? '').tone}, not expired`);
+    ok(g7m.mods.quest.look('secret_route').tone === 'missed' && g7m.mods.quest.look('secret_route').tag === 'MISSED: NEXT FLIGHT', 'route forfeit does not read MISSED: NEXT FLIGHT');
+    if (open0[1]) ok(Q5.goal({ id: open0[1] }) === 'NOT THIS FLIGHT', `goal() of a run-end closure is ${Q5.goal({ id: open0[1] })}`);
+    // deep links past the branch: the station seeds secret_route closed (moon route) and the bonanza quest started
+    const g7s: any = createGame({ headless: true }); g7s.autopilot = false; g7s.mods.world.enterArea('station', 0);
+    const rs = g7s.mods.quest.routeTo('station');
+    const wantS = rs.includes('nebula') ? 'done' : 'missed';
+    ok(g7s.state.quests.secret_route === wantS, `deep link to station (${rs.join('>')}): secret_route is ${g7s.state.quests.secret_route}, not ${wantS}`);
+    if (content.quests.some(q => q.id === 'bonanza_star')) ok(g7s.state.quests.bonanza_star === 'active', `deep link to station: bonanza_star is ${g7s.state.quests.bonanza_star}, not active`);
+    // a deep link to the nebula finishes the route quietly
+    const g7n: any = createGame({ headless: true }); g7n.autopilot = false; g7n.mods.world.enterArea('nebula', 0);
+    ok(g7n.state.quests.secret_route === 'done', `deep link to nebula: secret_route is ${g7n.state.quests.secret_route}, not done`);
+    // the browser autopilot (screenshot deep links) seeds too; the headless bot does not
+    const g7a: any = createGame({ headless: true }); g7a.autopilot = true; g7a.mods.world.enterArea('sky', 0);
+    ok(!g7a.state.quests.big_cats, 'headless autopilot deep link was seeded (bot / tests expect a clean log)');
+  }
+  // the sector map telegraphs a route choice that closes a quest, and starts the cursor on the finishing hop
+  if (ids.includes('secret_route')) {
+    const gm: any = createGame({ headless: true }); gm.autopilot = false; const Qm = gm.mods.quest;
+    gm.mods.world.enterArea('sky', 0); Qm.skipAll();
+    for (const m of content.memories.slice(0, 6)) gm.ops.addMemory(m.id);
+    const ex = gm.mods.world.exitsFrom('sky'); const neb = ex.findIndex((e: any) => e.to === 'nebula');
+    ok(neb >= 0, 'memory gate did not open the nebula exit');
+    ok(Qm.completes('nebula').some((q: any) => q.id === 'secret_route') && Qm.forfeits('moon').some((q: any) => q.id === 'secret_route'), 'completes()/forfeits() do not name secret_route');
+    ok(Qm.routeNote('nebula')?.good === true && Qm.routeNote('moon')?.good === false && /CLOSES/.test(Qm.routeNote('moon')?.text ?? ''), `routeNote: ${JSON.stringify([Qm.routeNote('nebula'), Qm.routeNote('moon')])}`);
+    ok(Qm.preferredExit(ex) === neb, `preferredExit = ${Qm.preferredExit(ex)}, not the nebula hop ${neb}`);
+    const seen: string[] = []; const t0 = gm.mods.ui.toast.bind(gm.mods.ui); gm.mods.ui.toast = (x: string) => { seen.push(x); t0(x); };
+    gm.state.areasCleared.push('sky'); gm.setScene('map');
+    const heads = [...seen, ...Qm.heldToasts()].join(' | ');
+    ok(Qm.heldToasts().filter((t: string) => /ROUTE OPEN!$/.test(t) && !/NEBULA|SECRET/.test(t)).length <= 1, `ROUTE OPEN toast repeated per memory: ${Qm.heldToasts().join(' | ')}`);
+    ok(/HOP FINISHES/.test(heads) && /HOP CLOSES/.test(heads), `map arrival does not telegraph the route choice: ${heads}`);
+    gm.step(); gm.step();
+    ok(gm.mods.ui.mapSel === neb, `map cursor starts on ${gm.mods.ui.mapSel}, not the nebula hop`);
+    // gate shut: say how far the route is instead
+    const gc: any = createGame({ headless: true }); gc.autopilot = false; gc.mods.world.enterArea('sky', 0); gc.mods.quest.skipAll();
+    const seenC: string[] = []; const tc = gc.mods.ui.toast.bind(gc.mods.ui); gc.mods.ui.toast = (x: string) => { seenC.push(x); tc(x); };
+    gc.state.areasCleared.push('sky'); gc.setScene('map');
+    const allC = [...seenC, ...gc.mods.quest.heldToasts()];
+    ok(allC.some((t: string) => /SEALED, \d/.test(t)), `sealed route not announced on the map: ${allC.join(' | ')}`);
+    // a forfeit toast is read before a NEW QUEST toast that arrives with it
+    const gt: any = createGame({ headless: true }); gt.autopilot = false; gt.mods.world.enterArea('sky', 0); gt.mods.quest.skipAll();
+    gt.mods.world.enterArea('moon', 0);
+    const order = gt.mods.quest.heldToasts(); const im = order.findIndex((t: string) => /MISSED/.test(t)), iq = order.findIndex((t: string) => /NEW QUEST/.test(t));
+    if (im >= 0 && iq >= 0) ok(im < iq, `moon arrival: MISSED toast queued behind NEW QUEST (${order.join(' | ')})`);
+  }
+  // one flight can reach at most this many quests (branch quests on the other side stay sealed)
+  {
+    const gf: any = createGame({ headless: true }); const fm = gf.mods.quest.flightMax();
+    ok(fm > 0 && fm <= content.quests.length, `flightMax() = ${fm}`);
+    log.push(`  flightMax: ${fm}/${content.quests.length} quests reachable in one flight`);
   }
   // voices and rhythm
   ok(voiceFor({ speaker: 'Commander Biscuit' }).voice === 'gruff' && voiceFor({ speaker: 'Captain Pom' }).voice === 'bright' && voiceFor({ speaker: 'Empress Fluffington' }).voice === 'regal', 'speaker voices not distinct');

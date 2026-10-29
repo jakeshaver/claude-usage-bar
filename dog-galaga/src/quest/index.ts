@@ -11,6 +11,8 @@ const IGNORED = new Set(['error', 'state:set']);
 const PKEY = (id: string) => '_q_' + id;
 /** Legacy marker (saves before polish 1): an 'active' quest closed as missed. Migrated to state 'missed' on load. */
 const XKEY = (id: string) => '_qx_' + id;
+/** Marks a quest the run-end sweep closed (its window simply ran out), as opposed to a route forfeit. */
+const EKEY = (id: string) => '_qe_' + id;
 /**
  * Quest states the engine writes. 'missed' is a closed, terminal state like 'done' (its window passed: the other
  * branch was taken, or the run ended first). It is stored in `state.quests`, so the journal and save see it.
@@ -22,6 +24,23 @@ const MISSED = 'missed' as unknown as QuestState;
 const RUN_END = 'ending';
 /** Min ticks between quest toasts, so they arrive one at a time instead of stacking. */
 const TOAST_GAP = 36;
+/** Ticks the next toast waits after a news-bearing one (a quest closing, a route choice), so it reads alone. */
+const TOAST_ALONE = 150;
+/**
+ * How a quest reads to the player (journal row, detail card, HUD). `tone` picks the palette: 'missed' is a route
+ * the player passed by (indigo / peri, MISSED), 'expired' is a quest the run ended before (softer NEXT TIME).
+ */
+export interface QuestLook {
+  state: QState; tone: 'locked' | 'active' | 'done' | 'missed' | 'expired';
+  /** short pill for the journal row in place of the n/n counter ('' = show the counter) */
+  pill: string;
+  /** detail card tag */
+  tag: string;
+  /** one line under the description on the detail card ('' = none) */
+  note: string;
+  /** reward line drawn dim (done or closed: nothing left to earn this flight) */
+  dimReward: boolean;
+}
 const fmt = (n: number) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
 /**
@@ -43,7 +62,10 @@ class Quest implements Module {
   /** quest dialogues waiting for a scene that can host them (not bonus/title/ending) */
   private deferred: string[] = [];
   /** quest toasts held until nothing else is being read (no dialogue, no sector title card) */
-  private toastQ: { t: string; reveal?: string }[] = [];
+  private toastQ: { t: string; reveal?: string; alone?: boolean }[] = [];
+  private toastGap = TOAST_GAP;
+  /** the sector map just opened: put the cursor on the exit that finishes a quest (once per visit) */
+  private mapFresh = false;
   /** quests started whose NEW QUEST toast has not been shown yet: the HUD keeps them hidden until it lands */
   private unrevealed = new Set<string>();
   private toastT = 0;
@@ -59,7 +81,10 @@ class Quest implements Module {
     this.dlgEngine = new DialogueEngine(g, (file, msg) => this.issue(file, msg));
     this.quests();
     g.bus.on('*', (p: any) => this.onEvent(p.evt, p));
-    g.bus.on('scene:change', (p: any) => { this.dlgEngine.onSceneChange(p.from, p.to); this.flushDeferred(); });
+    g.bus.on('scene:change', (p: any) => {
+      this.dlgEngine.onSceneChange(p.from, p.to); this.flushDeferred();
+      if (p.to === 'map') { this.mapFresh = true; try { this.routeHeadsUp(); } catch (e) { g.reportError('quest', e); } }
+    });
     g.bus.on('game:new', () => { this.dlgEngine.reset(); this.deferred = []; this.toastQ = []; this.unrevealed.clear(); this.touched = {}; this.check(); });
     // deep links (tools, showcases, tests) land mid-route: start the quests the skipped sectors would have started
     g.bus.on('area:enter', (p: any) => { try { if (this.isDeepLink(p?.areaId)) this.seedRoute(p.areaId); } catch (e) { g.reportError('quest', e); } });
@@ -139,6 +164,7 @@ class Quest implements Module {
 
   update(g: Game) {
     this.dlgEngine.update(g);
+    if (this.mapFresh && g.state.scene === 'map') { this.mapFresh = false; this.aimMapCursor(); }
     if (!g.paused) { this.flushDeferred(); this.flushToasts(); }
   }
 
@@ -162,6 +188,12 @@ class Quest implements Module {
 
   // ---------------- toasts (one thing to read at a time) ----------------
   private say(t: string, reveal?: string) { this.toastQ.push({ t, reveal }); this.flushToasts(); }
+  /** News that must not be buried (a quest closing, a route choice): jumps the queue and is read alone. */
+  private sayAlone(t: string) {
+    const i = this.toastQ.findIndex(x => !x.alone); const e = { t, alone: true };
+    if (i < 0) this.toastQ.push(e); else this.toastQ.splice(i, 0, e);
+    this.flushToasts();
+  }
   /** Release held quest toasts one by one once no conversation or sector title card is on screen. */
   private flushToasts() {
     if (!this.toastQ.length || this.g.paused) return;
@@ -169,9 +201,10 @@ class Quest implements Module {
     if (sc !== 'play' && sc !== 'bonus' && sc !== 'map') return;
     if (this.dlgEngine.busy()) return;
     if (sc === 'play' && Number(g.mods.world?.titleCard ?? 0) > 0) return;
-    if (g.tick - this.toastT < TOAST_GAP && !g.headless) return;
+    if (g.tick - this.toastT < this.toastGap && !g.headless) return;
     this.toastT = g.tick;
     const t = this.toastQ.shift()!; g.mods.ui?.toast(t.t);
+    this.toastGap = t.alone ? TOAST_ALONE : TOAST_GAP;
     if (t.reveal) { this.unrevealed.delete(t.reveal); this.touched[t.reveal] = g.tick + 0.5; }
   }
   /** Quest toasts not shown yet (tests). */
@@ -211,7 +244,7 @@ class Quest implements Module {
         if (this.st(q.id) === 'active' && this.matches(q.complete, evt, p)) this.bump(q);
         else if (this.st(q.id) === 'active') {
           if (q.track && evt === 'memory:get') this.trackStep(q);
-          if (evt === RUN_END) this.miss(q, true);
+          if (evt === RUN_END) this.miss(q, true, true);
           else if (q.expire.some(t => this.matches(t, evt, p))) this.miss(q);
         }
       } catch (e) { this.g.reportError('quest', e); }
@@ -231,7 +264,8 @@ class Quest implements Module {
     const { have, need } = this.progress(q);
     this.g.bus.emit('quest:progress', { questId: q.id, have, need });
     this.touched[q.id] = this.g.tick;
-    if (have === need) this.say(`${q.name.toUpperCase()}: ROUTE OPEN!`);
+    // the gate opens once (more memories after that are scrapbook news, not route news)
+    if (have === need && this.g.state.memories.length === need) this.say(`${q.name.toUpperCase()}: ROUTE OPEN!`);
     else if (have < need) this.say(`${q.name.toUpperCase()} ${have}/${need} MEMORIES`);
   }
 
@@ -240,13 +274,112 @@ class Quest implements Module {
    * gently as 'missed' (no reward, no penalty). Progress is kept so the journal can show how far Pom got.
    * `quiet` skips the toast (the run-end sweep happens behind the ending scene).
    */
-  private miss(q: NQuest, quiet = false) {
+  private miss(q: NQuest, quiet = false, runEnd = false) {
     const p = this.progress(q);
     delete this.g.state.inventory[XKEY(q.id)];
+    if (runEnd) this.g.state.inventory[EKEY(q.id)] = 1;
     this.unrevealed.delete(q.id);
     this.g.ops.setQuest(q.id, MISSED);
     this.g.bus.emit('quest:progress', { questId: q.id, ...p, missed: true });
-    if (!quiet) this.say(`${q.name.toUpperCase()}: MISSED. NEXT FLIGHT!`);
+    if (!quiet) this.sayAlone(`${q.name.toUpperCase()}: MISSED. NEXT FLIGHT!`);
+  }
+  /** Why a closed quest closed: 'route' (another branch was taken), 'run' (the flight ended first), or null. */
+  closedBy(id: string): 'route' | 'run' | null {
+    if (!this.missed(id)) return null;
+    return this.g.state.inventory[EKEY(id)] ? 'run' : 'route';
+  }
+  /**
+   * Presentation of a quest for the journal and HUD, so no module has to special-case states itself:
+   * locked / active / done, 'missed' (route forfeit: MISSED, NEXT FLIGHT) and 'expired' (the run ended first: a
+   * softer NOT THIS FLIGHT, since a cozy game should not end on a page of failures).
+   */
+  look(id: string): QuestLook {
+    const state = this.status(id);
+    if (state === 'done') return { state, tone: 'done', pill: 'DONE', tag: 'COMPLETE', note: '', dimReward: true };
+    if (state === 'active') return { state, tone: 'active', pill: '', tag: 'IN PROGRESS', note: '', dimReward: false };
+    if (state === 'missed') {
+      return this.closedBy(id) === 'run'
+        ? { state, tone: 'expired', pill: 'NEXT TIME', tag: 'NOT THIS FLIGHT', note: 'The flight ended first. It opens again on your next flight.', dimReward: true }
+        : { state, tone: 'missed', pill: 'MISSED', tag: 'MISSED: NEXT FLIGHT', note: 'Pom took the other route. Try it on your next flight.', dimReward: true };
+    }
+    return { state: 'locked', tone: 'locked', pill: '', tag: 'LOCKED', note: '', dimReward: false };
+  }
+
+  // ---------------- route choices (sector map) ----------------
+  /** Open quests that entering `areaId` would close as missed (the map card warns: 'CLOSES FOLLOW THE CATNIP'). */
+  forfeits(areaId: string): NQuest[] {
+    const e = { areaId, waveIndex: 0 };
+    return this.quests().filter(q => this.status(q.id) === 'active' && q.expire.some(t => t.on === 'area:enter' && matchPayload(t.match, e)));
+  }
+  /** Open quests that entering `areaId` would complete (the map card cheers: 'FINISHES FOLLOW THE CATNIP'). */
+  completes(areaId: string): NQuest[] {
+    const e = { areaId, waveIndex: 0 };
+    return this.quests().filter(q => this.status(q.id) === 'active' && q.complete.on === 'area:enter' && q.complete.count <= 1 && matchPayload(q.complete.match, e));
+  }
+  /**
+   * One line for the sector map's NEXT HOP card about what this hop means for the quest log, or null.
+   * `good` is true for a completion (draw it in lime / gold), false for a forfeit (peri / pink).
+   */
+  routeNote(areaId: string, max = 40): { text: string; good: boolean } | null {
+    const fit = (verb: string, q: NQuest) => { const s = `${verb} ${q.name.toUpperCase()}`; return s.length > max ? s.slice(0, max) : s; };
+    const c = this.completes(areaId)[0]; if (c) return { text: fit('FINISHES', c), good: true };
+    const f = this.forfeits(areaId)[0]; if (f) return { text: fit('CLOSES', f), good: false };
+    return null;
+  }
+  /** Index into `exits` the map cursor should start on: the hop that finishes a quest, else one that closes none. */
+  preferredExit(exits: { to: string }[]): number {
+    if (!Array.isArray(exits) || !exits.length) return 0;
+    const fin = exits.findIndex(e => this.completes(e?.to).length > 0); if (fin >= 0) return fin;
+    const safe = exits.findIndex(e => this.forfeits(e?.to).length === 0);
+    return safe >= 0 && this.exits().some(e => this.forfeits(e.to).length) ? safe : 0;
+  }
+  private exits(): { to: string }[] {
+    const W = this.g.mods.world; return W?.exitsFrom ? W.exitsFrom(this.g.state.areaId) : [];
+  }
+  /** On the sector map: start the cursor on the hop that finishes a quest (ui resets mapSel to 0 on scene change). */
+  private aimMapCursor() {
+    const ui = this.g.mods.ui; if (!ui || typeof ui.mapSel !== 'number') return;
+    const ex = this.exits(); if (ex.length < 2) return;
+    ui.mapSel = this.preferredExit(ex);
+  }
+  /**
+   * Arriving on the sector map in front of a hop that would close an open quest: say so before the choice, not
+   * after it. With the route open: 'NEBULA HOP FINISHES <QUEST>' then 'MOON HOP CLOSES <QUEST>'. Still sealed:
+   * how many memories it needs, so taking the only hop never comes as a surprise.
+   */
+  private routeHeadsUp() {
+    const ex = this.exits(); if (!ex.length) return;
+    // short sector names for a toast that fits: CATNIP NEBULA -> NEBULA, THE LITTER MOON -> MOON
+    const areaName = (id: string) => String(this.g.content.areas.find(a => a?.id === id)?.name ?? id).split(',')[0].trim().split(/\s+/).pop()!.toUpperCase();
+    for (const q of this.quests()) {
+      if (this.status(q.id) !== 'active') continue;
+      const lose = ex.filter(e => this.forfeits(e.to).includes(q)); if (!lose.length) continue;
+      const win = ex.find(e => this.completes(e.to).includes(q));
+      const name = q.name.toUpperCase();
+      if (win) { this.sayAlone(`${areaName(win.to)} HOP FINISHES ${name}`); this.sayAlone(`${areaName(lose[0].to)} HOP CLOSES ${name}`); }
+      else if (q.track) { const { have, need } = this.progress(q); this.sayAlone(`${name}: SEALED, ${have}/${need} MEMORIES`); }
+      else this.sayAlone(`${name}: THIS HOP CLOSES IT`);
+    }
+  }
+  /**
+   * Quests one flight can reach at most (branch quests on the other branches stay sealed for a replay): the
+   * journal header can read 'n/14 THIS FLIGHT' instead of a 17 nobody can reach in one run.
+   */
+  flightMax(): number {
+    const areas = Array.isArray(this.g.content.areas) ? this.g.content.areas : [];
+    const byId = new Map(areas.map(a => [a?.id, a]));
+    const qs = this.quests();
+    const tied = (q: NQuest) => (q.start.on === 'area:enter' && typeof q.start.match?.areaId === 'string') ? q.start.match.areaId as string : null;
+    const free = qs.filter(q => !tied(q) || !byId.has(tied(q)!)).length;
+    let best = 0; let guard = 0;
+    const walk = (id: string, seen: Set<string>) => {
+      if (++guard > 5000) return;
+      const a = byId.get(id); const exits = (Array.isArray(a?.exits) ? a!.exits : []).filter(e => e?.to && byId.has(e.to) && !seen.has(e.to));
+      if (!exits.length) { best = Math.max(best, qs.filter(q => { const t = tied(q); return t && seen.has(t); }).length); return; }
+      for (const e of exits) { seen.add(e.to); walk(e.to, seen); seen.delete(e.to); }
+    };
+    const start = this.g.content.start; if (byId.has(start)) walk(start, new Set([start]));
+    return Math.min(qs.length, free + best);
   }
   /** True when a quest was closed as missed (also reads the pre-polish marker on an 'active' quest). */
   missed(id: string) { const s = this.st(id); return s === 'missed' || (s === 'active' && !!this.g.state.inventory[XKEY(id)]); }
@@ -320,7 +453,7 @@ class Quest implements Module {
     const nq = this.quests().find(x => x.id === q?.id); if (!nq) return '';
     const st = this.status(nq.id);
     if (st === 'done') return 'COMPLETE!';
-    if (st === 'missed') return 'NEXT FLIGHT!';
+    if (st === 'missed') return this.closedBy(nq.id) === 'run' ? 'NOT THIS FLIGHT' : 'NEXT FLIGHT!';
     const c = this.g.content; const m = nq.complete.match ?? {};
     // "VERB NAME", dropping leading words of the name until it fits: CLEAR MANHATTAN ROOFTOPS -> CLEAR ROOFTOPS
     const fit = (verb: string, name: string | undefined, alt: string) => {
@@ -353,7 +486,10 @@ class Quest implements Module {
    */
   private isDeepLink(areaId: unknown) {
     const s = this.g.state; const c = this.g.content;
-    return typeof areaId === 'string' && areaId !== c.start && (!Array.isArray(s.areasCleared) || s.areasCleared.length === 0) && !this.g.autopilot;
+    return typeof areaId === 'string' && areaId !== c.start && (!Array.isArray(s.areasCleared) || s.areasCleared.length === 0)
+      // the headless bot and tests drive autopilot from fixed sectors and assert on a clean log; the browser
+      // autopilot (screenshot tool deep links) gets the seeded log a real pilot would have
+      && !(this.g.autopilot && this.g.headless);
   }
 
   /** Shortest flight from the start sector to `areaId` through the sector graph (exits), start first. */
@@ -388,6 +524,8 @@ class Quest implements Module {
       evts.push({ evt: 'area:enter', p: { areaId: id, waveIndex: 0 } });
       (Array.isArray(a.waves) ? a.waves : []).forEach((_w, i) => evts.push({ evt: 'wave:clear', p: { areaId: id, waveIndex: i } }));
       if (a.boss) { evts.push({ evt: 'boss:start', p: { bossId: a.boss } }); evts.push({ evt: 'boss:defeat', p: { bossId: a.boss } }); }
+      // every sector with a Treat Bonanza plays it on the way (whether it is perfect is luck: not seeded)
+      if (a.bonus) evts.push({ evt: 'bonus:start', p: { areaId: id, bonusId: a.bonus } });
       evts.push({ evt: 'area:clear', p: { areaId: id } });
     }
     const s = this.g.state; const seeded: string[] = [];
@@ -395,13 +533,17 @@ class Quest implements Module {
     for (const q of this.quests()) {
       if (this.st(q.id) !== 'locked') continue;
       const i0 = evts.findIndex(e => hit(q.start, e)); if (i0 < 0) continue;
-      if (q.expire.some(t => evts.slice(i0).some(e => hit(t, e)))) continue;
-      // its window closes on arriving here (secret_route on a deep link to the moon): closed already, no toast
+      // its window closed on the way (secret_route on a deep link past the moon) or closes on arriving here
+      // (a deep link to the moon): closed already as a route forfeit, no toast. Completing first wins.
       const arrive = { evt: 'area:enter', p: { areaId, waveIndex: 0 } };
-      if (q.expire.some(t => hit(t, arrive))) { seeded.push(q.id); this.g.ops.setQuest(q.id, MISSED); continue; }
-      const n = evts.slice(i0).filter(e => hit(q.complete, e)).length;
+      const rest = [...evts.slice(i0), arrive];
+      const iDone = rest.findIndex(e => hit(q.complete, e) && q.complete.count <= 1);
+      const iGone = rest.findIndex(e => q.expire.some(t => hit(t, e)));
+      if (iGone >= 0 && (iDone < 0 || iGone < iDone)) { seeded.push(q.id); this.g.ops.setQuest(q.id, MISSED); continue; }
+      // arriving here counts when the quest is "reach this sector" (a deep link to the nebula finishes the route)
+      const n = evts.slice(i0).filter(e => hit(q.complete, e)).length + (q.complete.on === 'area:enter' && hit(q.complete, arrive) ? 1 : 0);
       seeded.push(q.id); this.touched[q.id] = this.g.tick - 1;
-      if (n >= q.complete.count && !q.track) {
+      if (n >= q.complete.count && (!q.track || q.complete.on === 'area:enter')) {
         s.inventory[PKEY(q.id)] = q.complete.count; this.g.ops.setQuest(q.id, 'done');
         for (const f of q.reward.flags) this.g.ops.setFlag(f);
       } else { if (n > 0) s.inventory[PKEY(q.id)] = n; this.g.ops.setQuest(q.id, 'active'); }
@@ -413,7 +555,7 @@ class Quest implements Module {
   complete(q: Pick<QuestDef, 'id'>) {
     const g = this.g; const nq = this.quests().find(x => x.id === q?.id); if (!nq || this.st(nq.id) === 'done') return;
     g.state.inventory[PKEY(nq.id)] = nq.complete.count;
-    delete g.state.inventory[XKEY(nq.id)];
+    delete g.state.inventory[XKEY(nq.id)]; delete g.state.inventory[EKEY(nq.id)];
     g.ops.setQuest(nq.id, 'done');
     for (const f of nq.reward.flags) g.ops.setFlag(f);
     for (const [k, v] of Object.entries(nq.reward.items)) if (v > 0) g.ops.addItem(k, v);
@@ -432,7 +574,7 @@ class Quest implements Module {
     // saves from before 'missed' was a state: an active quest with the old marker becomes 'missed'
     for (const q of this.quests()) if (this.st(q.id) === 'active' && this.g.state.inventory[XKEY(q.id)]) this.miss(q, true);
     // a save written at the ending (or an old one) never keeps a quest open past the run
-    if (this.g.state.ending) for (const q of this.quests()) if (this.st(q.id) === 'active') this.miss(q, true);
+    if (this.g.state.ending) for (const q of this.quests()) if (this.st(q.id) === 'active') this.miss(q, true, true);
     this.onEvent('check', {});
     for (const q of this.quests()) if (this.st(q.id) === 'active' && (this.g.state.inventory[PKEY(q.id)] ?? 0) >= q.complete.count) this.complete(q);
   }
