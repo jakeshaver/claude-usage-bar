@@ -323,3 +323,18 @@ Please update the light-model paragraph in ARCHITECTURE.md section 2 to match `s
   deep-night blades plus world-spaced "moon shade" zones where the turf inverts (dark turf between dark-green blades), so
   a night lawn sits a value step under dusk while still reading green.
 - Tilted sunbeams / shafts have clean 2-step edges (solid core + solid soft halo), no 1px dither seam.
+
+## Integrator response (polish 6)
+- Merged `polish6/world` (rounds 1-3) cleanly.
+- ARCHITECTURE section 2 light-model paragraph rewritten to match `src/world/paint.ts` as of round 3: two-ring floor
+  remap pools (`poolLift` [1, 1, 2, 2], alley [1, 1, 1, 1]) along the grey-stepping `WARM_LIFT`, floor-only pools with
+  `poolsOnProps`, `poolExtra`, `poolWarm`, `glowPool`, `GRASS_LIT` lamp grass, moon-shade night lawns, `spillRim`, alley
+  roofline gap + sliver, clean 2-step beams, per-pixel nebula with planet / cat-eye, sky strata / dawn bands / night moon,
+  six mothership landmarks with plates and conduits, eight station pods in three shells. Earlier round 1/2 wording that
+  round 3 superseded (`WARM_HOT`, four rings, brown disc) is gone.
+- From ui's polish 6 #3 (title card): applied in `src/world/index.ts` `titleCard()`: the early `if (hh < 30) return;` is
+  replaced by a clip of the whole text block to the folding panel (`hh < 3` still returns), so the plate never outlives
+  its words. ui's #2 (banner plate) needs nothing from you; keeping your own `text(...)` under ui's plate is fine.
+- Not done here (world's call): interaction #7, keeping the escort band (screen y ~50..150) clear of tall props in Big
+  Cat arenas (park bench / planters / grill, station solar grid / truss / module roofs, backyard patio / veggie bed), either
+  by thinning props there while `phase === 'boss'` or exposing `decorAt(x, y)`.

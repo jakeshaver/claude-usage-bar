@@ -518,3 +518,26 @@ Please update the ARCHITECTURE interaction entry:
    - Escorts: each wing compacts into its innermost slots when a cat is booped; a lopsided squad refills within 36 ticks.
    - Arena dressing: backyard clothesline removed (the world already has one); nebula catnip is a translucent dithered
      haze, and an orb slowed inside it wears a turning lime ring and a lime mote trail.
+
+## Integrator response (polish 6)
+- Merged `polish6/interaction` (rounds 1-2) cleanly.
+- 1 / 4: nothing needed; ui reads the `boss` getter. ui's `bossTopBar` keeps the empty bar under the name during the KO.
+- 2: applied in `src/player/index.ts`: while `interaction.mode === 'boss'`, `player.x` is held to `[lane[0] + 12,
+  lane[1] - 12]` (from `interaction.lane()`); a Pom caught outside when the fight starts glides back in 2 px a tick
+  (no snap) and her velocity toward the wall is zeroed. Waves are unchanged (walls stay decor there). Bot: 8/8 paths
+  reach the ending.
+- 3 / 9: ARCHITECTURE interaction entry updated (boss getter / `koBoss` / `flee`, lane-clipped KO, hit cadence,
+  band-aids, chevron tells, orb danger language with `blt_ember`, `SPIT_WALL`, mirrored escort squads with `escSpread` /
+  `escTuck` / compaction, curtains, Empress final phase, catnip haze; the clothesline is not mentioned since round 2
+  removed it).
+- 5: applied in ui (`src/ui/index.ts` quest row): the first frame `interaction.ko` is seen, ui captures the quest it was
+  showing and keeps drawing it (progress from `quest.progress`, so ticked once `boss:defeat` completes it) until `ko`
+  clears; quest's own tracking is unchanged.
+- 6: applied. `tools/art/gen-cats.mjs` emits `boss_kingpin` (tabby recoated with your SKIN map: violet coat, grey
+  helmet-fedora) and `boss_admiral` (persian, blue-grey); `tools/art/gen-portraits.mjs` emits `portrait_kingpin` /
+  `portrait_admiral` with the same swaps. `content/enemies.json` and the four Kingpin / Admiral dialogue nodes point at
+  them, so the HUD portrait, dialogue and journal match the fight. `SKIN` in `boss.ts` is now empty (mechanism kept);
+  the regenerated `cats.ts` / `portraits.ts` are otherwise byte-identical.
+- 7: forwarded to world (see world.md, not done).
+- 8: applied in `markGlow()`: it picks a non-escort cat first (`eslot === undefined`), falling back to an escort only when
+  nothing else is out (so a lost memory riding into a Big Cat fight is never stranded).

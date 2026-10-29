@@ -76,7 +76,7 @@ and applied by the integrator.
   cool and desaturated (greys to slate and deep navy, creams to grey); warm emissive windows and sodium lamp pools carry
   the colour. Interiors (cafe, station, mothership, factory) change mostly through their windows and lights (the
   mothership hull is gunmetal at every hour; only its window lights change: pink dawn, amber dusk, dim lavender by day
-  and night, never as bright as the bullets). Outdoor lamp pools light what they land on: each pixel's night colour (the area's own night remap) is lifted one warm step per ring along `WARM_LIFT` (night-dark ground through plum -> dark brown -> brown -> light brown -> tan / cream, never lavender or white; mid greys take a neutral step first, so each material brightens in its own family; tilesets can soften a pool with `Painter.poolLift`, warm steps per ring, default [1, 2, 3, 4], street [1, 1, 2, 3], alley [1, 2, 2, 3]), in four rings (edge, middle, core, a small hot centre) under a visible lamp post / head, each ring edge a 1px 50% seam; grass keeps its blades and goes green -> lime -> yellow toward the core. So seams, cracks and plank gaps keep their contrast inside a pool and no pool is a flat fill; pools are never clipped to a path or tile edge. Dawn / dusk sunbeams and shafts can set `Painter.beamShade`, so props' cast shadows cut through the light. `Painter` also has `shade` (cast-shadow ramp override; the factory uses plain steel shade indoors at dawn), `poolWobble` (lamp pool outline lumpiness, factory 0.25) and `grassLit` (lit-grass colours per lamp ring; the park uses a low, dark-green set so night pools have no bright green halo). Door-light spills are clean stepped bands with no dithered tail. Nothing dims or bands the ground behind the formation rack: busy stages keep a calm, low-contrast ground there instead. All background layers, fg
+  and night, never as bright as the bullets). Outdoor lamp pools are a remap of the floor's own night colour (the area's night remap) in TWO rings (edge one step, core two; `Painter.poolLift` default [1, 1, 2, 2], alley [1, 1, 1, 1]) along `WARM_LIFT`, which lifts navy / slate floors through the greys (deep night -> plum slate -> dark grey -> grey -> light grey -> tan) and woods one brown step: no brown / tan disc, no dithered ring seam, organic undithered edges, and every pool has a visible lamp head (factory work lamps are grey enamel shades round an amber bulb). Pools light only the floor layer: pixels written by props (`p.obj` passes) keep their colours (`Painter.poolsOnProps` opts a tileset out when its walkable surface is itself drawn as props: rooftops, docks). Street and alley pools are never clipped at the kerb; `poolExtra` names day keys that take one extra step (street asphalt `v`, so the pool keeps its strength across the curb), `poolWarm` a warm remap in the core only (factory `o:8` on the lit tread studs), and `glowPool(x, y, r)` a one-step glow that also lifts props / walls round a wall lamp (alley lamps). Grass under a lamp: k and j swap up one step (`GRASS_LIT`), the core adds lime tips. Night lawns keep the dark teal-green `k` ground (TOD_RAMP.night `k:k`) under a dense carpet of deep-night blades, with world-spaced "moon shade" zones where the turf inverts (dark turf between dark-green blades), so a night lawn sits a value step under dusk while still reading green; night canopies are plum-shadowed with green tops. `Painter.spillRim` adds a 1px rim along door-light cones (peach at alley dawn); alley dusk light comes through a dark roofline gap split by a bright sliver, its floor beams a one-step warm remap. Tilted sunbeams / shafts have clean 2-step edges (solid core + solid soft halo), no 1px dither seam. Nebula clouds are sampled per pixel from a smooth field with a 3x3 majority pass (1px organic edges, two hues, a lit top rim, occasional bright star clusters); a small ringed planet alternates with the crisp-stepped cat-eye galaxy. Sky: band seams undulate with lens-shaped strata; dawn runs indigo -> periwinkle -> violet -> rose -> pink -> peach -> gold with clouds lit from below; night has a moon, mid-sky strata and a far city glow. Mothership: one landmark per segment cycling over six (cat-face bulkhead, cat-eye windows to space, hangar bay, yarn-reactor core, Empress banners, paw-print markings), two-value armour plates (`s`) with inset panels and diagonal seams, and a left conduit alternating yarn cable / pipe bundle / cable tray with junction boxes at the seams. Station: eight pod module types (habitat, observation, garden, dock, grooming, cargo, comms, nap) in three shell silhouettes, walked in a fixed stride. Dawn / dusk sunbeams and shafts can set `Painter.beamShade`, so props' cast shadows cut through the light. `Painter` also has `shade` (cast-shadow ramp override; the factory uses plain steel shade indoors at dawn), `poolWobble` (lamp pool outline lumpiness, factory 0.25) and `grassLit` (lit-grass colours per lamp ring; the park uses a low, dark-green set so night pools have no bright green halo). Door-light spills are clean stepped bands with no dithered tail. Nothing dims or bands the ground behind the formation rack: busy stages keep a calm, low-contrast ground there instead. All background layers, fg
   included, are drawn in the world's z -10 pass, so scenery never covers Pom. Backgrounds are far / main / fg layers
   of 448x256 segments painted once and cached; rare fast foreground flyers (birds, leaves, steam) are drawn per frame.
 - **Hit-stop**: `Game.step()` skips every module except effects, ui and audio while
@@ -234,7 +234,29 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
   3 frames of a solid radial wipe drawn by the Big Cat (honours `settings.flash` / `reduceMotion`; no dithered screen
   flash), two shockwaves, every hairball pops into a sparkle, the escorts scatter outward, it staggers with dizzy
   stars, then the `bigboop` finale and `boss:defeat`. `interaction.bossDown` holds the id of the Big Cat just knocked
-  out (cleared by `clearAll` / the next wave or fight); ui reads it for BIG CAT BOOPED. Small Big Cats (tiers 0-1, no
+  out (cleared by `clearAll` / the next wave or fight); ui reads it for BIG CAT BOOPED. `interaction.boss` is a getter: the live Big Cat (internally `big`) or,
+  while `interaction.ko`, the knocked-out one (`koBoss`, `hp` 0, `dead` true) until `KO_HOLD` 140 ticks after
+  `boss:defeat`; anything meaning "a live fight" tests `boss && !boss.dead`. Escorts / kittens scattered at the KO move
+  from `cats` to `flee` and climb straight out through the top of the lane. KO shockwaves and the radial wipe are clipped
+  to the lane (`inLaneClip`). Big Cat hits: one splat per 30 ticks dabbed on the body / craft rim, the white hit flash on
+  a 16-tick cooldown; hurt marks are a diagonal tan band-aid (`fx_bandaid`, tank cats and Big Cats: one at phase 1, a
+  sweat drop at phase 2), no hit sparkles. Attack tells: inked red / orange chevron rays (fan, volley), solid orange pips
+  (summon). Boss bullets speak one danger language: solid round orbs (or the bone capsule) with a hot white 2x2 core,
+  lit upper-left, 1px ink outline and a pulsing white / red outer ring (`blt_ember` orange on the dark nebula / station
+  arenas, `blt_paw` purple elsewhere, `blt_bone` cyan capsule, `blt_yarnbig` cyan-teal, `blt_star` hot pink); every
+  enemy bullet pops `SPIT_WALL` 5 px inside the lane walls and is never born past them, and Pom is held inside the lane
+  (lane +- 12) during a fight. Escort squads (polish 6) are mirrored pairs, 2+ per side: open lanes swept wings (+ a deep
+  pair); Maple Street a tight V inside the road (`escLane`: lane +- 18) opening into stacked flanks for the pounce; alley
+  two stacked flanks (`ESC_PITCH` 36); the Empress two stacked flanks along the hall walls. Slots carry optional charge
+  (`cx, cy`) and curtain-tuck (`tx, ty`) positions (`escSpread`, `escTuck`); each wing compacts into its innermost slots
+  when a cat is booped and a lopsided squad refills within 36 ticks. Curtains are straight wall-to-wall rows shed under
+  the squad's tucked row (`escCurtainDY`), doors 2 bullets from the walls, door sets A / B alternating row by row. The
+  Empress phase 2 cycles `[curtain, ring, spiral, curtain, fan, ring]`; under 33% armor curtain / ring only (no
+  background emitters, 5-volley curtains, rings opening a three-step door where the tell's lime notch points, flying
+  only downward out of the 64 x 30 saucer rim). Arena dressing: nebula (Catnip Kingpin) two drifting translucent catnip
+  hazes (`CATNIP_RX/RY` 34 / 16) that halve enemy bullet speed, a slowed orb wearing a lime ring and mote trail. The
+  Kingpin and the Admiral have their own sheets (`boss_kingpin`, `boss_admiral`) and portraits. `markGlow()` prefers a
+  non-escort as the memory carrier. Small Big Cats (tiers 0-1, no
   craft) sit on a dark drop plate with one turning dashed ring, a 1px white outline and 1.7x telegraphs. Rings are
   blitted from cached canvases (`art.ringC`). Showcase: `?showcase=interaction&stage=entrance|phasebeat|ko` (`&at=`,
   `&phase=`, `&atk=ring|curtain|fan|...`, forwarded by tools/screenshot.mjs as `--atk`)
@@ -257,7 +279,9 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
   ('NEW QUEST: X' + 'X n/m' -> 'NEW QUEST: X n/m'; 'PUPPY RESCUED! ...' + the pup quest's progress -> 'PUPPY RESCUED!
   LOST PUPS n/m', either order). The HUD hostiles list uses breed short names with per-breed 3-tone icons. The HUD sector header and the map's sector log share one short name table (`LOG_SHORT`). The RESCUED
   album count reads `memories.albumShown()`; `hudSlots()` returns the right-panel anchors other modules draw against
-  (`card`, `album`, `strip`); the wave plate reads BIG CAT BOOPED and the pause menu's sector card BOOPED while
+  (`card` = the panel foot x RX+5, y 231, 118 x 125; `album` = the RESCUED-line album chip; `strip` = this sector's photo
+  boxes on the RESCUED line, `label: false`: no 'MEMORIES' label to pulse); the quest row holds the pre-KO quest while
+  `interaction.ko`; the wave plate reads BIG CAT BOOPED and the pause menu's sector card BOOPED while
   `interaction.bossDown` is the sector's Big Cat. Attract demo: after ~10 s idle on the title the autopilot flies a
   mid wave of a toured sector on a JSON copy of the state with `g.demo` set (save stubbed, real state restored); the ending card lists `quest.endingRewards()` under the stats,
   a static sound chip on the header row (reads `audio.running()` + volumes; the only sound widget), `openPause()`, `openMap()`, `showDialogue(nodeId)`,
@@ -309,13 +333,14 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
   all cats. Booping it is a beat: 4-tick hit-stop, a 2-frame white silhouette flash, a 2px 8-ray star. The photo
   sways down to Pom inside a 1px gold outline and a sparse dither glint (teal when recovered). Catching it never
   pauses play: a sparkle and a rising '+1 MEMORY' (full 1px ink outline) pop at the pickup point. The memory card
-  slides over the right HUD panel into ui's card slot (`ui.hudSlots()`: keyboard = the panel foot y 245..356, the
-  compact 111px card, so QUEST, the threat slot and the album chip stay in view; touch keeps y 119..230; overlayZ 50, hidden while a menu is open or outside
+  slides over the right HUD panel into ui's card slot (`ui.hudSlots()`: keyboard = the panel foot y 231..356 at the slot's x / w, the
+  125px card, so QUEST, the threat slot and the RESCUED line stay in view; touch takes `hudSlots().cardTouch` when ui
+  publishes one, else a 38px strip at y 197..235 between the threat slot and the ACTION deck; overlayZ 50, hidden while a menu is open or outside
   play/bonus, its clock parked) for ~3.8 s: one title size (1x), the whole memory text (scrolls 1px at a time if one
   or two lines long), no N/18 number on the card. A memory whose body would not fit under the 64x62 polaroid shows the 32x31 half
   polaroid instead, so its last line is on screen without waiting for the scroll; the lifted photo never rises above
   the header's dashed rule. The polaroid hops into the album counter, which holds the old count
-  (`albumShown()`) until it lands, then the memory strip row (y 239..256, `hudSlots().strip`; skipped in touch) pulses. A bundle (2+ photos) pages by itself at
+  (`albumShown()`) until it lands, then this sector's photo boxes on the RESCUED line (`hudSlots().strip`; skipped in touch) pulse. A bundle (2+ photos) pages by itself at
   >= 110 ticks a page: up to 4 photos, or 3 plus a '+N MORE PHOTOS' page; its pager dots sit on the header row. Lost
   photos get a 'RECOVERED' rubber-stamp print on a solid chin-coloured backing. `panelCard()` = side card up or parked. A missed memory (route not taken) returns
   as a LOST MEMORY on the next wave's carrier; the final sector brings the whole backlog, so 18/18 is reachable on

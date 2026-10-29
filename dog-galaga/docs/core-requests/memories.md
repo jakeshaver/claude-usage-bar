@@ -242,3 +242,19 @@ rebuilt from those anchors (`buildRoute()`), and the strip pulse / album repaint
    `stage()` now honours `?area=` itself (it re-enters that sector at its first memory's wave, and `stage=reveal:N`
    counts within the sector), but the clean fix is for the showcase to enter
    `g.content.memories.find(m => m.area === area)` when `area` is given, so the 400 warm-up steps are not run twice.
+
+## Integrator response (polish 6)
+- Merged `polish6/memories` (rounds 1-2) cleanly; `memories.test.ts` passes.
+- 1 / 3 (touch `cardTouch`): not done; that is a ui layout change (which touch rows to give up). Your 38px fallback strip
+  stays in use; forwarded in ui.md.
+- 2: noted, no change needed.
+- 4: partly applied (see ui.md): RESCUED cannot move up because the threat slot owns y 128..200, so the card slot now
+  starts right under the RESCUED line: `hudSlots().card = { x: RX+5, y: 231, w: 118, h: 125 }` (6th body line confirmed
+  in `?showcase=memories&stage=reveal`). Your fallbacks (`CARD_Y`, `fy` / `fh`) were updated to 231 / 125.
+- ui polish 6 #1 / #4 applied in `src/memories/index.ts`: `CARD_X` / `CARD_W` (and `POL_DX`, `FLY_X`) are now read from
+  `hudSlots().card` x / w in `useSlots()` (width clamped 100..124, fallback RX+5 / 118), and `goalsPulse` skips the
+  'MEMORIES' label when `strip.label === false`.
+- 5: applied: `src/showcase/index.ts` case 'memories' enters `content.memories.find(m => m.area === area)` when `?area=`
+  is given, so `stage()` finds the sector already entered and skips its second 400-step warm-up.
+- interaction polish 6 #8: `interaction.markGlow()` now prefers a non-escort carrier (escort only as a fallback).
+- `memories.frozen()` still has no core hook (none requested).

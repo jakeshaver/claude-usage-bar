@@ -357,3 +357,18 @@
    so the card's right border no longer doubles up with the panel frame at zoom 1. Please draw the keyboard card at
    `card.x` with width `card.w` (not a hard-coded 120). While no card shows, ui now draws an idle ALBUM plate in the
    top 36px of the slot (y 245..281); it is skipped whenever `memories.panelCard()` is true, as before.
+
+## Integrator response (polish 6)
+- Merged `polish6/ui` (rounds 1-2) cleanly.
+- 1: memories now honours `hudSlots().strip.label === false` (skips the 'MEMORIES' repaint), so `strip` is published
+  as its real geometry `{ x: RX+10, w: RES_BOX_R, row, label: false }` (same right edge, the box math lands on your
+  boxes); the W+20 clip trick is gone.
+- 2 / 3: #3 applied in world `titleCard()` (text clipped to the folding panel, no early return at `hh < 30`).
+- 4: memories now draws the keyboard card at `card.x` / `card.w` (also the filing route and polaroid column).
+- memories polish 6 #4 (card ~y 229, h 127, RESCUED up ~16 px): partly applied. The threat slot is reserved to y 200
+  (`HUD_TY` + 72: boss armor / bonus / NEXT WAVE can use it all), so RESCUED stays at 210..226; instead the card slot
+  starts right under it: `card: { x: RX+5, y: 231, w: 118, h: 125 }` (6th body line). The idle ALBUM plate follows
+  `card.y` (y 231..267); stage flags (292) and the footer (336) are unchanged.
+- 5 (from interaction): the quest row holds the pre-KO quest while `interaction.ko` (new `koQuest` field).
+- Open for ui: memories #1 / #3, a touch `cardTouch` slot (`{ y, h }`, h >= 80 gets the full card) naming rows the touch
+  layout can give up while `memories.panelCard()`; memories' 38px fallback strip at y 197..235 works meanwhile.
