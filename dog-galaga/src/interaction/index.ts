@@ -126,9 +126,6 @@ function mailbox(ctx: CanvasRenderingContext2D, x: number, y: number, open: numb
 }
 /** Orbit signature: its ring runs this far inside the lane's gutter lines (the right gutter sits at the view's edge). */
 const ORBIT_INSET = 18;
-/** Busy backdrops (moored boats, machine panels, dusk brick): a dithered shade band sits behind the rack. */
-const RACK_SHADE = new Set(['docks', 'factory', 'alley']);
-const shadeCache = new Map<string, HTMLCanvasElement>();
 
 /** Interaction: turds, cats, formations, dives, damage, bosses, pickups. */
 class Interaction implements Module {
@@ -1261,33 +1258,6 @@ class Interaction implements Module {
     return false;
   }
 
-  /** Busy backdrops: a dithered ink band behind the whole rack (its shape's full lattice, swaying with it) dims the
-   *  props under it, so cats keep their silhouettes over boats, machine panels and dusk brick. 50% ink inside, a 25%
-   *  falloff ring, every pixel palette-exact. */
-  private renderShade(r: any) {
-    const live = this.cats.filter(c => !c.dead && !c.res && c.eslot === undefined && c.st !== 'leave');
-    if (!live.length) return;
-    const rows = live.map(c => c.row), maxRow = Math.max(...rows);
-    const us = this.cells.map(c => c.u);
-    const sw = this.swayX(), half = Math.round((Math.max(...us) - Math.min(...us)) * this.colSp / 2);
-    const cx = Math.round(this.cx + ((Math.max(...us) + Math.min(...us)) / 2) * this.colSp) + sw;
-    const x0 = cx - half - 22, x1 = cx + half + 22, y0 = this.formTop - 20, y1 = this.formTop + maxRow * this.rowSp + 22;
-    const X0 = (x0 - 3) & ~1, Y0 = (y0 - 3) & ~1, w = x1 + 3 - X0 + 1, h = y1 + 3 - Y0 + 1;
-    const key = w + 'x' + h; let cv = shadeCache.get(key);
-    if (!cv && typeof document !== 'undefined') {
-      cv = document.createElement('canvas'); cv.width = w; cv.height = h; const c = cv.getContext('2d')!;
-      c.fillStyle = col('0');
-      const ix0 = 3, ix1 = w - 4, iy0 = 3, iy1 = h - 4;
-      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-        const ox = Math.max(0, ix0 - x, x - ix1), oy = Math.max(0, iy0 - y, y - iy1);
-        if (ox + oy > 4) continue;   // rounded corners
-        const on = ox || oy ? ((x + y) & 1) === 0 && (y & 1) === 0 : ((x + y) & 1) === 0;
-        if (on) c.fillRect(x, y, 1, 1);
-      }
-      shadeCache.set(key, cv);
-    }
-    if (cv) { const img = cv; r.push(0, 9999, (ctx: CanvasRenderingContext2D) => ctx.drawImage(img, X0, Y0)); }
-  }
   /** Signature wave telegraph: the lane paths sketch themselves on the field as marching pixel dots, then the dots
    *  are swallowed as the first cats fly along them. */
   private renderSigTell(r: any) {
@@ -1386,7 +1356,6 @@ class Interaction implements Module {
     const sc = g.state.scene;
     if (sc !== 'play' && sc !== 'bonus' && sc !== 'dialogue') return;
     const ground = this.grounded(), rim = this.rimKey(), tint = this.tint();
-    if (this.mode === 'wave' && RACK_SHADE.has(g.state.areaId) && this.cells.length) this.renderShade(r);
     if (this.sigT >= 0 && this.mode === 'wave') this.renderSigTell(r);
     if (this.sigWave && this.mode === 'wave' && !this.entryDone) this.renderSigCells(r);
     if (this.puffs.length) this.renderPuffs(r);
