@@ -1,6 +1,9 @@
 // Headless-Chrome screenshot tool.
 // node tools/screenshot.mjs --url=http://127.0.0.1:4173/ --out=shots/x --area=rooftops --tod=night --wave=2
 //   --showcase=interaction --state='{"score":5}' --advance=300 --zoom=2 --wait=1500 --keys=ArrowLeft,Space
+//   --showcase=interaction --stage=lineup|capturer|rescue|splitter|tank|dive|tell|boss|bullets|play [--at=N] [--phase=1|2]
+//   --showcase=effects --fx=grid|strip|boss[-world] --fxt=N      --showcase=audio (waits until every render is done)
+//   --skipDialogue: close any open dialogue (deep links open the intro) and only then run --advance ticks
 // Writes <out>.png and <out>.json (console errors, page errors, game errors, fps, failed/external requests).
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
@@ -13,7 +16,8 @@ const base = args.url ?? 'http://127.0.0.1:4173/';
 const out = args.out ?? `shots/${args.showcase ?? args.area ?? args.scene ?? 'title'}-${args.tod ?? 'default'}`;
 const zoom = +(args.zoom ?? 2);
 const q = new URLSearchParams();
-for (const k of ['area', 'wave', 'tod', 'showcase', 'scene', 'advance', 'seed', 'autopilot', 'node', 'menu', 'tab', 'filter', 'ending', 'ticks', 'freeze', 'fx', 'fxt', 'touch']) if (args[k]) q.set(k, args[k]);
+for (const k of ['area', 'wave', 'tod', 'showcase', 'scene', 'advance', 'seed', 'autopilot', 'node', 'menu', 'tab', 'filter', 'ending', 'ticks', 'freeze', 'fx', 'fxt', 'touch', 'stage', 'at', 'phase']) if (args[k]) q.set(k, args[k]);
+if (args.skipDialogue) { q.delete('advance'); q.delete('freeze'); }
 if (args.state) q.set('state', Buffer.from(args.state).toString('base64'));
 const url = base + (base.includes('?') ? '&' : '?') + q.toString();
 
@@ -28,6 +32,15 @@ const t0 = Date.now();
 await page.goto(url, { waitUntil: 'load' });
 await page.waitForFunction(() => window.__game && window.__game.ready, null, { timeout: 15000 });
 log.loadMs = Date.now() - t0;
+if (args.skipDialogue) {
+  await page.evaluate(({ adv, freeze }) => {
+    const g = window.__game.game;
+    for (let n = 0; n < 60 && g.state.scene === 'dialogue' && g.mods.quest?.dlg; n++) g.mods.quest.advance();
+    if (adv) window.__game.step(adv);
+    if (freeze) g.paused = true;
+  }, { adv: +(args.advance ?? 0), freeze: !!args.freeze });
+}
+if (args.showcase === 'audio') await page.waitForFunction(() => document.body.dataset.audioDone === '1', null, { timeout: 120000 });
 if (args.keys) {
   for (const k of args.keys.split(',')) { await page.keyboard.down(k); await page.waitForTimeout(+(args.hold ?? 300)); await page.keyboard.up(k); }
 }
