@@ -140,3 +140,19 @@
   memories carrier crown/rim (memories draws the gold rim, crown and polaroid; interaction now leaves the TOD rim off
   memory carriers and on bright floors, and no longer stacks two pickup badges on one spot). Effects' dotted heart
   ring around a combo number is a further stacked treatment worth thinning.
+
+### Polish 1, round 2
+
+- **UI (critic #6, toasts over the formation):** interaction moved the formation's top row down to y=46 (world), with
+  the grid now at most 4 flat rows (bottom row about y 150-160). One toast (y 8..22) now clears the top row, but a stack
+  of 2-4 toasts (8 + i*17) still covers it. Please, while `g.mods.interaction.mode === 'wave'` or `'boss'`, show at most
+  one toast at a time (queue the rest, or merge them into one 'SCRAPBOOK 7/8 +2' pill), or stack extra toasts down the
+  side of the playfield instead of downward over the top rows.
+- **UI (critic #8 regression):** at zoom 1 the 'TAP OR PRESS A KEY FOR SOUND' toast text is clipped by its pill.
+- **#8 (1px light line near y=140):** still not interaction (see above). Round-2 shots of park/cafe/moon at night show
+  no full-width line from this module; the cafe-night floor rectangle's 1px light outline is world art.
+- **Effects (#10):** interaction no longer floats a score label for a boop inside the formation (Galaga only labels
+  kills in flight) or for memory carriers, so the combo-merge labels now only appear for divers. Effects' dotted heart
+  ring around combo numbers and the carrier sparkle burst are still stacked treatments worth thinning.
+- **Note (#9, formation left of centre):** the formation centre now rides with the panning camera (eased, <= 1 px/tick),
+  so the convoy stays centred and whole in the 384px view wherever Pom flies.

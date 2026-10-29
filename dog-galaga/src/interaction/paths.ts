@@ -1,4 +1,4 @@
-// Flight paths in world coordinates (world is 448 wide, formation sits at y 36..200).
+// Flight paths in world coordinates (world is 448 wide, formation sits at y ~46..160).
 // Control points are smoothed with Catmull-Rom and re-parameterized by arc length (Track), so cats fly
 // at a constant, readable speed through curves instead of speeding up on long segments.
 export type Pt = [number, number];
@@ -107,9 +107,9 @@ export function divePath(x0: number, y0: number, px: number, behavior: string, j
       const a1 = -Math.PI / 2 + (s < 0 ? TAU : -TAU);
       return [...peel, [cx + 40 * s, 128], [cx, 140], ...arc(cx, 176, 36, -Math.PI / 2, a1), [cx - 30 * s, 168], [lx + j * 20, 256], [lx - 30 * s, 320], [lx - 60 * s, H + 40]];
     }
-    case 'shooter': // shallow strafing pass: swoop down, curve across, climb out
-      // (it leaves through the far side under the grid instead of climbing back up through it)
-      return [...peel, [(x0 + lx) / 2, 150], [lx + 40 * s, 196], [lx - 50 * s, 206], [lx - 120 * s, 190], [CX - 270 * s, 176]];
+    case 'shooter': // shallow strafing pass: swoop down, curve across in front of Pom, then drop off the bottom
+      // (never a long sideways exit along the screen edge, which reads as a straggler outside the lanes)
+      return [...peel, [(x0 + lx) / 2, 150], [lx + 40 * s, 200], [lx - 40 * s, 214], [lx - 90 * s, 252], [lx - 110 * s, H + 40]];
     case 'tank': // slow, heavy, nearly straight dive
       return [...peel, [(x0 * 2 + lx) / 3, 160], [lx + j * 30, 270], [lx + j * 40, H + 40]];
     case 'capturer': // wide swoop with a lazy turn near the bottom, escorts in tow

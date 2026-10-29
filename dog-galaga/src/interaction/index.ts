@@ -1,5 +1,5 @@
 import type { Game, Module } from '../core/game';
-import { WORLD_W, H } from '../core/game';
+import { WORLD_W, H, PF_W } from '../core/game';
 import type { EnemyDef, WaveDef, BonusDef } from '../core/types';
 import { drawSprite } from '../art/sprite';
 import { col } from '../core/palette';
@@ -29,13 +29,16 @@ export interface Pickup { kind: string; x: number; y: number; vy: number; t: num
 
 const WAVE_LIMIT = 75 * 60;  // cats lose interest after 75s, so waves can never stall
 const MAX_TURDS = 4;
-// Formation grid (Galaga-like readability): at most 8 columns x 5 rows, with clear lanes between cats.
-const FORM_TOP = 36;
-const STREAM_STEP = 13;     // ticks between cats in one entry stream (13 x 3.2 >= 41px along the path: 32px sprites never overlap)
+// Formation grid (Galaga-like readability): at most 10 columns x 4 rows of flat rows, with clear lanes between cats.
+// The top row sits under the HUD toast lane (a single toast spans y 8..22), the bottom row stays above y ~160.
+const FORM_TOP = 46;
+const STREAM_STEP = 11;     // ticks between cats in one entry lane (11 x 4.0 >= 44px along the path: 32px sprites never overlap)
+const LANE_BREAK = 6;       // extra ticks between groups of 8 in one lane (Galaga's streams come in bursts)
+const HURRY_DIVERS = 2;     // last stand: at most this many stragglers out of the grid at once
 const BEAM_TICKS = 84;      // capturer's tractor-beam moment
 const tp: TrackPos = { x: 0, y: 0, hx: 0, hy: 1 };
-const PUP_LIFT = 18;        // the formation sits this much lower when a captive pup rides above its holder
-const HURRY_LEAVE = 9 * 60; // once only ~20% of a wave is left, stragglers dive hard, then fly off after 9s
+const PUP_LIFT = 10;        // the formation sits this much lower when a captive pup rides above its holder
+const HURRY_LEAVE = 6 * 60; // once only ~20% of a wave is left, stragglers dive (2 at a time), then fly off after 6s
 /** Stages with no ground below the action (sky and space): nothing to cast a shadow on. */
 const AIRBORNE = new Set(['sky', 'moon', 'nebula', 'station', 'mothership']);
 /** Time-of-day tint for the combat layer (subtle: highlights cool at night, warm at dusk and dawn). */
@@ -57,6 +60,8 @@ class Interaction implements Module {
   sway = 0; nextId = 1; pupHolder = -1; rowSp = ROW_SP; colSp = COL_SP; shape: Shape = 'galaga';
   T: Tuning = { d: 0, spitSpeed: 1.5, spitCap: 3, bossSpitCap: 14, fireEvery: 90, diveEvery: 180, diveGroups: 1, maxDivers: 3, diveSpeed: 2.7, entrySpeed: 2.7, diveShots: 1, tell: 22, aimSlop: 50 };
   fireT = 0; diveT = 0; breathMix = 0; entryDone = false; clearHold = 0; total = 0; formTop = FORM_TOP; hurry = 0;
+  /** formation centre (world x): rides with the panning camera, so the convoy stays centred and whole on screen */
+  cx = WORLD_W / 2;
 
   // showcase staging (?showcase=interaction&stage=lineup|capturer|rescue|splitter|tank|dive|tell|boss|bullets|play)
   stageReq: string | null = null; staged = false; stageT = 0; stageAt = 0; stagePhase = 0; frozen = false;
@@ -81,6 +86,8 @@ class Interaction implements Module {
   /** Rim colour for combat sprites at this time of day (undefined: no rim needed in daylight). */
   rimKey() { return BRIGHT_FLOOR.has(this.g.state.areaId) ? undefined : TOD_RIM[this.g.state.tod]; }
   tint() { return TOD_TINT[this.g.state.tod]; }
+  /** Where the formation centre wants to be: the middle of the visible playfield. */
+  private viewCx() { return (this.g.mods.player?.camera?.x ?? (WORLD_W - PF_W) / 2) + PF_W / 2; }
 
   private mkCat(def: EnemyDef, x: number, y: number, st: CatState, extra: Partial<Cat> = {}): Cat {
     return { id: this.nextId++, def, hp: def.hp, x, y, vx: 0, vy: 0, st, slot: [x, y], track: null, s: 0, speed: 0, lat: 0, weave: 0,
@@ -102,25 +109,25 @@ class Interaction implements Module {
     const top = this.formTop = FORM_TOP + (holderWave ? PUP_LIFT : 0);
     this.rowSp = ROW_SP; this.colSp = COL_SP;
     this.shape = shapeFor(areaIdx, i);
+    this.cx = this.viewCx(); const ox = this.cx - WORLD_W / 2;
     let n = 0; const first = this.cats.length;
-    const slots = layout(w, this.shape, i, id => this.enemy(id)).map(h => ({ def: h.def, slot: [WORLD_W / 2 + h.u * COL_SP, top + h.row * ROW_SP + h.dy] as Pt }));
-    // streams of 8: single file for 'loop' (two mirrored groups at once), pairs for the others
-    const single = w.entry === 'loop' || !['split', 'swirl-left', 'swirl-right', 'rain'].includes(w.entry);
-    const groupLen = (single ? 8 : 4) * STREAM_STEP;
-    // mirrored groups from alternating sides may overlap in time (they never share airspace): a lively, ~6-8s entry
-    const gap = Math.round(groupLen * (single ? 1 : 0.7)) + Math.round(24 - 12 * T.d);
+    const slots = layout(w, this.shape, i, id => this.enemy(id), Math.round(20 + 12 * T.d)).map(h => ({ def: h.def, slot: [WORLD_W / 2 + h.u * COL_SP, top + h.row * ROW_SP + h.dy] as Pt }));
+    // entry lanes run in parallel and back to back (Galaga: the convoy assembles in ~4s, not over half the wave):
+    // split / rain / loop pour one lane per side, swirls fly pairs abreast with groups of 8 alternating sides.
+    // Each lane fills its cells top row first, so a cat climbing into its cell only ever passes empty cells.
+    const laneN = new Map<string, number>();
     for (const { def, slot } of slots) {
       const gi = Math.floor(n / 8), k = n % 8;
-      let kind: string = w.entry, side = 1, lat = 0, delay = gi * gap;
+      let side = 1, lat = 0;
       switch (w.entry) {
-        case 'split': side = k % 2 ? -1 : 1; delay += Math.floor(k / 2) * STREAM_STEP; break;           // two crossing streams
-        case 'swirl-left': case 'swirl-right':                                                          // pairs abreast, groups alternate sides
-          side = gi % 2 ? -1 : 1; lat = k % 2 ? -19 : 19; delay += Math.floor(k / 2) * STREAM_STEP; break;
-        case 'loop': side = gi % 2 ? -1 : 1; delay = Math.floor(gi / 2) * gap + k * STREAM_STEP; break; // single file, both sides at once
-        case 'rain': side = k % 2 ? -1 : 1; delay += Math.floor(k / 2) * STREAM_STEP; break;          // two mirrored pours
-        default: delay += k * STREAM_STEP;
+        case 'swirl-left': case 'swirl-right': side = gi % 2 ? -1 : 1; lat = k % 2 ? -19 : 19; break;
+        case 'loop': side = gi % 2 ? -1 : 1; break;
+        default: side = n % 2 ? -1 : 1;                       // split, rain: two mirrored lanes
       }
-      const track = new Track(entryPath(kind, side, slot));
+      const key = side + ':' + lat; const li = laneN.get(key) ?? 0; laneN.set(key, li + 1);
+      // the split streams cross at the centre: the right lane runs half a step behind so they interleave
+      const delay = li * STREAM_STEP + Math.floor(li / 8) * LANE_BREAK + (w.entry === 'split' && side < 0 ? Math.round(STREAM_STEP / 2) : 0);
+      const track = new Track(entryPath(w.entry, side, [slot[0] + ox, slot[1]]));
       const p0 = track.at(0, tp);
       this.cats.push(this.mkCat(def, p0.x, p0.y, 'wait', { slot, track, speed: T.entrySpeed, lat, delay, side, diveSeed: g.rng.next() }));
       n++;
@@ -169,8 +176,11 @@ class Interaction implements Module {
 
   spawnPickup(kind: string, x: number, y: number) {
     const pup = kind === 'pup';
-    // never stack two pickups on one spot (two framed badges on top of each other read as clutter): step aside
-    for (let n = 0; n < 4 && this.pickups.some(k => Math.abs(k.x - x) < 24 && Math.abs(k.y - y) < 24); n++) x += x < WORLD_W / 2 ? 26 : -26;
+    // never stack or crowd two pickups (framed badges side by side read as clutter): a repeat of a plain pickup that is
+    // already falling nearby merges into it, anything else steps well aside (a clear badge's width of air between them)
+    const near = (k: Pickup) => Math.abs(k.x - x) < 44 && Math.abs(k.y - y) < 40;
+    if (!pup && !kind.startsWith('memory') && this.pickups.some(k => k.kind === kind && near(k))) return;
+    for (let n = 0; n < 4 && this.pickups.some(near); n++) x += x < WORLD_W / 2 ? 46 : -46;
     this.pickups.push({ kind, x, y, vy: pup ? -0.9 : 0.7, t: 0, vx: 0 });
   }
 
@@ -200,10 +210,10 @@ class Interaction implements Module {
   /** Formation home of a slot right now: sways side to side while cats arrive, then breathes in and out. */
   private liveSlot(c: Cat): Pt {
     const bm = this.breathMix;
-    const sw = Math.sin(this.sway / 80) * 14 * (1 - bm);
+    const sw = Math.sin(this.sway / 80) * 6 * (1 - bm);   // small: the 10-wide convoy always fits the panning view
     const br = (1 - Math.cos(this.sway / 40)) * 0.5 * bm;   // 0..1
     const top = this.formTop;
-    return [WORLD_W / 2 + (c.slot[0] - WORLD_W / 2) * (1 + br * 0.1) + sw, top - 4 + (c.slot[1] - top + 4) * (1 + br * 0.1)];
+    return [this.cx + (c.slot[0] - WORLD_W / 2) * (1 + br * 0.1) + sw, top - 4 + (c.slot[1] - top + 4) * (1 + br * 0.1)];
   }
 
   private boop(c: Cat, viaTurd = true) {
@@ -211,13 +221,16 @@ class Interaction implements Module {
     const pts = this.mode === 'bonus' ? 100 : diving ? (c.def.divePoints ?? c.def.points * 2) : c.def.points;
     g.ops.addScore(pts); g.state.stats.catsBooped++;
     if (viaTurd) g.state.stats.hits++;
-    g.mods.effects?.burst(c.x, c.y, 'boop'); g.mods.effects?.floatText(c.x, c.y - 10, String(pts));
+    g.mods.effects?.burst(c.x, c.y, 'boop');
+    // Galaga only pops a score over a kill in flight: a boop in the grid adds to the HUD score without a label, so
+    // numbers never sit on top of the neighbouring cats (memory carriers get their own reveal, no label either)
+    if ((diving || this.mode === 'bonus') && !c.glow) g.mods.effects?.floatText(c.x, c.y - 10, String(pts));
     g.mods.audio?.sfx('meow');
     if (c.pup) { const [px, py] = this.pupPos(c); this.spawnPickup('pup', px, py); g.mods.effects?.burst(px, py, 'sparkle'); }
     if (this.wave?.pickup && g.rng.chance(0.06)) this.spawnPickup(this.wave.pickup, c.x, c.y);
-    if (c.def.behavior === 'splitter') { // a pair of kittens, but never a tumbling swarm: at most 4 in the air
-      const room = 4 - this.cats.filter(o => o.st === 'kdive' && !o.dead).length;
-      for (const s of room >= 2 ? [-1, 1] : room === 1 ? [c.x < WORLD_W / 2 ? 1 : -1] : []) this.spawnKitten(c.x + s * 6, c.y, s * 1.5, -1.6, c.slot);
+    if (c.def.behavior === 'splitter') { // a pair of kittens, but never a tumbling swarm: at most 2 in the air
+      const room = 2 - this.cats.filter(o => o.st === 'kdive' && !o.dead).length;
+      for (const s of room >= 2 ? [-1, 1] : room === 1 ? [c.x < WORLD_W / 2 ? 1 : -1] : []) this.spawnKitten(c.x + s * 6, c.y, s * 0.9, -1.6, c.slot);
     }
     if (this.bonus) this.bonus.hits++;
     c.dead = true;
@@ -245,6 +258,7 @@ class Interaction implements Module {
       if (this.staged && this.stageScript()) return;
     }
     this.sway++;
+    { const d = this.viewCx() - this.cx; this.cx += Math.max(-1, Math.min(1, d * 0.05)); }
     const P = g.mods.player; const pb = P?.hitbox();
     const T = this.T;
     // turds
@@ -275,7 +289,7 @@ class Interaction implements Module {
         // Galaga rhythm: the grid stays put and only a few cats are ever out of it (divers plus cats still flying home)
         const out = this.cats.filter(c => c.st === 'dive' || c.st === 'return');
         const groups = new Set(out.filter(c => c.st === 'dive').map(c => c.group)).size;
-        const room = T.maxDivers + (this.hurry ? 1 : 0) - out.length;
+        const room = (this.hurry ? HURRY_DIVERS : T.maxDivers) - out.length;
         if ((this.hurry || groups < T.diveGroups) && room > 0 && inForm.length) this.launchDive(inForm, undefined, room);
         const left = inForm.length / Math.max(1, this.total);
         this.diveT = this.hurry ? Math.round(g.rng.range(34, 52)) : Math.round(T.diveEvery * g.rng.range(0.7, 1.3) * (0.45 + 0.55 * left));
@@ -317,7 +331,7 @@ class Interaction implements Module {
               // every dive ends off screen: re-enter straight above the cat's own column and drop into the slot,
               // so a returning cat never cuts diagonally through the grid
               if (c.y > H || c.y < 0 || c.x < -16 || c.x > WORLD_W + 16) { c.x = this.liveSlot(c)[0]; c.y = -28; }
-              c.st = timedOut || (hurryOut && !special(c)) ? 'leave' : 'return'; c.speed = 2.4;
+              c.st = timedOut || (hurryOut && !special(c)) ? 'leave' : 'return'; c.speed = 3;
             }
           }
           if (c.st === 'dive' && c.shots > 0 && c.tell === 0 && c.y > 110 && c.y < 220 && P && Math.abs(c.x - P.x) < 120 && this.spits.length < T.spitCap && g.rng.chance(0.05)) { c.shots--; c.tell = T.tell; }
@@ -337,7 +351,8 @@ class Interaction implements Module {
           break;
         }
         case 'kdive': {
-          c.vy = Math.min(2.4, c.vy + 0.07); c.vx *= 0.985;
+          // tumble down toward Pom's lane, drifting gently in from the edges (never a straggler along the walls)
+          c.vy = Math.min(2.4, c.vy + 0.07); c.vx = c.vx * 0.985 + Math.sign((P?.x ?? this.cx) - c.x) * 0.012;
           c.x += c.vx + Math.sin(c.t / 9 + c.side) * 0.5; c.y += c.vy;
           if (c.y > H + 20) c.dead = true;
           break;
@@ -445,15 +460,18 @@ class Interaction implements Module {
     for (let k = 0; k < inForm.length; k++) { pick -= wt[k]; if (pick <= 0) { leader = inForm[k]; break; } }
     if (forced) leader = forced;
     const b = leader.def.behavior;
-    const maxEsc = b === 'capturer' || b === 'tank' ? 2 : (b === 'basic' || b === 'splitter') && r.chance(0.4) ? 1 : 0;
+    const maxEsc = b === 'capturer' ? 2 : b === 'tank' ? 1 : (b === 'basic' || b === 'splitter') && r.chance(0.4) ? 1 : 0;
     const sp = this.colSp;
     const esc = inForm.filter(o => o !== leader && o.slot[1] > leader.slot[1] && o.slot[1] - leader.slot[1] < this.rowSp + 4 && Math.abs(o.slot[0] - leader.slot[0]) < sp * 1.2)
       .sort((a, c) => Math.abs(a.slot[0] - leader.slot[0]) - Math.abs(c.slot[0] - leader.slot[0])).slice(0, Math.max(0, Math.min(maxEsc, room - 1)));
     const path = divePath(leader.x, leader.y, px + r.range(-T.aimSlop, T.aimSlop), b === 'splitter' ? 'basic' : b, r.range(-1, 1), H);
     const speed = T.diveSpeed * (b === 'diver' ? 1.15 : b === 'tank' ? 0.8 : b === 'capturer' ? 0.9 : 1);
+    // escorts fly abreast of the leader (one each side, a little behind), never stacked in its column
+    let first = 0;
     for (const c of [leader, ...esc]) {
-      const ox = c.x - leader.x, oy = c.y - leader.y;
-      c.track = new Track(path.map(p => [p[0] + ox, p[1] + oy] as Pt)); c.s = 0; c.speed = speed; c.lat = 0;
+      const side = c === leader ? 0 : first ? -first : (first = Math.sign(c.slot[0] - leader.slot[0]) || 1);
+      const ox = side * 26, oy = side ? 8 : 0;
+      c.track = new Track([[c.x, c.y], ...path.slice(1).map(p => [p[0] + ox, p[1] + oy] as Pt)]); c.s = 0; c.speed = speed; c.lat = 0;
       c.weave = c.def.behavior === 'zigzag' ? 14 : 0;
       c.st = 'dive'; c.group = leader.id; c.beam = 0; c.beamUsed = false;
       c.shots = r.int(0, T.diveShots) + (c.def.behavior === 'shooter' ? 1 : 0);
@@ -538,7 +556,7 @@ class Interaction implements Module {
     this.rowSp = 36; this.colSp = COL_SP; const x0 = WORLD_W / 2 - (7 * COL_SP) / 2; this.hurry = 0;
     const top = this.formTop = FORM_TOP + (rows.some(([b]) => this.enemy(b).behavior === 'capturer') ? PUP_LIFT : 0);
     rows.forEach(([breed, cs, row], ri) => { const def = this.enemy(breed); for (const c of cs) { const slot: Pt = [x0 + c * COL_SP, top + (row ?? ri) * 36]; this.cats.push(this.mkCat(def, slot[0], slot[1], 'form', { slot })); } });
-    this.total = this.cats.length; this.sway = 40 * Math.PI * 2; // breathing at rest
+    this.total = this.cats.length; this.sway = 40 * Math.PI * 2; this.cx = WORLD_W / 2; // breathing at rest
     const holder = this.cats.find(c => c.def.behavior === 'capturer' && c.slot[0] > WORLD_W / 2 - COL_SP && c.slot[0] < WORLD_W / 2);
     if (holder) holder.pup = true;
   }

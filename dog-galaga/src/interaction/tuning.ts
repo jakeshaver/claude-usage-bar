@@ -38,10 +38,10 @@ export function tuning(g: Game, fireRate = 0.0016, diveRate = 0.0022): Tuning {
     bossSpitCap: Math.round(lerp(11, 16, d)),
     fireEvery: Math.round(lerp(110, 66, d) / fr),
     diveEvery: Math.round(lerp(170, 112, d) / dr),
-    diveGroups: d < 0.45 ? 1 : 2,                 // 2 groups from the midpoint (a leader + escort pair at most)
-    maxDivers: d < 0.45 ? 3 : 4,                  // Galaga: 1-2 divers, or a trio with escorts, never a swarm
+    diveGroups: d < 0.7 ? 1 : 2,                  // a second group only in the last sectors
+    maxDivers: d < 0.45 ? 2 : 3,                  // Galaga: 1-2 divers, or a leader with escorts, never a swarm
     diveSpeed: lerp(2.5, 3.15, d),
-    entrySpeed: lerp(3.2, 3.6, d),   // brisk streams: the grid assembles in a few seconds
+    entrySpeed: lerp(4.0, 4.4, d),   // brisk streams: the grid assembles in ~4s (Galaga)
     diveShots: d < 0.3 ? 1 : 2,
     tell: Math.round(lerp(24, 16, d)),
     aimSlop: Math.round(lerp(56, 30, d)),
