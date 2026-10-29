@@ -110,3 +110,18 @@ night with day-coloured pendant pools); sky and space tilesets keep their own ba
 - P1-2: ARCHITECTURE.md section 2 time-of-day paragraph replaced with your wording.
 - Forwarded from interaction: check the 1px light line near y=140 in park/cafe night and moon (segment seam, the
   dissolve's `fillRect(0, edge - 1, W, 2)`, or the cafe-night floor rectangle's light outline).
+
+## Polish 2
+
+- ARCHITECTURE.md section 2, "Time of day is light, not a recolour": please replace that paragraph. The world no
+  longer computes lit colours with OKLab matching or dithers between two entries across the playfield. New text:
+  "**Time of day is a palette remap**: segments are painted into a palette-index buffer in day colours, then each
+  time of day applies a hand-authored palette index -> palette index table (`world/paint.ts` `TOD_RAMP`,
+  `INDOOR_RAMP`, `SPACE_RAMP`, plus per-tileset `ramps` in `world/tiles.ts`) when the segment is cached. Every pixel
+  maps to exactly one entry, so there is no global dither and the band behind the formation stays flat and calm.
+  Day is brightest and most neutral; dawn is a little lower and cool (slate neutrals, whites to pale lavender,
+  creams/yellows to peach-pink, dew-teal grass tips); dusk is lower and warm (woods a step deeper, greys into plum,
+  amber grass tips, amber rim light on west faces, long plum shadows cast east); night is navy with lit windows and
+  lamps. Dither is only used for small local light: lamp pools are centred on their source with a solid core that
+  BRIGHTENS the pixels (day colours, not a tint) and an ordered falloff (50% core/edge, solid edge, 50% and 25%
+  edge/dark rings); sunbeam and rim edges. Foreground canopies (`fg`) stay within ~36px of the world edges."
