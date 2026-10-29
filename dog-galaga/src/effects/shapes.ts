@@ -1,8 +1,10 @@
 import { PALETTE, KEY } from '../core/palette';
 
 /**
- * Pixel-art particle shapes. Each is a tiny bitmap:
- *   x = main color, o = shade (darker step of the main color), h = highlight (white), . = clear.
+ * Pixel-art particle shapes and hand-composed effect frames. Each is a tiny palette-indexed bitmap:
+ *   x = main (tint) color, o = shade (darker step of the tint), h / w = white highlight,
+ *   l = cream light (warm highlight, used on turd crumbs), p = pink, q = hot pink (pink shade),
+ *   k = ink, . = clear.
  * Shapes are rasterized once per (shape, palette color) into a cached canvas, so drawing a particle
  * is a single integer-aligned drawImage. Circles (rings / discs) use the midpoint algorithm: no ctx.arc,
  * no anti-aliasing.
@@ -15,6 +17,8 @@ const SHADE: Record<string, string> = {
   'i': 'j', 'j': 'k', 'k': '1', 'l': 'm', 'm': 'n', 'n': '2', 'o': 'p', 'p': 'q', 'q': '0', 'r': 'e', 's': 'l', 't': 'u', 'u': '2',
   '5': '4', '4': '3', '3': '2', '2': '1', '1': '0', '0': '0', 'v': '0',
 };
+/** outline ink: palette 0 (true near-black) so outlines separate on both pale (moon, snow) and navy (docks, alley) areas */
+export const INK = PALETTE[0];
 
 function circleBitmap(r: number): string[] { // filled, with highlight top-left and shade bottom-right
   const n = r * 2 + 1, rows: string[] = [];
@@ -33,6 +37,78 @@ function circleBitmap(r: number): string[] { // filled, with highlight top-left 
   return rows;
 }
 
+// ------------------------------------------------------------ the designed 'boop' kill animation
+// A 7-frame hand-composed pop: white disc -> bigger disc with a tint rim -> 6-point star with bevel ->
+// bigger star -> breaks into 4 hearts flying out on the diagonals -> hearts shrink and twinkle out.
+// Composed on a fixed 49x49 grid (center 24,24) so every frame shares one anchor.
+const BS = 24, BN = BS * 2 + 1;
+type Grid = string[][];
+const grid = (): Grid => { const g: Grid = []; for (let y = 0; y < BN; y++) { g.push([]); for (let x = 0; x < BN; x++) g[y].push('.'); } return g; };
+const put = (g: Grid, x: number, y: number, ch: string) => { if (x >= 0 && y >= 0 && x < BN && y < BN) g[y][x] = ch; };
+function stamp(g: Grid, rows: string[], cx: number, cy: number) {
+  const ox = cx - (rows[0].length >> 1), oy = cy - (rows.length >> 1);
+  rows.forEach((r, y) => { for (let x = 0; x < r.length; x++) if (r[x] !== '.') put(g, ox + x, oy + y, r[x]); });
+}
+function disc(g: Grid, r: number, body: string, rim: string) {
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+    const d2 = dx * dx + dy * dy; if (d2 > r * r + r * 0.8) continue;
+    put(g, BS + dx, BS + dy, d2 > (r - 1) * (r - 1) + (r - 1) * 0.8 ? rim : body);
+  }
+}
+function inPoly(px: number, py: number, vs: number[]) {
+  let inside = false;
+  for (let i = 0, j = vs.length - 2; i < vs.length; j = i, i += 2) {
+    const xi = vs[i], yi = vs[i + 1], xj = vs[j], yj = vs[j + 1];
+    if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+/** 6-point star with a bevel: highlight on the upper-left rim, shade on the lower-right rim, white core */
+function star(g: Grid, R: number, r: number, core: number) {
+  const vs: number[] = [];
+  for (let i = 0; i < 12; i++) { const a = -Math.PI / 2 + i * Math.PI / 6, rr = i & 1 ? r : R; vs.push(Math.cos(a) * rr, Math.sin(a) * rr); }
+  const on = (dx: number, dy: number) => inPoly(dx, dy, vs);
+  for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+    if (!on(dx, dy)) continue;
+    let ch = 'x';
+    if (dx * dx + dy * dy <= core * core + core * 0.8) ch = 'w';
+    else if (!on(dx + 1, dy + 1) || !on(dx + 1, dy)) ch = 'o';
+    else if (!on(dx - 1, dy - 1) || !on(dx - 1, dy)) ch = 'h';
+    put(g, BS + dx, BS + dy, ch);
+  }
+}
+const HEART7P = ['.pp.pp.', 'pwppppp', 'pwppppq', 'ppppppq', '.ppppq.', '..ppq..', '...q...'];
+const HEART5P = ['pp.pp', 'pwppp', 'ppppq', '.ppq.', '..q..'];
+const SPARK5W = ['..w..', '..w..', 'wwwww', '..w..', '..w..'];
+function hearts(g: Grid, d: number, rows: string[]) {
+  const o = Math.round(d * 0.7071);
+  stamp(g, rows, BS - o, BS - o); stamp(g, rows, BS + o, BS - o); stamp(g, rows, BS - o, BS + o); stamp(g, rows, BS + o, BS + o);
+}
+/** ink outline around the composed frame (8-neighbour so diagonals of the star tips stay closed) */
+function outline(g: Grid) {
+  const src = g.map(r => r.slice());
+  for (let y = 0; y < BN; y++) for (let x = 0; x < BN; x++) {
+    if (src[y][x] !== '.') continue;
+    let hit = false;
+    for (let j = -1; j <= 1 && !hit; j++) for (let i = -1; i <= 1; i++) { const yy = y + j, xx = x + i; if (yy >= 0 && xx >= 0 && yy < BN && xx < BN && src[yy][xx] !== '.') { hit = true; break; } }
+    if (hit) g[y][x] = 'k';
+  }
+}
+function boopFrame(n: number): string[] {
+  const g = grid();
+  switch (n) {
+    case 0: star(g, 9, 4, 2); break; // impact starburst (not a flat disc: reads as a hit, not a circle)
+    case 1: disc(g, 9, 'w', 'x'); break;
+    case 2: star(g, 13, 6, 3); break;
+    case 3: star(g, 17, 8, 3); stamp(g, SPARK5W, BS, BS); break;
+    case 4: hearts(g, 13, HEART7P); stamp(g, ['.w.', 'wxw', '.w.'], BS, BS); break;
+    case 5: hearts(g, 18, HEART7P); stamp(g, ['x'], BS, BS - 15); stamp(g, ['x'], BS, BS + 15); stamp(g, ['x'], BS - 15, BS); stamp(g, ['x'], BS + 15, BS); break;
+    default: hearts(g, 22, HEART5P); break;
+  }
+  outline(g);
+  return g.map(r => r.join(''));
+}
+
 const DEFS: Record<string, string[]> = {
   dot1: ['x'],
   dot2: ['xx', 'xo'],
@@ -43,19 +119,38 @@ const DEFS: Record<string, string[]> = {
   heart3: ['x.x', 'xxx', '.o.'],
   heart5: ['xx.xx', 'xhxxx', 'xxxxo', '.xxo.', '..o..'],
   heart7: ['.xx.xx.', 'xhxxxxx', 'xhxxxxo', 'xxxxxxo', '.xxxxo.', '..xxo..', '...o...'],
-  chunk3: ['hx.', 'xxo', '.oo'],
-  chunk4: ['.hx.', 'hxxx', 'xxxo', '.oo.'],
-  splat9: ['x...x...x', '.x.xxx.x.', '..xhhxx..', 'xxhxxxxxo', '..xxxxo..', '.o.xxo.o.', 'o...o...o'],
-  conf_h: ['xxx', 'ooo'], conf_d: ['xx.', 'xoo', '.oo'], conf_v: ['xo', 'xo', 'xo'], conf_s: ['xxx'],
+  heart76: ['.xx.xx.', 'xhxxxxx', 'xxxxxxo', '.xxxxo.', '..xxo..', '...o...'],
+  heart9: ['.xxx.xxx.', 'xhhxxxxxx', 'xhxxxxxxo', 'xxxxxxxxo', '.xxxxxxo.', '..xxxxo..', '...xxo...', '....o....'],
+  // turd crumbs: cream highlight rim so they read on navy night stages
+  chunk3: ['ll.', 'lxx', '.xo'],
+  chunk4: ['.ll.', 'lxxx', 'lxxo', '.oo.'],
+  chunk5: ['.lll.', 'lxxxl', 'lxxxo', 'xxxoo', '.ooo.'],
+  // the signature 'cute gross' turd splat: a 15x9 squash with a cream highlight blob and drips,
+  // spreading to a 17x9 splat, then drying to an 11x6 smear. All get the 1px ink outline.
+  splatSquash: ['.....xxxxx.....', '..xx.xllxxx.xx.', '.xxxxxlllxxxxx.', 'xxxxxxxllxxxxxx', 'xxxxxxxxxxxxxxo', '.oxxxxxxxxxxxo.', 'x.ooxxxxxxxoo.x', '...o.ooooo.o...', '..o.........o..'],
+  splat17: ['x...xx.xxx.xx...x', '.x..xllxxxxxx..x.', '..xxxxlllxxxxxx..', '.xxxxxxlxxxxxxxx.', 'xxxxxxxxxxxxxxxxo', '..oxxxxxxxxxxxo..', '.o..ooxxxxxoo..o.', 'o....o.ooo.o....o', '.......o.o.......'],
+  splatDry: ['...xxxxx...', '.xxxllxxxx.', 'xxxxxlxxxxo', 'xoxxxxxxxoo', '.o.ooooo.o.', '..o.....o..'],
+  // stink squiggles: wavy 1px lines, two phases so they wiggle as they rise
+  stinkA: ['x.', '.x', 'x.', '.x', 'x.'], stinkB: ['.x', 'x.', '.x', 'x.', '.x'],
+  // confetti: 2x4 strip and 3x3 square, front -> shade -> edge-on flip (never thinner than 2px; ink-outlined)
+  c24f: ['xh', 'xx', 'xx', 'xo'], c24s: ['oo', 'oo', 'oo', 'oo'], c24e: ['xo', 'xo', 'xo'], c24d: ['x..', 'xx.', '.xo', '..o'],
+  c33f: ['xhx', 'xxx', 'xxo'], c33s: ['ooo', 'ooo', 'ooo'], c33e: ['xxx', 'ooo'], c33d: ['.x.', 'xxo', '.o.'],
+  // streamers: 1px wavy ribbon, 9 tall, two phases
+  strA: ['x.', 'x.', '.x', '.x', 'x.', 'x.', '.x', '.o', 'o.'], strB: ['.x', '.x', 'x.', 'x.', '.x', '.x', 'x.', 'o.', '.o'],
   puff1: circleBitmap(1), puff2: circleBitmap(2), puff3: circleBitmap(3), puff4: circleBitmap(4),
   puff5: circleBitmap(5), puff6: circleBitmap(6),
+  boop0: boopFrame(0), boop1: boopFrame(1), boop2: boopFrame(2), boop3: boopFrame(3), boop4: boopFrame(4), boop5: boopFrame(5), boop6: boopFrame(6),
 };
 /** shapes that get a 1px dark outline so they pop off busy backgrounds (Galaga-crisp) */
-const OUTLINED = new Set(['star5', 'star7', 'heart5', 'heart7', 'spark5', 'chunk4', 'splat9', 'puff2', 'puff3', 'puff4', 'puff5', 'puff6']);
-const INK = '#2a2438';
+const OUTLINED = new Set(['star5', 'star7', 'heart5', 'heart7', 'heart76', 'heart9', 'heart3', 'plus3', 'spark5', 'chunk3', 'chunk4', 'chunk5', 'splat17', 'splatDry', 'splatSquash',
+  'stinkA', 'stinkB', 'c24f', 'c24s', 'c24e', 'c24d', 'c33f', 'c33s', 'c33e', 'c33d', 'strA', 'strB']);
+/** shapes drawn in two passes (all ink silhouettes first, then all fills) so overlapping clusters merge
+ *  into one outlined cloud instead of a honeycomb of separately outlined circles */
+const MERGED = new Set(['puff2', 'puff3', 'puff4', 'puff5', 'puff6']);
 const NAMES = Object.keys(DEFS);
 const ID: Record<string, number> = Object.fromEntries(NAMES.map((n, i) => [n, i]));
 export const SH = ID;
+export const MERGED_FLAG: boolean[] = NAMES.map(n => MERGED.has(n));
 
 /** animation sequences: a particle steps through these over its life */
 export const SEQS: number[][] = [];
@@ -66,43 +161,60 @@ export const SEQ = {
   star: seq('star7', 'star7', 'star5', 'plus3', 'dot1'),
   heart: seq('heart7', 'heart7', 'heart5', 'heart5', 'heart3'),
   heartSmall: seq('heart5', 'heart5', 'heart3', 'dot1'),
-  fur: seq('puff2', 'puff3', 'puff3', 'puff2', 'puff2', 'puff1', 'dot1'),
-  chunk: seq('chunk4', 'chunk4', 'chunk3', 'dot2', 'dot1'),
-  splat: seq('splat9', 'splat9', 'splat9', 'chunk4'),
+  heartBig: seq('heart9', 'heart9', 'heart9', 'heart9', 'heart76', 'heart76', 'heart5'),
+  heartMid: seq('heart76', 'heart76', 'heart76', 'heart76', 'heart5', 'heart5'),
+  heartHold5: seq('heart5', 'heart5', 'heart5', 'heart5', 'heart3'),
+  puffBig: seq('puff6', 'puff6', 'puff5', 'puff4', 'puff3', 'puff2'),
+  furUp: seq('puff3', 'puff4', 'puff4', 'puff3', 'puff3', 'puff2', 'puff1'),
+  fur: seq('puff2', 'puff3', 'puff3', 'puff2', 'puff2', 'puff1'),
+  chunk: seq('chunk5', 'chunk4', 'chunk4', 'chunk3', 'chunk3', 'dot2'),
+  splat: seq('splatSquash', 'splatSquash', 'splat17', 'splat17', 'splat17', 'splat17', 'splatDry', 'splatDry'),
+  impact: seq('star7', 'spark5', 'plus3'),
+  stink: seq('stinkA', 'stinkB'),
   boom: seq('puff3', 'puff5', 'puff6', 'puff6', 'puff5', 'puff4', 'puff3', 'puff2', 'puff1'),
-  confetti: seq('conf_h', 'conf_d', 'conf_v', 'conf_d', 'conf_h', 'conf_s'),
+  // confetti flips (indexed by its own flutter clock, not by life)
+  confRect: seq('c24f', 'c24f', 'c24d', 'c24e', 'c24s', 'c24s', 'c24d', 'c24e'),
+  confSq: seq('c33f', 'c33f', 'c33d', 'c33e', 'c33s', 'c33s', 'c33d', 'c33e'),
+  streamer: seq('strA', 'strB'),
 };
+/** the designed kill pop: frame shape ids and per-frame durations (ticks) */
+export const BOOP_FRAMES = ['boop0', 'boop1', 'boop2', 'boop3', 'boop4', 'boop5', 'boop6'].map(n => ID[n]);
+export const BOOP_DUR = [3, 3, 5, 5, 5, 5, 6];
 
 const shapeCache: (HTMLCanvasElement | undefined)[] = [];
-export function shapeCanvas(shape: number, color: number): HTMLCanvasElement {
-  const key = shape * 32 + color;
+/** mode 0 = normal, 1 = ink silhouette grown by 1px (for merged two-pass clusters) */
+export function shapeCanvas(shape: number, color: number, mode = 0): HTMLCanvasElement {
+  const key = (shape * 32 + color) * 2 + mode;
   let c = shapeCache[key];
   if (c) return c;
   const rows = DEFS[NAMES[shape]] ?? DEFS.dot1;
   const k = KEY[color] ?? '6';
-  const main = PALETTE[color] ?? '#ffffff', shade = PALETTE[P(SHADE[k] ?? k)] ?? main, hi = PALETTE[6];
-  const pad = OUTLINED.has(NAMES[shape]) ? 1 : 0, w = rows[0].length, h = rows.length;
+  const main = PALETTE[color] ?? '#ffffff', shade = PALETTE[P(SHADE[k] ?? k)] ?? main;
+  const pad = mode === 1 || OUTLINED.has(NAMES[shape]) ? 1 : 0, w = rows[0].length, h = rows.length;
   c = document.createElement('canvas'); c.width = w + pad * 2; c.height = h + pad * 2;
   const x = c.getContext('2d')!;
   const on = (i: number, y: number) => y >= 0 && y < h && i >= 0 && i < w && rows[y][i] !== '.';
-  if (pad) { // outline: every clear pixel 4-adjacent to the shape
+  if (pad) { // outline: every clear pixel 4-adjacent to the shape (silhouette mode: the shape too)
     x.fillStyle = INK;
     for (let y = -1; y <= h; y++) for (let i = -1; i <= w; i++)
-      if (!on(i, y) && (on(i - 1, y) || on(i + 1, y) || on(i, y - 1) || on(i, y + 1))) x.fillRect(i + pad, y + pad, 1, 1);
+      if ((mode === 1 && on(i, y)) || (!on(i, y) && (on(i - 1, y) || on(i + 1, y) || on(i, y - 1) || on(i, y + 1)))) x.fillRect(i + pad, y + pad, 1, 1);
   }
-  for (let y = 0; y < h; y++) for (let i = 0; i < w; i++) {
+  if (mode === 0) for (let y = 0; y < h; y++) for (let i = 0; i < w; i++) {
     const ch = rows[y][i]; if (ch === '.') continue;
-    x.fillStyle = ch === 'o' ? shade : ch === 'h' ? hi : main; x.fillRect(i + pad, y + pad, 1, 1);
+    x.fillStyle = ch === 'x' ? main : ch === 'o' ? shade : ch === 'h' || ch === 'w' ? PALETTE[6] : ch === 'l' ? PALETTE[7]
+      : ch === 'p' ? PALETTE[12] : ch === 'q' ? PALETTE[13] : ch === 'k' ? INK : main;
+    x.fillRect(i + pad, y + pad, 1, 1);
   }
   shapeCache[key] = c; return c;
 }
 
 export const CIRCLE_RING = 0, CIRCLE_DASH = 1, CIRCLE_FILL = 2;
 const circCache: (HTMLCanvasElement | undefined)[] = [];
-/** Midpoint circle of radius r (canvas is 2r+1 square; draw at cx-r, cy-r). */
-export function circleCanvas(r: number, color: number, mode: number): HTMLCanvasElement {
-  r = Math.max(0, Math.min(127, r | 0));
-  const key = (r * 32 + color) * 3 + mode;
+/** Midpoint circle of radius r (canvas is 2r+1 square; draw at cx-r, cy-r).
+ *  `erase` 0..3 is an ordered-dither fade along the arc: solid, 75%, 50%, 25% of the pixels kept. */
+export function circleCanvas(r: number, color: number, mode: number, erase = 0): HTMLCanvasElement {
+  r = Math.max(0, Math.min(127, r | 0)); erase = Math.max(0, Math.min(3, erase | 0));
+  const key = ((r * 32 + color) * 3 + mode) * 4 + erase;
   let c = circCache[key];
   if (c) return c;
   const n = r * 2 + 1;
@@ -119,12 +231,146 @@ export function circleCanvas(r: number, color: number, mode: number): HTMLCanvas
     let x = r, y = 0, err = 1 - r, step = 0;
     while (x >= y) {
       // dashed: keep 2 of every 4 steps along the arc
-      if (mode !== CIRCLE_DASH || (step & 2) === 0) {
-        const pts = [r + x, r + y, r - x, r + y, r + x, r - y, r - x, r - y, r + y, r + x, r - y, r + x, r + y, r - x, r - y, r - x];
-        for (let i = 0; i < 16; i += 2) g.fillRect(pts[i], pts[i + 1], 1, 1);
+      const keep = erase === 0 || (erase === 1 ? (step & 3) !== 3 : erase === 2 ? (step & 1) === 0 : (step & 3) === 0);
+      if (keep && (mode !== CIRCLE_DASH || (step & 2) === 0)) {
+        g.fillRect(r + x, r + y, 1, 1); g.fillRect(r - x, r + y, 1, 1); g.fillRect(r + x, r - y, 1, 1); g.fillRect(r - x, r - y, 1, 1);
+        g.fillRect(r + y, r + x, 1, 1); g.fillRect(r - y, r + x, 1, 1); g.fillRect(r + y, r - x, 1, 1); g.fillRect(r - y, r - x, 1, 1);
       }
       step++; y++; if (err < 0) err += 2 * y + 1; else { x--; err += 2 * (y - x) + 1; }
     }
   }
   circCache[key] = c; return c;
+}
+
+/** Text with a 1px ink outline on all 8 neighbours (2px at scale >= 2), cached per (label, color, scale, drop).
+ *  Optional drop color sits under the outline, offset down by one text pixel, for a chunky arcade look. */
+const textCache = new Map<string, HTMLCanvasElement>();
+type TextFn = (ctx: CanvasRenderingContext2D, s: string, x: number, y: number, color: string, opts: { scale?: number }) => void;
+export function outlinedText(draw: TextFn, label: string, color: string, scale = 1, drop = ''): HTMLCanvasElement {
+  const key = label + '|' + color + '|' + scale + '|' + drop;
+  let c = textCache.get(key); if (c) return c;
+  const w = [...label].length * 6 * scale - scale, h = 7 * scale, o = scale > 1 ? 2 : 1, dy = drop ? scale : 0;
+  c = document.createElement('canvas'); c.width = w + o * 2; c.height = h + o * 2 + dy;
+  const x = c.getContext('2d')!;
+  if (drop) for (let j = -o; j <= o; j++) for (let i = -o; i <= o; i++) draw(x, label, o + i, o + j + dy, drop, { scale });
+  for (let j = -o; j <= o; j++) for (let i = -o; i <= o; i++) if (i || j) draw(x, label, o + i, o + j, INK, { scale });
+  draw(x, label, o, o, color, { scale });
+  if (textCache.size > 400) textCache.clear();
+  textCache.set(key, c); return c;
+}
+
+/** Palette-legal flash: an ordered-dither screen of one color (density 2 = 50% checker, 4 = 25%, 8 = 12.5%). */
+const flashCache = new Map<string, HTMLCanvasElement>();
+export function ditherCanvas(color: string, w: number, h: number, density: number): HTMLCanvasElement {
+  const key = color + density;
+  let c = flashCache.get(key); if (c) return c;
+  c = document.createElement('canvas'); c.width = w; c.height = h;
+  const x = c.getContext('2d')!; x.fillStyle = color;
+  for (let y = 0; y < h; y++) for (let i = 0; i < w; i++) {
+    const on = density <= 2 ? ((i + y) & 1) === 0
+      : density <= 4 ? (i & 1) === 0 && (y & 1) === 0
+      : (y & 1) === 0 && ((i + (y & 2)) & 3) === 0;
+    if (on) x.fillRect(i, y, 1, 1);
+  }
+  flashCache.set(key, c); return c;
+}
+
+// ------------------------------------------------------------ 'BOOPED!' finale banner (hand-drawn, 1x)
+// Chunky 7x8 letters (2px strokes) in yellow with a white top bevel and orange foot, a 1px ink outline,
+// a 2px plum drop shadow, on an opaque hot-pink ribbon plate with forked tails. Opaque, so it reads on
+// any backdrop (moon signboards, string lights, navy sky).
+const GLYPH: Record<string, string[]> = {
+  B: ['xxxxxx.', 'xx...xx', 'xx...xx', 'xxxxxx.', 'xx...xx', 'xx...xx', 'xx...xx', 'xxxxxx.'],
+  O: ['.xxxxx.', 'xx...xx', 'xx...xx', 'xx...xx', 'xx...xx', 'xx...xx', 'xx...xx', '.xxxxx.'],
+  P: ['xxxxxx.', 'xx...xx', 'xx...xx', 'xx...xx', 'xxxxxx.', 'xx.....', 'xx.....', 'xx.....'],
+  E: ['xxxxxxx', 'xx.....', 'xx.....', 'xxxxxx.', 'xx.....', 'xx.....', 'xx.....', 'xxxxxxx'],
+  D: ['xxxxx..', 'xx..xx.', 'xx...xx', 'xx...xx', 'xx...xx', 'xx...xx', 'xx..xx.', 'xxxxx..'],
+  '!': ['xx', 'xx', 'xx', 'xx', 'xx', '..', 'xx', 'xx'],
+};
+export const BANNER_W = 86, BANNER_H = 24;
+let bannerCv: HTMLCanvasElement | null = null, bannerWhite: HTMLCanvasElement | null = null;
+/** white = all-white letters (the entry flash frame) */
+export function bannerCanvas(white = false): HTMLCanvasElement {
+  const hit = white ? bannerWhite : bannerCv; if (hit) return hit;
+  const W = BANNER_W, H = BANNER_H, g: string[][] = [];
+  for (let y = 0; y < H; y++) { g.push([]); for (let x = 0; x < W; x++) g[y].push('.'); }
+  const set = (x: number, y: number, k: string) => { if (x >= 0 && y >= 0 && x < W && y < H) g[y][x] = k; };
+  // forked tails (behind the plate, lower)
+  for (let y = 7; y < 22; y++) for (let x = 0; x < 13; x++) {
+    const notch = Math.abs(y - 14.5) < 4 - x * 0.75; // V cut on the outer edge
+    if (!notch) { set(x, y, 'e'); set(W - 1 - x, y, 'e'); }
+  }
+  for (let x = 0; x < 13; x++) { set(x, 7, 'd'); set(W - 1 - x, 7, 'd'); } // tail highlight
+  // fold shading where tails tuck under the plate
+  for (let y = 16; y < 22; y++) { set(9, y, 'v'); set(10, y, 'v'); set(W - 10, y, 'v'); set(W - 11, y, 'v'); }
+  // plate x 8..77, y 1..19, corners cut
+  for (let y = 1; y < 20; y++) for (let x = 9; x < W - 9; x++) {
+    if ((y === 1 || y === 19) && (x < 11 || x > W - 12)) continue;
+    if ((y === 2 || y === 18) && (x < 10 || x > W - 11)) continue;
+    set(x, y, y <= 3 ? 'c' : y >= 17 ? 'e' : 'd');
+  }
+  // stitch dots along the plate edges
+  for (let x = 13; x < W - 13; x += 3) { set(x, 3, '7'); set(x, 17, 'c'); }
+  // letters: B O O P E D !
+  const word = 'BOOPED!'; let w = 0; for (const ch of word) w += GLYPH[ch][0].length + 2; w -= 2;
+  let ox = Math.round((W - w) / 2), oy = 6;
+  const letters: [number, number][] = [];
+  for (const ch of word) {
+    const rows = GLYPH[ch];
+    for (let y = 0; y < rows.length; y++) for (let x = 0; x < rows[y].length; x++) if (rows[y][x] === 'x') letters.push([ox + x, oy + y]);
+    ox += rows[0].length + 2;
+  }
+  const isL = new Set(letters.map(([x, y]) => y * W + x));
+  // 2px drop shadow (down-right), then 1px ink outline (8-neighbour), then the letter fill
+  for (const [x, y] of letters) for (let d = 1; d <= 2; d++) if (!isL.has((y + d) * W + x + 1)) set(x + 1, y + d, 'v');
+  for (const [x, y] of letters) for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) if (!isL.has((y + j) * W + x + i)) set(x + i, y + j, '0');
+  for (const [x, y] of letters) set(x, y, white ? '6' : y === oy ? '6' : y >= oy + 6 ? 'g' : 'f');
+  // ink outline around the whole plate + tails
+  const src = g.map(r => r.slice());
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (src[y][x] !== '.') continue;
+    if ((x > 0 && src[y][x - 1] !== '.') || (x < W - 1 && src[y][x + 1] !== '.') || (y > 0 && src[y - 1][x] !== '.') || (y < H - 1 && src[y + 1][x] !== '.')) g[y][x] = '0';
+  }
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d')!;
+  for (let y = 0; y < H; y++) for (let i = 0; i < W; i++) { const k = g[y][i]; if (k === '.') continue; x.fillStyle = PALETTE[P(k)]; x.fillRect(i, y, 1, 1); }
+  if (white) bannerWhite = c; else bannerCv = c;
+  return c;
+}
+
+/** Silhouette of any canvas in one palette color (for 1px sprite outline flicker), cached per (canvas, color). */
+const silCache = new WeakMap<HTMLCanvasElement, Map<string, HTMLCanvasElement>>();
+export function silhouette(src: HTMLCanvasElement, color: string): HTMLCanvasElement {
+  let m = silCache.get(src); if (!m) { m = new Map(); silCache.set(src, m); }
+  let c = m.get(color); if (c) return c;
+  c = document.createElement('canvas'); c.width = src.width; c.height = src.height;
+  const x = c.getContext('2d')!; x.drawImage(src, 0, 0); x.globalCompositeOperation = 'source-in'; x.fillStyle = color; x.fillRect(0, 0, c.width, c.height);
+  m.set(color, c); return c;
+}
+
+/** Repaint outlined text into a caller-owned canvas (reused across value changes: no allocation once it is big
+ *  enough). Outline is palette 0 on all 8 neighbours plus a 1px drop under it (chunky arcade label that separates
+ *  on grass, snow and navy night alike). Returns the used [w, h]; draw with a source rect. */
+export function paintText(c: HTMLCanvasElement, draw: TextFn, label: string, color: string, scale = 1): [number, number] {
+  const w = [...label].length * 6 * scale - scale, h = 7 * scale, o = scale > 1 ? 2 : 1;
+  const cw = w + o * 2, ch = h + o * 2 + scale;
+  if (c.width < cw || c.height < ch) { c.width = Math.max(c.width, cw + 12 * scale); c.height = Math.max(c.height, ch); }
+  const x = c.getContext('2d')!;
+  x.clearRect(0, 0, c.width, c.height);
+  for (let j = -o; j <= o + scale; j++) for (let i = -o; i <= o; i++) if (i || j) draw(x, label, o + i, o + j, INK, { scale });
+  draw(x, label, o, o, color, { scale });
+  return [cw, ch];
+}
+
+/** 50% checker of one color clipped to a canvas's shape: a 'flash' overlay that keeps the sprite's own detail
+ *  readable underneath (instead of a formless solid-white silhouette). Cached per (canvas, color). */
+const checkCache = new WeakMap<HTMLCanvasElement, Map<string, HTMLCanvasElement>>();
+export function checkerSilhouette(src: HTMLCanvasElement, color: string): HTMLCanvasElement {
+  let m = checkCache.get(src); if (!m) { m = new Map(); checkCache.set(src, m); }
+  let c = m.get(color); if (c) return c;
+  c = document.createElement('canvas'); c.width = src.width; c.height = src.height;
+  const x = c.getContext('2d')!; x.fillStyle = color;
+  for (let y = 0; y < c.height; y++) for (let i = (y & 1); i < c.width; i += 2) x.fillRect(i, y, 1, 1);
+  x.globalCompositeOperation = 'destination-in'; x.drawImage(src, 0, 0);
+  m.set(color, c); return c;
 }
