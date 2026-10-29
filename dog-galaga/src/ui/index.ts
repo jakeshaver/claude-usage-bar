@@ -6,7 +6,7 @@ import { W, H, PF_X, PF_W } from '../core/game';
 import { text, wrap, textWidth } from '../art/font';
 import { drawSprite, spriteCanvas, frameCount, SHEETS } from '../art/sprite';
 import { KEY, col } from '../core/palette';
-import { C, frame, bar, segBar, menu, scanlines, header, icon, rect, line, ring, disc, dither, arrow, keycap, hintRow, hintWidth, chamferFill, chamferLine, darkOf, lighter, keys, ticks, dimRect, type Device, type Row } from './draw';
+import { C, frame, bar, segBar, menu, scanlines, header, icon, rect, line, ring, disc, dither, lightSpans, arrow, keycap, hintRow, hintWidth, chamferFill, chamferLine, darkOf, lighter, keys, ticks, dimRect, type Device, type Row } from './draw';
 import { logoWord, drawLogo, PINK, CYAN, GOLD } from './logo';
 import { glyph } from './glyphs';
 import { Touch } from './touch';
@@ -43,6 +43,23 @@ function breedColor(sprite: string): string {
   const best = Object.entries(n).sort((a, b) => b[1] - a[1])[0]?.[0];
   c = best ? col(best) : C.hot;
   breedColors.set(sprite, c); return c;
+}
+
+/** HUD hostiles icon tones per breed, read off each sprite: [coat, points (ears + muzzle), eyes] palette keys. */
+const BREED_TONES: Record<string, [string, string, string]> = {
+  tabby: ['g', 'h', 'i'], tuxedo: ['q', '6', 'f'], siamese: ['7', 'b', 'l'], calico: ['6', 'g', 'f'],
+  persian: ['6', '8', 'g'], bengal: ['f', 'b', 'i'], sphynx: ['c', 'd', 'i'], mainecoon: ['9', 'b', 'i'],
+  russianblue: ['o', 'p', 'i'], scottishfold: ['o', 'q', 'g'], kitten: ['g', 'h', 'f'],
+};
+/** 7x7 cat head in a breed's own colours (coat, darker ear / muzzle points, eye colour) with an ink drop shadow. */
+function breedIcon(ctx: CanvasRenderingContext2D, id: string, sprite: string, x: number, y: number) {
+  const tn = BREED_TONES[id];
+  if (!tn) { icon(ctx, 'cat', x, y, breedColor(sprite), C.ink); return; }
+  const [coat, pt, eye] = tn.map(k => col(k));
+  icon(ctx, 'cat', x, y, coat, C.ink);
+  ctx.fillStyle = pt; for (const [dx, dy] of [[0, 0], [6, 0], [0, 1], [1, 1], [5, 1], [6, 1], [2, 5], [3, 5], [4, 5]]) ctx.fillRect(x + dx, y + dy, 1, 1);
+  ctx.fillStyle = eye; ctx.fillRect(x + 1, y + 3, 1, 1); ctx.fillRect(x + 5, y + 3, 1, 1);
+  ctx.fillStyle = C.ink; ctx.fillRect(x + 3, y + 3, 1, 1);
 }
 
 /** 4x4 Bayer thresholds for ordered dither (0..15). */
@@ -92,6 +109,35 @@ const SND_OFF = ['...#.....', '..##.....', '####.x.x.', '####..x..', '####.x.x.'
 const END_FLY = 360, END_LAG = 26, END_MAX_PUPS = 16, END_WIN = 204, END_WIN_TOP = 4, END_LINE = 24, END_FADE = 12;
 /** Ending diorama: Pom's spot on the lawn (2x sitting pose centre). */
 const END_POM_X = 320, END_POM_Y = 292;
+/** True ending: a few landed pups play instead of sitting (by pup index; the rest sit and wag). */
+const PARTY_POSE: Record<number, 'bow' | 'chase' | 'back'> = { 2: 'back', 3: 'bow', 5: 'chase' };
+/**
+ * Concentric solid glow rings: every pixel inside ring k is lifted one palette step per ring that contains it
+ * (radii outermost first; `sy` squashes the rings into ellipses). Solid shapes, never a dither.
+ */
+function glowRings(ctx: CanvasRenderingContext2D, cx: number, cy: number, radii: number[], sy = 1, warm = true) {
+  const spans: [number, number, number, number][] = []; const R = radii[0];
+  for (let dy = -Math.ceil(R * sy); dy <= Math.ceil(R * sy); dy++) {
+    const ws = radii.map(r => { const v = r * r - (dy / sy) * (dy / sy); return v < 0 ? -1 : Math.floor(Math.sqrt(v)); });
+    for (let k = 0; k < ws.length; k++) {
+      if (ws[k] < 0) break; const inner = k + 1 < ws.length ? ws[k + 1] : -1;
+      if (inner < 0) { spans.push([cy + dy, cx - ws[k], cx + ws[k] + 1, k + 1]); break; }
+      spans.push([cy + dy, cx - ws[k], cx - inner, k + 1]); spans.push([cy + dy, cx + inner + 1, cx + ws[k] + 1, k + 1]);
+    }
+  }
+  lightSpans(ctx, spans, 1, warm);
+}
+/** A light beam from row y0 up to row y1 (y1 < y0): at each row `at(y)` gives [centre x, half width]; the inside is
+ *  lifted one palette step and each 1px edge two steps (a solid wedge with a crisp brighter rim). */
+function beam(ctx: CanvasRenderingContext2D, y0: number, y1: number, at: (y: number) => [number, number]) {
+  const spans: [number, number, number, number][] = [];
+  for (let y = y0; y > y1; y--) {
+    const [c, hw] = at(y); const l = Math.round(c - hw), r = Math.round(c + hw);
+    if (r - l < 2) { spans.push([y, l, r + 1, 2]); continue; }
+    spans.push([y, l, l + 1, 2]); spans.push([y, l + 1, r - 1, 1]); spans.push([y, r - 1, r, 2]);
+  }
+  lightSpans(ctx, spans);
+}
 /** Closing card beats: the story holds END_HOLD ticks after its last line, dithers out over END_OUT, then the stats
  *  come in (staggered chips, quest rewards, the epitaph) on a clean sky: never both at once. */
 const END_HOLD = 210, END_OUT = 32;
@@ -105,7 +151,7 @@ const PUP_COATS: Record<string, string>[] = [
 /** Toasts: at most TOAST_CAP on screen, wrapped to TOAST_COLS glyphs so a pill never outgrows the playfield. */
 type ToastKind = 'good' | 'warn';
 type ToastOpts = { kind?: ToastKind };
-type Toast = { text: string; t: number; age: number; y: number; kind?: ToastKind };
+type Toast = { text: string; t: number; age: number; y: number; kind?: ToastKind; parts?: string[] };
 const TOAST_CAP = 2, TOAST_COLS = Math.floor((PF_W - 8 - 30 + 1) / 6);
 /** News that costs the player something: drawn with a peri frame and a pink cross, never the gold star. */
 const BAD_NEWS = /MISSED|EXPIRED|CLOSED|CLOSES|FORFEIT|SEALED|LOCKED|BLOCKED|CONTENT ISSUE|CHEWED/;
@@ -138,10 +184,12 @@ const BOSS_INTRO_GRACE = 150;
 /** Sector short names: one display name for the HUD sector header and the map's sector log whenever the full name
  *  would not fit one line of the regular face (NEXT HOP still shows the full name). */
 const LOG_SHORT: Record<string, string> = { station: 'SCRATCH STATION', cafe: 'PURRFECT CUP CAFE', rooftops: 'MANHATTAN ROOFS' };
+/** Breed short names, one scheme: the breed itself (what the icon and sprite show), never the role. The HUD hostiles
+ *  list always uses these; the credits use the full name when it fits a line. */
 const HUD_BREED: Record<string, string> = {
-  tabby: 'TABBY GRUNT', tuxedo: 'TUXEDO DIVER', siamese: 'SIAMESE', calico: 'CALICO', persian: 'PUFFBALL',
-  scottishfold: 'YARNWITCH', bengal: 'BENGAL BOLT', sphynx: 'ZIGZAGGER', mainecoon: 'MAINE COON',
-  russianblue: 'BLUE SNIPER', kitten: 'KITTEN',
+  tabby: 'TABBY', tuxedo: 'TUXEDO', siamese: 'SIAMESE', calico: 'CALICO', persian: 'PERSIAN',
+  scottishfold: 'SCOTTISH FOLD', bengal: 'BENGAL', sphynx: 'SPHYNX', mainecoon: 'MAINE COON',
+  russianblue: 'RUSSIAN BLUE', kitten: 'KITTEN',
 };
 /** UI shell: HUD panels, title, sector map, pause, settings, dialogue box, ending, recovery, toasts. */
 class UI implements Module {
@@ -185,7 +233,7 @@ class UI implements Module {
   toastsMuted = false;
   muteToasts(on: boolean) { this.toastsMuted = on; if (on) this.toasts = []; }
   /** extra toast hold (on top of the automatic hold while memories' reveal card is up) */
-  private toastHold = false; private toastPend: { s: string; o?: ToastOpts }[] = [];
+  private toastHold = false; private toastPend: { s: string; o?: ToastOpts; parts?: string[] }[] = [];
   holdToasts(on: boolean) { this.toastHold = on; }
   /** In a live wave or boss fight toasts play one at a time (a stack would cover the formation's top rows). */
   private toastsSingle() { const g = this.g; const m = g?.mods.interaction?.mode; return g?.state.scene === 'play' && (m === 'wave' || m === 'boss'); }
@@ -202,21 +250,49 @@ class UI implements Module {
     return !!B.entering || this.bossCalm < BOSS_INTRO_GRACE;
   }
   /** opts.kind: 'warn' = bad news (peri frame, pink cross), 'good' = lime text; omitted = matched from the text. */
-  toast(s: string, opts?: ToastOpts) {
+  toast(s: string, opts?: ToastOpts, parts0?: string[]) {
     if (this.toastsMuted) return;
     if (this.g?.state.scene === 'ending') return; // the ending is a set piece: no quest / reward pills over it
-    if (this.toastsHeld()) { if (this.toastPend.length < 4) this.toastPend.push({ s, o: opts }); return; }
+    // two halves of one event (NEW QUEST + its first counter, PUPPY RESCUED + the pup counter) read as one pill
+    const u = s.toUpperCase();
+    for (let i = this.toastPend.length - 1; i >= 0; i--) {
+      const p = this.toastPend[i]; const m = this.mergeToast(p.s.toUpperCase(), u);
+      if (m) { p.parts = [...(p.parts ?? [p.s.toUpperCase()]), u]; p.s = m; return; }
+    }
+    for (let i = this.toasts.length - 1; i >= 0; i--) {
+      const x = this.toasts[i]; if (x.t < 40) continue; const m = this.mergeToast(x.text, u);
+      if (m) { x.parts = [...(x.parts ?? [x.text]), u]; x.text = m; x.t = Math.max(x.t, 140); return; }
+    }
+    if (this.toastsHeld()) { if (this.toastPend.length < 4) this.toastPend.push({ s, o: opts, parts: parts0 }); return; }
     // power pickups: name the HUD slot the item lights up, so the bay labels and pickups tie together
     const it = this.g?.content?.items?.find(i => i.name.toUpperCase() === s);
     const pw = it && POWERS.find(p => p[0] === it.effect.kind);
     if (pw) s = `${s}: ${pw[4]}`;
-    this.toasts.push({ text: s.toUpperCase(), t: 170, age: 0, y: -1, kind: opts?.kind });
+    this.toasts.push({ text: s.toUpperCase(), t: 170, age: 0, y: -1, kind: opts?.kind, parts: parts0 });
     if (this.toasts.length > 8) this.toasts.splice(this.toastCap(), 1); // a long backlog drops its oldest waiting news
   }
   /** True while a toast with this text is queued here but not on screen yet (quest reveals NEW QUEST on display). */
   toastWaiting(text: string) {
     const u = text.toUpperCase();
-    return this.toastPend.some(p => p.s.toUpperCase() === u) || this.toasts.some(x => x.text === u && x.age === 0);
+    return this.toastPend.some(p => p.s.toUpperCase() === u || !!p.parts?.includes(u)) || this.toasts.some(x => (x.text === u || !!x.parts?.includes(u)) && x.age === 0);
+  }
+  /**
+   * One pill for one event: 'NEW QUEST: MAYA'S SCRAPBOOK' + 'MAYA'S SCRAPBOOK 1/8 MEMORIES' ->
+   * 'NEW QUEST: MAYA'S SCRAPBOOK 1/8'; 'PUPPY RESCUED! ...' + 'LOST PUPS 1/6' -> 'PUPPY RESCUED! LOST PUPS 1/6'
+   * (either arrival order). Null when the two are unrelated.
+   */
+  mergeToast(a: string, b: string): string | null {
+    const cnt = (x: string, name: string) => { const m = x.startsWith(name + ' ') ? /^ ([\d,]+\/[\d,]+)( MEMORIES)?$/.exec(x.slice(name.length)) : null; return m ? m[1] : null; };
+    for (const [p, q] of [[a, b], [b, a]]) {
+      const nq = /^NEW QUEST: (.+)$/.exec(p);
+      if (nq) { const c = cnt(q, nq[1]); if (c) return `NEW QUEST: ${nq[1]} ${c}`; }
+      if (p.startsWith('PUPPY RESCUED!')) {
+        const pq = this.g?.content?.quests?.find(k => k.complete?.on === 'pup:rescue');
+        const nm = pq?.name.toUpperCase(); const c = nm ? cnt(q, nm) : null;
+        if (nm && c) return `PUPPY RESCUED! ${nm} ${c}`;
+      }
+    }
+    return null;
   }
   /** How many toasts are on screen at once: two, or one at a time in a live wave / boss fight. */
   private toastCap() { return this.toastsSingle() ? 1 : TOAST_CAP; }
@@ -265,7 +341,7 @@ class UI implements Module {
     // toasts hold while a menu is open (they sit under the dim layer and resume afterwards)
     // ...and while a memory reveal card is up (held toasts play the tick it leaves)
     const held = this.toastsHeld();
-    if (!held && this.toastPend.length) { const q = this.toastPend; this.toastPend = []; for (const p of q) this.toast(p.s, p.o); }
+    if (!held && this.toastPend.length) { const q = this.toastPend; this.toastPend = []; for (const p of q) this.toast(p.s, p.o, p.parts); }
     // the boss intro only queues new news: pills already up keep ageing out so the entrance is clean
     if (this.menuOpen === 'none' && (!held || (this.bossIntro() && !this.toastHold && !this.g.mods.memories?.revealing?.()))) {
       // at most TOAST_CAP on screen (one at a time in combat); the rest queue. A waiting queue shortens the front
@@ -612,7 +688,8 @@ class UI implements Module {
       const pr = g.mods.quest?.progress?.(q);
       if (pr && pr.need > 1) {
         // the counter keeps its width; the bar takes what is left with a 4px gap (never runs into the numbers)
-        const lbl = `${Math.min(pr.have, pr.need)}/${pr.need}`; const cells = Math.max(3, Math.min(10, Math.floor((w0 - 10 - textWidth(lbl) - 5) / 6)));
+        // counters use thousands commas, the way quest toasts print them (0/1,500)
+        const cm = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); const lbl = `${cm(Math.min(pr.have, pr.need))}/${cm(pr.need)}`; const cells = Math.max(3, Math.min(10, Math.floor((w0 - 10 - textWidth(lbl) - 5) / 6)));
         segBar(ctx, x1 + 10, 145, cells, 5, 4, pr.have / pr.need, C.violet); text(ctx, lbl, x1 + w0, 144, C.text, { align: 'right' });
       }
       else { text(ctx, Q?.goal?.(q) || 'IN PROGRESS', x1 + 10, 144, C.dim); if (!Q?.goal) for (let i = 0; i < 3; i++) rect(ctx, x1 + 78 + i * 4, 149, 2, 2, ((t >> 4) % 4) > i ? C.violet : C.peri); }
@@ -656,7 +733,11 @@ class UI implements Module {
   bossBlock(g: Game, ctx: CanvasRenderingContext2D, B0: any, x1: number, y: number, w0: number) {
     const t = this.t;
     header(ctx, 'BIG CAT', x1, y, w0, C.hot, t, true);
-    this.fitText(ctx, B0.def.name, x1, y + 11, w0, C.text, C.ink);
+    // every boss name in the same font: one line when it fits, else a balanced 2-line wrap (the block moves down 9px)
+    const nm = String(B0.def?.name ?? 'BIG CAT').toUpperCase();
+    const nl = textWidth(nm) <= w0 ? [nm] : (balancePx(nm, w0, textWidth) ?? wrapPx(nm, w0, textWidth).slice(0, 2));
+    nl.forEach((l, i) => text(ctx, l, x1, y + 11 + i * 9, C.text, { shadow: C.ink }));
+    y += (nl.length - 1) * 9;
     const p = Math.max(0, B0.hp / Math.max(1, B0.maxHp));
     chamferFill(ctx, x1 - 1, y + 22, w0 + 2, 9, C.ink, 2);
     bar(ctx, x1 + 1, y + 24, w0 - 2, 5, p, p < 0.3 && (t >> 3) % 2 ? C.pink : C.hot);
@@ -706,18 +787,15 @@ class UI implements Module {
       return;
     }
     const rows = list.length > 3 ? 2 : list.length;
-    // one line per breed, always: the full name when it fits the regular face, else the HUD short name
-    // (YARNWITCH, BENGAL BOLT...), else the small tier on the same baseline. Never wrapped (rows are 9px).
+    // one line per breed, always the breed short name (SIAMESE, RUSSIAN BLUE...: one scheme for every row), else
+    // the small tier on the same baseline. Never wrapped (rows are 9px).
     const room = (n: number) => w - 10 - textWidth(String(n)) - 6;
-    const label = (e: { id: string; name: string; n: number }) => {
-      const full = e.name.toUpperCase(); if (textWidth(full) <= room(e.n)) return full;
-      return HUD_BREED[e.id] ?? full;
-    };
+    const label = (e: { id: string; name: string; n: number }) => HUD_BREED[e.id] ?? e.name.toUpperCase();
     const names = list.slice(0, rows).map(label);
     const narrow = names.some((nm, i) => textWidth(nm) > room(list[i].n));
     list.slice(0, rows).forEach((e, i) => {
       const cy = y + i * 9; const nm = names[i];
-      icon(ctx, 'cat', x, cy, breedColor(e.sprite), C.ink);
+      breedIcon(ctx, e.id, e.sprite, x, cy);
       if (narrow) { let s2 = nm; while (s2.length > 1 && tinyWidth(s2) > room(e.n)) s2 = s2.slice(0, -1); tiny(ctx, s2, x + 10, cy + 1, C.pale); }
       else text(ctx, nm, x + 10, cy, C.pale);
       text(ctx, String(e.n), x + w, cy, C.text, { align: 'right' });
@@ -1349,7 +1427,12 @@ class UI implements Module {
     const small = (s: string, c = C.pale) => items.push({ h: 14, draw: (ctx, y) => inked(ctx, s, cx, y + 3, c) });
     items.push({ h: 64, draw: (ctx, y) => { drawLogo(ctx, logoWord('POODLE', 2, PINK, 3, 2, 3), cx, y + 6); drawLogo(ctx, logoWord('PATROL', 2, CYAN, 3, 2, 3), cx, y + 36); } });
     gap(18); small('STARRING');
-    items.push({ h: 92, draw: (ctx, y, t) => { draw2x(ctx, 'end_pom_sit', cx, y + 38, { frame: (t >> 5) % 2 }); text(ctx, 'CAPTAIN POM', cx, y + 80, C.gold, { align: 'center', shadow: C.burnt }); } });
+    items.push({ h: 92, draw: (ctx, y, t) => {
+      // the flying pose (the diorama already shows her sitting): a slow hover bob with a short jet trail
+      const bob = Math.round(Math.sin(t / 16) * 2);
+      for (let k = 0; k < 4; k++) if ((k + (t >> 2)) % 4) rect(ctx, cx + 40 + k * 5, y + 30 + bob, 3, 2, k < 1 ? C.cream : k < 2 ? C.gold : k < 3 ? C.orange : C.plum);
+      draw2x(ctx, 'end_pom_fly', cx, y + 36 + bob, { frame: (t >> 3) % 2 }); text(ctx, 'CAPTAIN POM', cx, y + 80, C.gold, { align: 'center', shadow: C.burnt });
+    } });
     gap(10);
     if (shown > 0) {
       small(shown === 1 ? 'AND THE PUP SHE BROUGHT HOME' : `AND THE ${shown} PUPS SHE BROUGHT HOME`);
@@ -1393,13 +1476,13 @@ class UI implements Module {
   }
 
   // ---- ending diorama: two set pieces on one stage (sky, skyline, yard, lawn), everything that lives is 2x ----
-  /** Banded sky with 6-row ordered-dither seams (25 / 50 / 75%) between bands (no gradients, palette exact). */
+  /** Banded sky with solid stepped seams (thin lines of the next band above each edge, one of the last below). */
   endSky(ctx: CanvasRenderingContext2D, bands: [string, number][]) {
     let y0 = 0;
     bands.forEach(([c, y1], i) => {
       rect(ctx, 0, y0, W, y1 - y0, c);
       const nx = bands[i + 1];
-      if (nx) { dither(ctx, 0, y1 - 6, W, 2, nx[0], 'sparse'); dither(ctx, 0, y1 - 4, W, 4, nx[0], 'check'); rect(ctx, 0, y1, W, 2, nx[0]); dither(ctx, 0, y1, W, 2, c, 'sparse'); }
+      if (nx) { rect(ctx, 0, y1 - 7, W, 1, nx[0]); rect(ctx, 0, y1 - 4, W, 2, nx[0]); rect(ctx, 0, y1 + 2, W, 1, c); }
       y0 = y1;
     });
   }
@@ -1441,27 +1524,27 @@ class UI implements Module {
     const lit = kind === 'true' ? C.gold : (t >> 5) % 7 ? C.gold : C.orange;
     for (const wx of [hx + 10, hx + 72]) { rect(ctx, wx, top + 10, 20, 14, C.burnt); rect(ctx, wx + 1, top + 11, 18, 12, lit); rect(ctx, wx + 10, top + 11, 1, 12, C.burnt); rect(ctx, wx + 1, top + 17, 18, 1, C.burnt); }
     rect(ctx, hx + 42, top + 16, 20, hh - 16, C.ink); rect(ctx, hx + 44, top + 18, 16, hh - 18, kind === 'true' ? C.burnt : C.plum); rect(ctx, hx + 56, top + 32, 2, 2, C.gold);
-    // porch light by the door, left on for whoever is still on the way home (a solid core + 2-step dither pool)
+    // porch light by the door, left on for whoever is still on the way home (concentric solid glow rings on the wall)
+    glowRings(ctx, hx + 68, top + 20, [9, 5]);
     rect(ctx, hx + 66, top + 18, 4, 5, C.cream); rect(ctx, hx + 67, top + 17, 2, 1, C.gold);
-    dither(ctx, hx + 58, top + 24, 20, 10, C.gold, 'sparse'); dither(ctx, hx + 62, top + 24, 12, 5, C.gold, 'check');
     // the round tree on the right
     const tx = 604; rect(ctx, tx - 3, HZ - 30, 6, 30, roof);
     const clumps: [number, number, number][] = [[-14, -40, 13], [12, -42, 14], [0, -56, 15], [-20, -56, 10], [20, -60, 10], [0, -34, 12]];
     const [leaf, sunlit] = kind === 'true' ? [C.dgreen, C.green] : [C.ink, C.night];
     for (const [dx, dy, r] of clumps) disc(ctx, tx + dx, HZ + dy, r, leaf);
-    // light catches the upper-left of each clump: a solid core and a dithered falloff, never a hard ring
-    for (const [dx, dy, r] of clumps) { disc(ctx, tx + dx - 3, HZ + dy - 4, Math.max(2, r - 8), sunlit); const rr = r - 4; for (let k = -rr; k <= 0; k++) { const w = Math.floor(Math.sqrt(rr * rr - k * k)); dither(ctx, tx + dx - 2 - w, HZ + dy - 2 + k, w * 2, 1, sunlit, 'check'); } }
+    // light catches the upper-left of each clump: one solid lit disc, offset so the clump keeps a shaded rim
+    for (const [dx, dy, r] of clumps) disc(ctx, tx + dx - 2, HZ + dy - 3, Math.max(2, r - 5), sunlit);
     // picket fence along the back of the lawn
     const fc = kind === 'true' ? C.cream : C.peri, fs = kind === 'true' ? C.tan : C.indigo;
     for (let x = 2; x < W; x += 8) { rect(ctx, x, HZ - 12, 4, 12, fc); rect(ctx, x + 1, HZ - 13, 2, 1, fc); rect(ctx, x + 3, HZ - 11, 1, 11, fs); }
     rect(ctx, 0, HZ - 9, W, 2, fc); rect(ctx, 0, HZ - 4, W, 2, fc); rect(ctx, 0, HZ - 8, W, 1, fs); rect(ctx, 0, HZ - 3, W, 1, fs);
   }
-  /** Lawn from the fence to the bottom edge: mown stripes (solid + dithered bands), a lit edge along the fence. */
+  /** Lawn from the fence to the bottom edge: solid mown stripes fanning out in perspective, a lit edge by the fence. */
   endLawn(ctx: CanvasRenderingContext2D, HZ: number, kind: 'true' | 'good') {
-    const [a, b, edge] = kind === 'true' ? [C.green, C.dgreen, C.lime] : [C.dgreen, C.night, C.green];
+    const [a, b, edge] = kind === 'true' ? [C.green, P20, C.lime] : [P20, C.grayd, C.green];
     rect(ctx, 0, HZ, W, H - HZ, a);
-    for (let i = 0; i < 9; i++) { const x0 = i * 80 - 40; for (let y = HZ; y < H; y += 2) { const sk = Math.round((y - HZ) * (i * 80 - 320) / 220); dither(ctx, x0 + sk, y, 40, 2, b, 'sparse'); } }
-    rect(ctx, 0, HZ, W, 1, edge); dither(ctx, 0, HZ + 1, W, 2, edge, 'sparse');
+    for (let i = 0; i < 9; i++) { const x0 = i * 80 - 40; for (let y = HZ + 2; y < H; y++) { const sk = Math.round((y - HZ) * (i * 80 - 320) / 220); const w = 40 + Math.round((y - HZ) * 0.1); rect(ctx, x0 + sk - ((w - 40) >> 1), y, w - 24, 1, b); } }
+    rect(ctx, 0, HZ, W, 1, edge); rect(ctx, 0, HZ + 1, W, 1, a);
   }
   /** Where pup i sits on the lawn (2x sitting pose): back row beside Pom, then a front row clear of the prompt. */
   pupSlot(i: number): { x: number; base: number; flip: boolean } {
@@ -1500,21 +1583,19 @@ class UI implements Module {
       this.endCloud(ctx, ((380 + drift) % (W + 120)) - 100, 140, 96, C.hot, C.cream, C.mag);
       this.endCloud(ctx, ((610 + drift) % (W + 120)) - 100, 70, 54, C.purple, C.pink, C.indigo);
     } else {
-      // a big moon with craters and a dithered halo
+      // a big moon with craters and a halo of concentric solid rings
       const mx = 520, my = 62;
-      for (let r = 30; r > 24; r -= 3) for (let dy = -r; dy <= r; dy++) { const dx = Math.floor(Math.sqrt(r * r - dy * dy)); dither(ctx, mx - dx, my + dy, dx * 2 + 1, 1, C.indigo, 'sparse'); }
+      glowRings(ctx, mx, my, [31, 26], 1, false);
       disc(ctx, mx, my, 20, C.pale); disc(ctx, mx + 3, my + 2, 18, C.text); disc(ctx, mx + 4, my + 3, 15, C.pale);
       disc(ctx, mx - 6, my - 5, 4, C.dim); disc(ctx, mx + 7, my + 6, 3, C.dim); disc(ctx, mx - 3, my + 9, 2, C.dim);
       const drift = (t >> 4) % (W + 120);
       this.endCloud(ctx, ((60 + drift) % (W + 120)) - 100, 120, 80, C.indigo, C.peri, C.night);
       this.endCloud(ctx, ((420 + drift) % (W + 120)) - 100, 96, 60, C.indigo, C.dim, C.night);
       // Biscuit's search parties: three searchlights sweeping the sky from behind the city
+      // (each beam is a solid wedge one palette step lighter than the sky behind it, with 1px edges a step brighter)
       for (const [bx, ph] of [[150, 0], [330, 2.1], [500, 4.2]] as [number, number][]) {
         const a = Math.sin(t / 90 + ph) * 0.5; const base = HZ - 30;
-        for (let y = base; y > 20; y -= 2) {
-          const d = base - y, cxl = bx + d * Math.tan(a), hw = 2 + d * 0.07;
-          dither(ctx, Math.round(cxl - hw), y, Math.round(hw * 2), 2, d < 60 ? C.ice : C.dim, d < 120 ? 'sparse' : 'scan');
-        }
+        beam(ctx, base, 20, y => { const d = base - y; return [bx + d * Math.tan(a), 2 + d * 0.07]; });
       }
     }
     this.endSkyline(ctx, HZ, tru ? C.purple : C.plum, tru ? C.plum : C.night, tru ? C.cream : C.gold, t, tru ? 3 : 6);
@@ -1548,6 +1629,17 @@ class UI implements Module {
       home++;
       const since = T - lagI * END_LAG - END_FLY;
       const bob = since < 10 ? -Math.round(Math.sin(since / 10 * Math.PI) * 6) : tru && ((T >> 2) + i * 7) % 61 < 6 ? -Math.round(Math.sin((((T >> 2) + i * 7) % 61) / 6 * Math.PI) * 4) : 0;
+      const pose = tru && since >= 10 ? PARTY_POSE[i] : undefined;
+      if (pose === 'back') { draws.push({ y: slot.base, f: () => draw2x(ctx, 'end_pup_back', slot.x, slot.base - 12, { recolor: coat, flipX: slot.flip, frame: (T >> 3) % 2 }) }); continue; }
+      if (pose === 'bow') {
+        // play-bow toward the tail-chaser, with a little bounce of the rump on the wag beat
+        draws.push({ y: slot.base, f: () => draw2x(ctx, 'end_pup_bow', slot.x + 4, slot.base - 14, { recolor: coat, flipX: true, frame: (T >> 3) % 2 }) }); continue;
+      }
+      if (pose === 'chase') {
+        // chasing its own tail: hops on the spot, spinning round every 10 ticks
+        const ph = T % 20; const hop = -Math.round(Math.sin(ph / 20 * Math.PI) * 5);
+        draws.push({ y: slot.base, f: () => draw2x(ctx, 'end_pup_stand', slot.x - 14, slot.base - 14 + hop, { recolor: coat, flipX: Math.floor(T / 10) % 2 === 0, frame: (T >> 2) % 2 }) }); continue;
+      }
       draws.push({ y: slot.base, f: () => draw2x(ctx, 'end_pup_sit', slot.x, slot.base - 16 + bob, { recolor: coat, flipX: slot.flip, frame: ((T >> 4) + i) % (tru ? 2 : 5) === 0 ? 1 : 0 }) });
     }
     if (u < 1) {
@@ -1599,7 +1691,7 @@ class UI implements Module {
       line(ctx, bx, by + 6 + bob, 226, HZ - 12, C.cream); disc(ctx, bx, by + bob, 6, darkOf(c)); disc(ctx, bx - 1, by - 1 + bob, 5, c); rect(ctx, bx - 3, by - 3 + bob, 2, 2, C.text);
     }
     // the picnic table (cake, the hedgehog in its party hat on the cloth) with the Empress sitting at its end
-    const tx = 520, ty = 302, hw = 44;
+    const tx = 504, ty = 302, hw = 44;
     draws.push({ y: ty + 12, f: () => {
       rect(ctx, tx - hw, ty, hw * 2, 7, C.burnt); rect(ctx, tx - hw, ty, hw * 2, 2, C.orange); rect(ctx, tx - hw, ty + 7, hw * 2, 1, C.ink);
       for (let k = 0; k < 3; k++) rect(ctx, tx - hw + 6 + k * 28, ty + 2, 10, 3, k % 2 ? C.text : C.hot); // checked cloth hem
@@ -1613,15 +1705,15 @@ class UI implements Module {
       draw2x(ctx, 'end_hedgehog', tx + 14, ty - 14 + hop, { flipX: true, frame: (T >> 4) % 3 === 0 ? 1 : 0 });
     } });
     // the Empress: sitting on the lawn at the table's end, facing the party (tail flick + slow blink)
-    draws.push({ y: 316, f: () => draw2x(ctx, 'end_empress_sit', 600, 316 - 36, { flipX: true, frame: (T >> 4) % 7 === 0 ? 1 : 0 }) });
+    draws.push({ y: 316, f: () => draw2x(ctx, 'end_empress_sit', 584, 316 - 36, { flipX: true, frame: (T >> 4) % 7 === 0 ? 1 : 0 }) });
   }
   /** Search set dressing (good ending): Commander Biscuit behind the hedge with a radio and a flashlight beam, and
    *  paw-print lanterns along the path for the pups still finding their way. */
   searchProps(ctx: CanvasRenderingContext2D, HZ: number, T: number, t: number, draws: { y: number; f: () => void }[]) {
     // lanterns on poles along the lawn edge
     for (const lx of [200, 456]) {
+      glowRings(ctx, lx + 1, HZ - 2, [12, 7]);
       rect(ctx, lx, HZ + 2, 2, 30, C.ink); rect(ctx, lx - 3, HZ - 6, 8, 9, C.ink); rect(ctx, lx - 2, HZ - 5, 6, 7, (t >> 4) % 9 ? C.gold : C.orange);
-      dither(ctx, lx - 10, HZ - 10, 22, 18, C.gold, 'sparse');
     }
     // Commander Biscuit sitting on the lawn, flashlight raised, his field radio on the grass beside him
     const bx = 572, base = 318;
@@ -1631,12 +1723,12 @@ class UI implements Module {
       rect(ctx, rx + 2, ry + 4, 6, 4, C.ink); rect(ctx, rx + 3, ry + 5, 4, 2, (T >> 4) % 2 ? C.lime : C.dgreen);
       rect(ctx, rx + 10, ry + 4, 2, 2, C.gold); rect(ctx, rx + 13, ry + 4, 2, 2, col('o'));
       rect(ctx, rx + 13, ry - 16, 1, 15, C.ink); rect(ctx, rx + 12, ry - 17, 3, 2, (T >> 4) % 2 ? C.red : C.grayd);
-      dither(ctx, rx - 2, ry + 12, 20, 2, C.ink, 'check');
+      rect(ctx, rx - 1, ry + 13, 18, 1, C.ink);
     } });
     draws.push({ y: base, f: () => {
-      // the beam leaves the lens (top left of the flipped sprite) and climbs into the night as a dithered cone
+      // the beam leaves the lens (top left of the flipped sprite) and climbs into the night: a solid lighter cone
       const lx = bx - 30, ly = base - 52;
-      for (let k = 0; k < 80; k += 2) { const hw = 1 + k * 0.28; dither(ctx, Math.round(lx - 4 - k * 0.8 - hw), ly - k, Math.round(hw * 2), 2, C.cream, k < 26 ? 'check' : 'sparse'); }
+      beam(ctx, ly, ly - 80, y => { const k = ly - y; return [lx - 4 - k * 0.8, 1 + k * 0.28]; });
       draw2x(ctx, 'end_biscuit_sit', bx, base - 34, { flipX: true, frame: (T >> 4) % 2 });
     } });
   }
@@ -1646,12 +1738,11 @@ class UI implements Module {
       const s = this.pupSlot(i); const x = s.x, b = s.base;
       draws.push({ y: b, f: () => {
         const lit = ((T >> 3) + i * 5) % 23 ? C.gold : C.orange;
-        dither(ctx, x - 9, b - 2, 18, 4, C.gold, 'sparse');           // warm pool on the grass
+        glowRings(ctx, x, b - 18, [11, 6]); glowRings(ctx, x, b, [10], 0.3); // glow round the glass + a pool on the grass
         rect(ctx, x, b - 12, 1, 12, C.ink);                          // stake
         rect(ctx, x - 4, b - 22, 9, 10, C.ink); rect(ctx, x - 3, b - 21, 7, 8, lit); rect(ctx, x - 2, b - 24, 5, 2, C.ink);
         // the paw print in the glass: pad + three toes
         rect(ctx, x - 1, b - 16, 3, 2, C.burnt); rect(ctx, x - 2, b - 19, 1, 1, C.burnt); rect(ctx, x, b - 20, 1, 1, C.burnt); rect(ctx, x + 2, b - 19, 1, 1, C.burnt);
-        dither(ctx, x - 7, b - 25, 15, 15, C.gold, 'sparse');
       } });
     }
   }
@@ -1754,7 +1845,7 @@ class UI implements Module {
       rows.forEach((r, i) => {
         if (s0 < r0 + i * 6) return;
         const y = cy + 26 + i * 12; const rw = textWidth(r);
-        dither(ctx, Math.round(W / 2 - rw / 2) - 18, y - 3, rw + 26, 13, C.ink, 'check');
+        chamferFill(ctx, Math.round(W / 2 - rw / 2) - 18, y - 3, rw + 26, 13, C.ink, 3);
         icon(ctx, 'flag', Math.round(W / 2 - rw / 2 - 12), y, C.lime);
         text(ctx, r, W / 2, y, C.gold, { align: 'center', shadow: C.ink });
       });
@@ -1779,7 +1870,7 @@ class UI implements Module {
     this.homeYard(ctx, HZ, t);
     // Captain Pom (the in-game sprite) hovers over the garden gate against the sun, waiting to fly again
     const hov = Math.round(Math.sin(t / 14) * 2);
-    const shw = 20 - hov; dither(ctx, W / 2 - shw, HZ + 8, shw * 2, 4, C.ink, 'check'); rect(ctx, W / 2 - shw + 5, HZ + 9, shw * 2 - 10, 2, C.ink);
+    const shw = 20 - hov; rect(ctx, W / 2 - shw + 3, HZ + 8, shw * 2 - 6, 4, C.ink); rect(ctx, W / 2 - shw, HZ + 9, shw * 2, 2, C.ink);
     this.heroPom(ctx, W / 2, HZ - 29 + hov, t);
     const w = 340, h = 160, x = Math.round(W / 2 - w / 2), y = 70;
     frame(ctx, x, y, w, h, C.hot, C.night, 8);

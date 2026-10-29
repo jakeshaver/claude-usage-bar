@@ -240,3 +240,19 @@
    `unrevealed` until `toastWaiting` turns false (checked lazily in `revealed()` / `tracked()`). A toast ui drops
    (mute, overflow, ending) reveals at once, so nothing can stay hidden; no ui = immediate reveal as before.
 6. Noted in ARCHITECTURE (ui entry: bottom toast strip in play / bonus, map dock, boss-intro hold, `LOG_SHORT`).
+
+## Polish 4
+
+1. **world (title card):** the sector title card is drawn by `src/world/index.ts` `titleCard()`, not ui. Its subtitle
+   types out one word at a time, so mid-way it reads as a truncated line (e.g. 'BRING EVERY'). Please show the
+   subtitle whole: draw the complete string at once and reveal it with a left-to-right wipe (clip rect growing over
+   ~12 ticks) or a palette-step fade-in, never word by word. The sector name can keep its typing beat.
+2. **showcase (nice to have):** `?showcase=ending` always stages `endingT = 2000` (the closing card). Please honour
+   `at=N` there (`g.mods.ui.endingT = p.get('at') !== null ? +p.get('at')! : 2000`) so the diorama, the flight
+   home and the credits roll can be screenshotted without the card on top (ui tested with that local patch:
+   `--at=420` = landed diorama, `--at=640` = credits STARRING).
+3. **FYI (ui):** ui now merges the two toasts of one event into a single pill: 'NEW QUEST: X' + 'X n/m [MEMORIES]'
+   -> 'NEW QUEST: X n/m', and 'PUPPY RESCUED! ...' + '<pup quest name> n/m' -> 'PUPPY RESCUED! LOST PUPS n/m'
+   (either order, while the first is pending or on screen). `toastWaiting(text)` still matches the original texts,
+   so quest's NEW QUEST reveal keeps working. The HUD hostiles list now always uses breed short names (TABBY,
+   SIAMESE, RUSSIAN BLUE, SCOTTISH FOLD...) with per-breed 3-tone icons (coat, ear/muzzle points, eye colour).

@@ -304,3 +304,57 @@ export function keys(dev: Device) {
   if (dev === 'touch') return { ok: '(OK)', back: '[II]', pause: '[II]', move: 'PAD', fire: '(TOOT)', next: '(OK)', skip: '[II]', adj: 'PAD' };
   return { ok: 'SPACE', back: 'ESC', pause: 'ESC', move: 'ARROWS', fire: 'SPACE', next: 'SPACE', skip: 'X', adj: '< >' };
 }
+// ---- palette remap lighting: every pixel steps up a hand-made ramp to a lighter palette color (solid light shapes
+// such as searchlight beams and flashlight cones, never a dither)
+const KEYS = '0123456789abcdefghijklmnopqrstuv';
+const RAMP_KEYS: string[] = [];
+// hand ramp by index: ink>night>indigo>peri>lav>pale>white, cream>white, tan>cream, browns up, pinks up, warm up, greens up,
+// cyans up, greys up, red>orange, ice>white, violet>pale, purple>violet, plum>indigo
+const RAMP_SRC: Record<string, string> = {
+  '0': '1', '1': '2', '2': '3', '3': '4', '4': '5', '5': '6', '6': '6', '7': '6', '8': '7', '9': '8', a: '9', b: 'a',
+  c: '7', d: 'c', e: 'd', f: '7', g: 'f', h: 'g', i: '7', j: 'i', k: 'j', l: 's', m: 'l', n: 'm', o: '5', p: 'o', q: 'p',
+  r: 'g', s: '6', t: '5', u: 't', v: '2',
+};
+// warm ramp (lamp light): darks warm up through the browns, greens toward lime, cools toward cream
+const WARM_SRC: Record<string, string> = {
+  '0': 'b', '1': 'b', '2': 'a', '3': '9', '4': '8', '5': '7', '6': '6', '7': '6', '8': '7', '9': '8', a: '9', b: 'a',
+  c: '7', d: 'c', e: 'd', f: '7', g: 'f', h: 'g', i: 'f', j: 'i', k: 'j', l: 's', m: 'l', n: 'a', o: '8', p: '9', q: 'k',
+  r: 'g', s: '6', t: 'c', u: 't', v: 'b',
+};
+const WARM_KEYS: string[] = [];
+for (const k of KEYS) { RAMP_KEYS.push(RAMP_SRC[k]); WARM_KEYS.push(WARM_SRC[k]); }
+const lightMap: Map<number, number>[][] = [[], []];
+const u32 = (h: string) => { const [r, g, b] = rgbOf(h); return (255 << 24 | b << 16 | g << 8 | r) >>> 0; };
+function nearestIdx(r: number, g: number, b: number) {
+  let best = 0, bd = 1e9;
+  P.forEach((h, i) => { const [pr, pg, pb] = rgbOf(h); const d = (pr - r) ** 2 + (pg - g) ** 2 + (pb - b) ** 2; if (d < bd) { bd = d; best = i; } });
+  return best;
+}
+function lift(v: number, steps: number, warm: boolean): number {
+  let i = nearestIdx(v & 255, (v >> 8) & 255, (v >> 16) & 255);
+  for (let s = 0; s < steps; s++) i = KEYS.indexOf((warm ? WARM_KEYS : RAMP_KEYS)[i]);
+  return u32(P[i]);
+}
+/**
+ * Light a shape: each row span [y, x0, x1) (x1 exclusive) has its pixels remapped `steps` palette steps lighter
+ * (solid, palette exact, whatever was underneath; `warm` uses the lamp-light ramp). One getImageData over the spans' bounding box.
+ */
+export function lightSpans(ctx: CanvasRenderingContext2D, spans: [number, number, number, number?][], steps = 1, warm = false) {
+  if (!spans.length) return;
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  for (const [y, a, b] of spans) { if (b <= a) continue; x0 = Math.min(x0, a); x1 = Math.max(x1, b); y0 = Math.min(y0, y); y1 = Math.max(y1, y + 1); }
+  x0 = Math.max(0, Math.floor(x0)); y0 = Math.max(0, Math.floor(y0)); x1 = Math.min(ctx.canvas.width, Math.ceil(x1)); y1 = Math.min(ctx.canvas.height, Math.ceil(y1));
+  if (x1 <= x0 || y1 <= y0) return;
+  let img: ImageData; try { img = ctx.getImageData(x0, y0, x1 - x0, y1 - y0); } catch { return; }
+  const d = new Uint32Array(img.data.buffer); const w = x1 - x0;
+  for (const [y, a, b, st] of spans) {
+    const s = st ?? steps; const L = lightMap[warm ? 1 : 0]; while (L.length <= s) L.push(new Map());
+    const m = L[s]; const yy = Math.round(y) - y0; if (yy < 0 || yy >= y1 - y0) continue;
+    for (let x = Math.max(x0, Math.round(a)); x < Math.min(x1, Math.round(b)); x++) {
+      const i = yy * w + x - x0; const v = d[i]; let o = m.get(v);
+      if (o === undefined) { o = lift(v, s, warm); if (m.size < 4096) m.set(v, o); }
+      d[i] = o;
+    }
+  }
+  ctx.putImageData(img, x0, y0);
+}
