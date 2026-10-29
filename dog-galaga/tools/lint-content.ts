@@ -62,8 +62,11 @@ const start = 'backyard'; const seen = new Set<string>([start]); const stack = [
 while (stack.length) { const id = stack.pop()!; for (const e of data.areas.find((a: any) => a.id === id)?.exits ?? []) if (!seen.has(e.to)) { seen.add(e.to); stack.push(e.to); } }
 for (const a of data.areas) if (!seen.has(a.id)) errors.push(`areas#${a.id}: unreachable from start`);
 // dialogue reachability
-const usedD = new Set<string>(); for (const a of data.areas) for (const k of ['intro', 'outro']) { let id = a[k]; while (id && !usedD.has(id)) { usedD.add(id); id = data.dialogue.find((d: any) => d.id === id)?.next; } }
-for (const q of data.quests) if (q.dialogue) usedD.add(q.dialogue);
+const usedD = new Set<string>();
+const walkD = (id: string | undefined) => { while (id && !usedD.has(id)) { usedD.add(id); id = data.dialogue.find((d: any) => d.id === id)?.next; } };
+// area intros/outros, plus the quest engine's boss banter (taunt-<bossId> on boss:start, defeat-<bossId> opening the outro)
+for (const a of data.areas) { walkD(a.intro); walkD(a.outro); if (a.boss) for (const pre of ['taunt-', 'defeat-']) if (D.has(pre + a.boss)) walkD(pre + a.boss); }
+for (const q of data.quests) if (q.dialogue) walkD(q.dialogue);
 for (const d of data.dialogue) if (!usedD.has(d.id)) warns.push(`dialogue#${d.id}: unreachable`);
 // cycle check (graph must be a DAG so every path terminates)
 const color: Record<string, number> = {};

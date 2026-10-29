@@ -66,11 +66,10 @@
    }
   },
   "complete": {
-   "on": "wave:clear",
+   "on": "area:clear",
    "match": {
     "areaId": "park"
-   },
-   "count": 7
+   }
   },
   "reward": {
    "score": 3000,
@@ -123,6 +122,126 @@
   }
  },
  {
+  "id": "cafe_rush",
+  "name": "Morning Rush",
+  "desc": "Close down the Purrfect Cup Cafe.",
+  "start": {
+   "on": "area:enter",
+   "match": {
+    "areaId": "cafe"
+   }
+  },
+  "complete": {
+   "on": "area:clear",
+   "match": {
+    "areaId": "cafe"
+   }
+  },
+  "reward": {
+   "score": 3000
+  }
+ },
+ {
+  "id": "docks_catch",
+  "name": "Catch of the Day",
+  "desc": "Send Captain Mainsail back to sea.",
+  "start": {
+   "on": "area:enter",
+   "match": {
+    "areaId": "docks"
+   }
+  },
+  "complete": {
+   "on": "boss:defeat",
+   "match": {
+    "bossId": "boss_mainsail"
+   }
+  },
+  "reward": {
+   "score": 3000
+  }
+ },
+ {
+  "id": "factory_unravel",
+  "name": "Unravel It",
+  "desc": "Shut down the Yarn Factory.",
+  "start": {
+   "on": "area:enter",
+   "match": {
+    "areaId": "factory"
+   }
+  },
+  "complete": {
+   "on": "area:clear",
+   "match": {
+    "areaId": "factory"
+   }
+  },
+  "reward": {
+   "score": 3000
+  }
+ },
+ {
+  "id": "moon_litter",
+  "name": "Scoop Duty",
+  "desc": "Clear the Litter Moon.",
+  "start": {
+   "on": "area:enter",
+   "match": {
+    "areaId": "moon"
+   }
+  },
+  "complete": {
+   "on": "area:clear",
+   "match": {
+    "areaId": "moon"
+   }
+  },
+  "reward": {
+   "score": 3000
+  }
+ },
+ {
+  "id": "nebula_sober",
+  "name": "Clear Heads",
+  "desc": "Boop the Catnip Kingpin.",
+  "start": {
+   "on": "area:enter",
+   "match": {
+    "areaId": "nebula"
+   }
+  },
+  "complete": {
+   "on": "boss:defeat",
+   "match": {
+    "bossId": "boss_kingpin"
+   }
+  },
+  "reward": {
+   "score": 3000
+  }
+ },
+ {
+  "id": "station_dock",
+  "name": "Docking Clearance",
+  "desc": "Take Scratching-Post Station.",
+  "start": {
+   "on": "area:enter",
+   "match": {
+    "areaId": "station"
+   }
+  },
+  "complete": {
+   "on": "area:clear",
+   "match": {
+    "areaId": "station"
+   }
+  },
+  "reward": {
+   "score": 3000
+  }
+ },
+ {
   "id": "bonanza_star",
   "name": "Bonanza Star",
   "desc": "Boop every cat in a Treat Bonanza for a perfect bonus.",
@@ -144,7 +263,10 @@
   "name": "Boop Brigade",
   "desc": "Boop 1,500 cats. They will be fine. They are just going home.",
   "start": {
-   "on": "wave:clear"
+   "on": "area:enter",
+   "match": {
+    "areaId": "backyard"
+   }
   },
   "complete": {
    "on": "cat:boop",

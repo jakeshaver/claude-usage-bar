@@ -245,7 +245,7 @@
   "id": "outro-sky-1",
   "speaker": "Commander Biscuit",
   "portrait": "portrait_biscuit",
-  "text": "Ace is out of the fight. Your memories are glowing, Captain. If you found enough, a secret route opens to the Catnip Nebula.",
+  "text": "The Sky Ace is out of the fight. Your memories are glowing, Captain. If you found enough, a secret route opens to the Catnip Nebula.",
   "next": "outro-sky-2"
  },
  {
@@ -378,5 +378,161 @@
   "speaker": "Captain Pom",
   "portrait": "portrait_pom",
   "text": "Come by the backyard on Saturday. Bring the squeaky hedgehog. Biscuit, set a course for home."
+ },
+ {
+  "id": "taunt-boss_whiskers",
+  "speaker": "Sergeant Whiskers",
+  "portrait": "portrait_tabby",
+  "text": "This yard is Armada turf now, poodle. Ten-hut!"
+ },
+ {
+  "id": "defeat-boss_whiskers",
+  "speaker": "Sergeant Whiskers",
+  "portrait": "portrait_tabby",
+  "text": "Retreat! Regroup! ...Is that a sunbeam?"
+ },
+ {
+  "id": "taunt-boss_tom",
+  "speaker": "Tuxedo Tom",
+  "portrait": "portrait_tuxedo",
+  "text": "Black tie only, Captain. You are underdressed."
+ },
+ {
+  "id": "defeat-boss_tom",
+  "speaker": "Tuxedo Tom",
+  "portrait": "portrait_tuxedo",
+  "text": "My cummerbund! You will pay for the dry cleaning."
+ },
+ {
+  "id": "taunt-boss_duchess",
+  "speaker": "Duchess Fluffbottom",
+  "portrait": "portrait_persian",
+  "text": "A commoner. In MY park. How perfectly ghastly."
+ },
+ {
+  "id": "defeat-boss_duchess",
+  "speaker": "Duchess Fluffbottom",
+  "portrait": "portrait_persian",
+  "text": "Fetch my groomer. And my fainting couch."
+ },
+ {
+  "id": "taunt-boss_sal",
+  "speaker": "Big Sal",
+  "portrait": "portrait_bengal",
+  "text": "Nobody flies through my alley without paying the tuna tax."
+ },
+ {
+  "id": "defeat-boss_sal",
+  "speaker": "Big Sal",
+  "portrait": "portrait_bengal",
+  "text": "Okay, okay. You got moxie, kid. Sal respects moxie."
+ },
+ {
+  "id": "taunt-boss_mau",
+  "speaker": "Madame Mau",
+  "portrait": "portrait_siamese",
+  "text": "The rooftops belong to the night, darling. And the night is mine."
+ },
+ {
+  "id": "defeat-boss_mau",
+  "speaker": "Madame Mau",
+  "portrait": "portrait_siamese",
+  "text": "Hmph. The moon will remember this, little poodle."
+ },
+ {
+  "id": "taunt-boss_patches",
+  "speaker": "Barista Patches",
+  "portrait": "portrait_calico",
+  "text": "One extra-hot latte, coming right at your face!"
+ },
+ {
+  "id": "defeat-boss_patches",
+  "speaker": "Barista Patches",
+  "portrait": "portrait_calico",
+  "text": "We are closed! CLOSED! ...Tip jar is by the door."
+ },
+ {
+  "id": "taunt-boss_mainsail",
+  "speaker": "Captain Mainsail",
+  "portrait": "portrait_mainecoon",
+  "text": "Arr! This catch is mine, ye soggy little mop!"
+ },
+ {
+  "id": "defeat-boss_mainsail",
+  "speaker": "Captain Mainsail",
+  "portrait": "portrait_mainecoon",
+  "text": "Abandon ship! Save the sardines first!"
+ },
+ {
+  "id": "taunt-boss_fold",
+  "speaker": "Foreman Fold",
+  "portrait": "portrait_scottishfold",
+  "text": "Shift starts now. Every ball of yarn rolls for the Empress."
+ },
+ {
+  "id": "defeat-boss_fold",
+  "speaker": "Foreman Fold",
+  "portrait": "portrait_scottishfold",
+  "text": "I am clocking out. Forever. Tell the union."
+ },
+ {
+  "id": "taunt-boss_ace",
+  "speaker": "Ace Pilot Sphynx",
+  "portrait": "portrait_sphynx",
+  "text": "No fur, no drag, no mercy. Try to keep up, fluffball."
+ },
+ {
+  "id": "defeat-boss_ace",
+  "speaker": "Ace Pilot Sphynx",
+  "portrait": "portrait_sphynx",
+  "text": "Mayday! Mayday! Somebody get me a sweater!"
+ },
+ {
+  "id": "taunt-boss_blue",
+  "speaker": "Commodore Blue",
+  "portrait": "portrait_russianblue",
+  "text": "Welcome to the Litter Moon. Mind the craters. They are not craters."
+ },
+ {
+  "id": "defeat-boss_blue",
+  "speaker": "Commodore Blue",
+  "portrait": "portrait_russianblue",
+  "text": "Tactical withdrawal. Very tactical. Extremely withdrawn."
+ },
+ {
+  "id": "taunt-boss_kingpin",
+  "speaker": "The Catnip Kingpin",
+  "portrait": "portrait_tabby",
+  "text": "Whoa, duuude. Have you ever, like, really looked at a toy mouse?"
+ },
+ {
+  "id": "defeat-boss_kingpin",
+  "speaker": "The Catnip Kingpin",
+  "portrait": "portrait_tabby",
+  "text": "Bummer, man. I am gonna go stare at a wall for a while."
+ },
+ {
+  "id": "taunt-boss_admiral",
+  "speaker": "Admiral Floof",
+  "portrait": "portrait_persian",
+  "text": "Battle stations! And someone brush my tail, it is a mess."
+ },
+ {
+  "id": "defeat-boss_admiral",
+  "speaker": "Admiral Floof",
+  "portrait": "portrait_persian",
+  "text": "The station is yours. The hairballs in the vents are a gift."
+ },
+ {
+  "id": "taunt-boss_empress",
+  "speaker": "Empress Fluffington",
+  "portrait": "portrait_empress",
+  "text": "So the poodle finally comes to kneel. How adorable."
+ },
+ {
+  "id": "defeat-boss_empress",
+  "speaker": "Empress Fluffington",
+  "portrait": "portrait_empress",
+  "text": "Fine. FINE. Take your silly pups. I wanted a nap anyway."
  }
 ]
