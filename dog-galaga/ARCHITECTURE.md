@@ -65,16 +65,13 @@ and applied by the integrator.
   time-of-day table maps each palette index to exactly ONE palette index (`remap()` in `world/paint.ts` refuses
   two-entry mixes), so no pixel of the playfield is a two-colour checkerboard at any hour; dither is only allowed for
   small local light falloff (lamp pool rings, beam edges). `src/world/tools/checker-share.mjs` measures the strict
-  1px checker share for all 13 areas x 4 times of day against a running preview (target < 5%). Shadows cast onto a
-  lower parallax layer are one solid deep tone. Low-light lawns keep one index per pixel: the ground remaps to one
-  colour per hour and, at dawn/dusk only, a carpet of short vertical grass blades (remapping to dark green) sits on
-  it, so lawns read teal-green at dawn and olive at dusk. Space tilesets have their own milder remaps (metal never
+  1px checker share for all 13 areas x 4 times of day against a running preview (target < 5%); it also measures 1px horizontal / vertical stripe alternation (target < 8%). Shadows cast onto a
+  lower parallax layer are one solid deep tone. Lawns always read as grass: the dark green ground keeps its colour at every hour under a carpet of 2px-wide grass blades (never 1px stripes) whose density and remap set the hour: day a sunlit carpet with lime tips, dawn a sparser one with peach tips, dusk a dense mix of green and sun-browned blades with orange tips (olive-gold), night one dark teal-green (the blades melt into it and only show inside lamp pools). Space tilesets have their own milder remaps (metal never
   turns brown); sky gradients are stepped solid bands. Day is brightest and most neutral; dawn is
   cooler and a little lower (grey-green lawns, slate stone, peach-pink highlights and top edges); dusk is warm and
   15-20% lower (olive lawns with ochre/orange tips, warm taupe stone, deeper woods, plum shadows cast long to the
   east); night is dark but keeps material hues (teal-green grass, brown wood, slate stone, blue water) with lit
-  windows, lanterns and lamps. Lamp pools are centred under a visible lamp head: one solid lit colour per material
-  with a 2px falloff ring (1px solid, 1px 50%), never clipped to a path or tile edge. All background layers, fg
+  windows, lanterns and lamps. Outdoor lamp pools light what they land on: each pixel's night colour (the area's own night remap) is lifted one warm step per ring along `WARM_LIFT` (dark -> plum -> warm brown -> amber -> orange / cream), in four rings (edge, middle, core, a small hot centre) under a visible lamp post / head, each ring edge a 1px 50% seam; grass keeps its blades and goes green -> lime -> yellow toward the core. So seams, cracks and plank gaps keep their contrast inside a pool and no pool is a flat fill; pools are never clipped to a path or tile edge. Dawn / dusk sunbeams and shafts can set `Painter.beamShade`, so props' cast shadows cut through the light. All background layers, fg
   included, are drawn in the world's z -10 pass, so scenery never covers Pom. Backgrounds are far / main / fg layers
   of 448x256 segments painted once and cached; rare fast foreground flyers (birds, leaves, steam) are drawn per frame.
 - **Hit-stop**: `Game.step()` skips every module except effects, ui and audio while
@@ -154,24 +151,53 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
   `startBonus(def)` (one single-file train of 8 per squadron: 9 ticks apart along the curve, squadrons 150 ticks
   apart), `markGlow()`, `grounded()` (false in airborne sectors: no ground shadows), `wavePreview(areaId, i)`
   (pure: per-breed `{breed, n}` head counts startWave would spawn; feeds ui's next-wave preview). Formations are a
-  true Galaga lattice: every cat owns one 32x32 cell for the whole wave (holes stay holes; a fully booped row lets the
-  rows below move up), at most 8 columns, centred on the area's lane walls (`LANES` in `interaction/formation.ts`;
-  world owners: tell interaction if a stage's walls move; street `[112, 336]`, alley `[98, 350]`). The outermost
-  cat keeps 16 px of air to the lane walls at the far end of its sway (`WALL_GAP`). Waves allow 2 player turds on
-  screen (bosses and bonus stages 4). Memory carriers' look is drawn by memories, not here.
-  Wave variety: 10 formation shapes in a ring (`galaga flanks block vee diamond barrel pillars arrow wings chevron`),
-  one step per wave from `areaIdx * 3` (`formation.shapeFor`; the lattice-like family galaga/block/barrel/arrow never
-  appears twice in a row), and 9 entries (content's five plus `convoy`, `drop`, `flank`, `escort`; `formation.entryFor`
-  never repeats an entry on consecutive waves). Streams loop in the open field under the rack (or down the side
+  true Galaga lattice: every cat owns one cell for the whole wave (holes stay holes; a fully booped row lets the rows
+  below move up). Cells are `COL_SP` 40 x `ROW_SP` 34 (12px / 6px of air between opaque cats), at most 7 columns x 4
+  rows, centred on the area's lane walls (`LANES` in `interaction/formation.ts`; world owners: tell interaction if a
+  stage's walls move; street `[112, 336]`, alley `[98, 350]`). The column pitch follows the wave's widest breed
+  (`formation.pitchFor`: opaque sprite width + 12, at least 40; maine coon waves 44, fold waves 42) and never shrinks:
+  a narrow lane gets fewer columns (street / alley 5, mothership 4, cafe / docks / factory 6, open stages 7) while the
+  shape still follows the area's base lattice. `latticeFor` keeps a one-cat side gutter free (`GUTTER` 18: stream line
+  at lane wall + 18) where the lane allows; gutterless lanes (street, alley, mothership) remap gutter entries
+  (`formation.NO_GUTTER`). Entry paths stay inside the lane once on screen (`inLane`); only the sky's cloud loops swing
+  out beside the rack. The outermost cat keeps 16 px of air to the lane walls at the far end of its sway (`WALL_GAP`).
+  Cats that do not fit the shape's cells wait off stage as reinforcements (`plan().reserve`, at most ~70% of the rack)
+  and fly in, in flights of up to four, into holes they can reach without passing a parked cat. They are in
+  `interaction.cats` from the start (state `wait`, `res: true`), so ui's CATS LEFT and `wave:start.count` /
+  `wavePreview` include them. A lopsided row (an inner hole, or all its cats on one side) slides together onto its
+  middle cells after the regroup lull (mirror-symmetric rows are kept). Docks / factory / alley draw a 50% ink dither
+  band (25% falloff ring) behind the rack on layer 0. Waves allow 2 player turds on screen (bosses and bonus stages 4).
+  Memory carriers' look is drawn by memories, not here.
+  Wave variety: 10 formation shapes in a ring (`galaga flanks block vee diamond barrel pillars arrow wings chevron`;
+  `flanks` is two mirrored squadrons), narrow lanes (<= 5 columns) walk their own ring (`chevron checker diamond squads
+  vee galaga wings arrow`: `checker` = staggered half-offset rows, `squads` = 2x2 squadrons with a second line in the
+  gaps), one step per wave from `areaIdx * 3` (`formation.shapeFor`; the lattice-like family galaga/block/barrel/arrow
+  never appears twice in a row; gapped shapes never leave an odd cat in a partial row), and 9 entries (content's five
+  plus `convoy`, `drop`, `flank`, `escort`; `formation.entryFor` never repeats an entry on consecutive waves). Sector
+  signatures (`formation.SIGNATURES`, waves 3 and 7 of each sector, every other wave on the mothership): street ambush
+  (whole columns slam down), park frisbee (a low arc across the open field), alley pop-outs from the side walls,
+  rooftops water-tower swoop, cafe conga line (one line under the rack, far columns first), docks tide streams + a rack
+  that bobs +-5px like moored boats, factory conveyor belt, sky loop-the-loops, moon floaty drift (whole rows drop as a
+  sheet; slower, swaying dives all sector long), nebula zigzag (gutter drop, then zigzags across the field), station
+  orbit ring on the lane's own gutter lines, mothership remixes them all; backyard stays plain (tutorial). A signature
+  wave sketches its lane paths as marching pixel dots for 54 ticks before the first cat flies (never across the rack).
+  Streams loop in the open field under the rack (or down the side
   gutters), then rise straight into their column; every column fills top cell first, so no entering cat crosses a
   parked one (`src/interaction/waves.test.ts`). The caged pup rides one row pitch above a top-row capturer.
   Dives: a diver leaves through an empty column beside it, straight down to just under the rack, and only there
   turns toward Pom; wingmates are locked to the leader's arc position (32 px beside or 44 px behind), separate dive
   groups yield to each other, and capturer beams start only well below the rack.
   Big Cats: hp is content's `hp` with a floor of `max(230, 160 + 8 * areaIndex)` (content now carries those values).
-  Every fight has an escort squad of the sector's own breeds (minus capturers): 4 (two pairs) through sector 10, 6
-  after, +2 once grumpy (max 6), streaming in with the entrance swoop in a wedge under the boss (shoulders +-34, wings
-  +-66, rear guard), peeling off in Galaga dives and topped up 60 ticks after the squad drops to one. Escorts are
+  Every fight has an escort squad of the sector's own breeds (minus capturers) in fixed wing slots: every escort a
+  cat's width (28px) clear of the Big Cat's hitbox and craft art, 56px between escorts, homes clamped to lane wall +
+  16px. Wide lanes: upper wings beside the boss, shoulders under it (they step out of the charge lane while it winds
+  up), lower wings under the upper ones. Narrow lanes (street, alley): a V of four (the Empress's outer pair rides high
+  at the walls over her throne wings); mothership: a low V under the throne (outer pair at the walls just under the
+  saucer rim, inner pair a row lower); narrow-lane escorts rise from under the field. Squad: 4 in sectors 1-3, 4 (+2
+  grumpy) in 4-8, 6 from sector 9; refilled in mirrored pairs (each cat from its own side; a broken pair whistles up its
+  partner in sectors 4+) 90 ticks after it drops below 4 (60 ticks in sectors 4+; sectors 1-3: once only two are left),
+  entering escorts bend onto their slot's live position. `bossRange()` never widens past the lane. All boss telegraphs
+  (spiral ring, summon sparkles) draw under the cats. Escorts are
   ordinary cats (normal `cat:boop`, breed points) and fly off on `boss:defeat`; the boss's drift and charges keep
   inside `interaction.bossRange()`. Each hit scores `10 + 10*phase + 5*tier`; a phase change pays
   `250 * phase * (1 + tier)` with 3 frames of a white-hot palette swap (outline and shading kept), then a red/gold
@@ -191,7 +217,9 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
   bonus toasts sit in a reserved strip at the bottom of the playfield (below Pom's lowest flight row, stacking
   upward), never over the formation or the boss; on the sector map they dock under the header bar; news waits through
   a Big Cat's intro. `toastWaiting(text)` (queued here but not on screen yet) lets quest reveal a NEW QUEST only once
-  its toast is up. The HUD sector header and the map's sector log share one short name table (`LOG_SHORT`). The RESCUED
+  its toast is up; it still matches the original texts after ui merges the two toasts of one event into one pill
+  ('NEW QUEST: X' + 'X n/m' -> 'NEW QUEST: X n/m'; 'PUPPY RESCUED! ...' + the pup quest's progress -> 'PUPPY RESCUED!
+  LOST PUPS n/m', either order). The HUD hostiles list uses breed short names with per-breed 3-tone icons. The HUD sector header and the map's sector log share one short name table (`LOG_SHORT`). The RESCUED
   album count reads `memories.albumShown()`; the ending card lists `quest.endingRewards()` under the stats,
   a static sound chip on the header row (reads `audio.running()` + volumes; the only sound widget), `openPause()`, `openMap()`, `showDialogue(nodeId)`,
   `dialogueBox(g, ctx, dock?)` (docks to the top while `quest.dock()` says Pom is under it; body lines from
