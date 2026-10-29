@@ -65,7 +65,7 @@ export class Boss {
   /** home altitude (the Empress's throne rides higher, so her escort V has air under the saucer) */
   hy = HOME_Y;
   /** background emitters (phase 2+): their own clock, the paired-fan sweep, and the curtain's gap centres */
-  bgT = 0; fanT = 0; curG: number[] = [];
+  bgT = 0; fanT = 0; curG: number[] = []; curA: number[] = []; curB: number[] = [];
   constructor(public g: Game, public ix: any, public def: EnemyDef) {
     const areas = g.content.areas; const ai = areas.findIndex(a => a.boss === def.id);
     // early Big Cats get a floor under their hp (content gives 50-90): every fight lasts long enough to feel like a
@@ -95,7 +95,7 @@ export class Boss {
     const [l, r] = this.ix.lane?.() ?? [64, 384]; const a = l + 10, b = r - 10;
     const n = Math.floor((b - a) / CURTAIN_STEP); const x0 = Math.round((a + b - n * CURTAIN_STEP) / 2);
     // (a bullet is never born on top of an escort parked across the row itself)
-    const esc: number[] = this.ix.escortXs?.(this.y + CURTAIN_DY) ?? [];
+    const esc: number[] = this.ix.escortXs?.(this.y + this.curtainDY()) ?? [];
     const xs: number[] = [];
     for (let i = 0; i <= n; i++) {
       const x = x0 + i * CURTAIN_STEP;
@@ -104,15 +104,18 @@ export class Boss {
     }
     return { xs, gaps: this.curG };
   }
-  /** Pick the curtain's gaps: 2 in a narrow hall, 3 in an open lane, evenly spread (never two doors side by side),
-   *  the whole set slid so one door opens right where Pom is now (always fair). */
-  private pickGaps(px: number) {
+  /** Curtain row height below the Big Cat: under its squad's tucked row (escorts close up above the curtain). */
+  curtainDY(): number { return this.ix.escCurtainDY?.() ?? CURTAIN_DY; }
+  /** Pick the curtain's doors: 2 in a narrow hall, 3 in an open lane, spread evenly with at least two bullets
+   *  between a door and a wall (a door never melts into the wall), nudged a few px per fight; the in-between set
+   *  (`curB`, the midpoints) opens on every other row, so the rows make Pom weave from door to door. */
+  private pickGaps(_px: number) {
     const [l, r] = this.ix.lane?.() ?? [64, 384]; const w = r - l; const n = w > 250 ? 3 : 2;
-    const lo = l + 10 + GAP_HW, hi = r - 10 - GAP_HW; const span = (hi - lo) / n;
-    const cs = Array.from({ length: n }, (_, k) => lo + (k + 0.5) * span);
-    let best = cs[0]; for (const c of cs) if (Math.abs(c - px) < Math.abs(best - px)) best = c;
-    const sh = Math.max(lo - cs[0], Math.min(hi - cs[n - 1], px - best));
-    this.curG = cs.map(c => Math.round(c + sh));
+    const lo = l + 10 + GAP_HW + CURTAIN_STEP * 2, hi = r - 10 - GAP_HW - CURTAIN_STEP * 2;
+    const j = Math.round((this.g.rng.next() - 0.5) * 12);
+    this.curA = Array.from({ length: n }, (_, k) => Math.round(lo + (k * (hi - lo)) / (n - 1)) + (k === 0 ? Math.max(0, j) : k === n - 1 ? Math.min(0, j) : j));
+    this.curB = this.curA.slice(1).map((x, k) => Math.round((x + this.curA[k]) / 2));
+    this.curG = this.curA;
   }
   /** 1 while the escorts are still forming up during the descent, easing to 0 as the Big Cat arrives. */
   formK() { return this.entering ? 1 - this.enterK : 0; }
@@ -155,6 +158,9 @@ export class Boss {
     const s = this.seq++;
     if (this.phase === 0) return prim;
     if (this.phase === 1) return ([prim, 'ring', prim, sec] as Atk[])[s % 4];
+    // the Empress's last stand: full-lane curtains and clean rings take turns (her spiral and fan in between), and
+    // under 15% armor it is curtain / ring back to back with a spiral breather
+    if (this.tier >= 3) return this.hp <= this.maxHp * 0.15 ? (['curtain', 'ring', 'curtain', prim] as Atk[])[s % 4] : (['curtain', 'ring', prim, 'curtain', sec, 'ring'] as Atk[])[s % 6];
     return ([prim, 'curtain', sec, prim, 'ring'] as Atk[])[s % 5];
   }
 
@@ -277,16 +283,20 @@ export class Boss {
   }
   /** Slow ring with a gap facing Pom; never fired through the Big Cat's own escorts (the ring parts around them). */
   private slowRing(px: number, py: number, off: number) {
-    const n = 12 + 2 * Math.min(2, this.tier) + (this.phase >= 2 ? 2 : 0); const v = this.speed() * (this.tier === 0 ? 0.42 : 0.48);
+    const n = 12 + 2 * Math.min(2, this.tier) + (this.phase >= 2 ? 2 : 0) + (this.tier >= 3 ? 8 : 0); const v = this.speed() * (this.tier === 0 ? 0.42 : 0.48);
     const aim = Math.atan2(py - this.y, px - this.x); const step = TAU / n;
-    const esc: number[] = this.ix.escortAngles?.(this.x, this.y) ?? [];
+    const esc: number[] = this.ix.escortAngles?.(this.x, this.y + this.ringR()[2]) ?? [];
     const near = (a: number, b: number) => { const d = Math.abs(((a - b) % TAU + TAU + Math.PI) % TAU - Math.PI); return d; };
     for (let i = 0; i < n; i++) {
       const a = aim + step / 2 + off * step + i * step;
-      if (Math.sin(a) < -0.3 || near(a, aim) < step * 0.9 || esc.some(e => near(a, e) < 0.26)) continue;
-      this.spit(this.x + Math.cos(a) * 20, this.y + 8 + Math.sin(a) * 16, Math.cos(a) * v, Math.sin(a) * v);
+      if (Math.sin(a) < (this.tier >= 3 ? 0.12 : -0.3) || near(a, aim) < step * 0.9 || esc.some(e => near(a, e) < 0.26)) continue;
+      const [rx, ry, oy] = this.ringR();
+      this.spit(this.x + Math.cos(a) * rx, this.y + oy + Math.sin(a) * ry, Math.cos(a) * v, Math.sin(a) * v);
     }
   }
+  /** Where a ring is born around the Big Cat: just past its art (the Empress's throne is wide: her rings open out of
+   *  the saucer's rim, never on top of it). */
+  private ringR(): [number, number, number] { return this.tier >= 3 ? [66, 26, 24] : [18, 14, 8]; }
   /** Ticks until the next background volley (for its telegraph), or -1. */
   bgTell(): { ring: number; fan: number } {
     const ev = this.bgEvery(); if (!ev || this.st === 'enter' || this.st === 'phase' || this.st === 'ko') return { ring: -1, fan: -1 };
@@ -353,13 +363,16 @@ export class Boss {
         break;
       }
       case 'ring': { // a slow ring bursting out of the Big Cat, a gap facing Pom (grumpiest: a second ring, offset)
-        const n = 14 + 2 * ph + (this.tier >= 2 ? 4 : 0); const rings = ph >= 2 ? 2 : 1; const v = sp * (this.tier === 0 ? 0.55 : 0.62);
-        const esc: number[] = ix.escortAngles?.(this.x, this.y) ?? [];
+        const n = 14 + 2 * ph + (this.tier >= 2 ? 4 : 0) + (this.tier >= 3 ? 8 : 0); const rings = ph >= 2 ? 2 : 1; const v = sp * (this.tier === 0 ? 0.55 : 0.62);
+        // (rings part around parked escorts; the Empress's flanks hug the hall's walls, so her rings stay whole across
+        // the middle of the hall)
+        const esc: number[] = ix.escortAngles?.(this.x, this.y + this.ringR()[2]) ?? [];
         for (let w = 0; w < rings; w++) if (T === 1 + w * 28) {
           const a0 = this.aim + Math.PI / n + (w * Math.PI) / n;
           for (let i = 0; i < n; i++) {
-            const a = a0 + (i * TAU) / n; if (Math.sin(a) < -0.2 || esc.some(e => Math.abs(((a - e) % TAU + TAU + Math.PI) % TAU - Math.PI) < 0.26)) continue;
-            this.spit(this.x + Math.cos(a) * 18, this.y + 8 + Math.sin(a) * 14, Math.cos(a) * v, Math.sin(a) * v);
+            const a = a0 + (i * TAU) / n; if (Math.sin(a) < (this.tier >= 3 ? 0.12 : -0.2) || esc.some(e => Math.abs(((a - e) % TAU + TAU + Math.PI) % TAU - Math.PI) < 0.26)) continue;
+            const [rx, ry, oy] = this.ringR();
+            this.spit(this.x + Math.cos(a) * rx, this.y + oy + Math.sin(a) * ry, Math.cos(a) * v, Math.sin(a) * v);
           }
           g8(this.g);
         }
@@ -369,13 +382,16 @@ export class Boss {
       case 'curtain': { // crossing curtains: walls of bullets spanning the whole lane, wall to wall, each with the 2-3
         // marked gaps, shed one after another and drifting alternately left and right, so the rows cross into a
         // lattice while every gap stays a clear 38px door a poodle can slip through
-        const vol = this.tier === 0 ? 3 : this.tier === 1 ? 4 : 5, gap = 30;
+        const vol = this.tier === 0 ? 3 : this.tier === 1 ? 4 : this.tier >= 3 && this.hp <= this.maxHp * 0.15 ? 6 : 5, gap = 30;
         if ((T - 1) % gap === 0 && (T - 1) / gap < vol) {
-          const v = (T - 1) / gap; const dir = v % 2 ? 1 : -1; const vx = dir * sp * 0.16, vy = sp * (this.tier === 0 ? 0.5 : 0.6);
-          for (const x of this.curtainRow().xs) ix.bossSpit(x, this.y + CURTAIN_DY, vx, vy, this.art, this.capBoost());
+          // straight walls (no drift: a wall-to-wall row never frays at the walls); the doors alternate between the
+          // two sets row by row, so Pom weaves from door to door
+          const v = (T - 1) / gap; const vy = sp * (this.tier === 0 ? 0.5 : 0.6), vx = 0;
+          this.curG = v % 2 ? this.curB : this.curA;
+          for (const x of this.curtainRow().xs) ix.bossSpit(x, this.y + this.curtainDY(), vx, vy, this.art, this.capBoost());
           this.puffT = 8; this.g.mods.audio?.sfx('hack');
         }
-        if (T > vol * gap + 16) this.go('recover');
+        if (T > vol * gap + 16) { this.curG = this.curA; this.go('recover'); }
         break;
       }
       case 'summon': { // kittens pop from the boss's sides in a little arc
@@ -457,7 +473,7 @@ export class Boss {
           }
           case 'curtain': { // the whole row lights up wall to wall, slot by slot from the middle out, and each gap is
             // marked with lime door posts and a down arrow: the player sees exactly where the doors in the wall will be
-            const row = this.curtainRow(); const ey = Math.round(y + CURTAIN_DY);
+            const row = this.curtainRow(); const ey = Math.round(y + this.curtainDY());
             const mid = (this.ix.lane?.() ?? [64, 384]).reduce((a: number, b: number) => a + b, 0) / 2; const reach = 30 + 200 * k;
             for (const ex of row.xs) {
               if (Math.abs(ex - mid) > reach) continue;
@@ -495,7 +511,7 @@ export class Boss {
     });
     // crossing curtains: each emitter flashes as its volley is shed
     if (this.puffT > 0) r.push(4, y + 30, (ctx: CanvasRenderingContext2D) => {
-      const yy = Math.round(this.y + CURTAIN_DY - (this.puffT > 4 ? 0 : 2));   // a bright seam flashes along the row as it is shed
+      const yy = Math.round(this.y + this.curtainDY() - (this.puffT > 4 ? 0 : 2));   // a bright seam flashes along the row as it is shed
       for (const ex of this.curtainRow().xs) { ctx.fillStyle = col('0'); ctx.fillRect(ex - 6, yy - 1, 13, 3); ctx.fillStyle = col(this.puffT > 4 ? '6' : 'f'); ctx.fillRect(ex - 5, yy, 11, 1); }
     });
     // background emitters' tells: a quick swelling ring before the slow ring, lit flank pips before the paired fans
