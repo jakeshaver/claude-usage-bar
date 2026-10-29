@@ -61,15 +61,20 @@ and applied by the integrator.
   `Math.random` is banned in src/ (lint check). Same seed + same inputs = same run.
 - **Time of day is a palette remap**: segments are painted into a palette-index buffer in day colours, then each
   time of day applies a hand-authored palette index -> palette index table (`world/paint.ts` `TOD_RAMP`,
-  `INDOOR_RAMP`, `SPACE_RAMP`, plus per-tileset `ramps` in `world/tiles.ts`) when the segment is cached. A large
-  material can map to a fixed 50% mix of two entries of nearly equal lightness (for example dark green + dark brown
-  for the olive dusk lawn, or dark green + plum for the night lawn), which reads as one in-between colour, so every
-  material keeps its hue and at least two value steps at every hour. Day is brightest and most neutral; dawn is
+  `INDOOR_RAMP`, `SPACE_RAMP`, plus per-tileset `ramps` in `world/tiles.ts`) when the segment is cached. Every
+  time-of-day table maps each palette index to exactly ONE palette index (`remap()` in `world/paint.ts` refuses
+  two-entry mixes), so no pixel of the playfield is a two-colour checkerboard at any hour; dither is only allowed for
+  small local light falloff (lamp pool rings, beam edges). `src/world/tools/checker-share.mjs` measures the strict
+  1px checker share for all 13 areas x 4 times of day against a running preview (target < 5%). Shadows cast onto a
+  lower parallax layer are one solid deep tone. Low-light lawns keep one index per pixel: the ground remaps to one
+  colour per hour and, at dawn/dusk only, a carpet of short vertical grass blades (remapping to dark green) sits on
+  it, so lawns read teal-green at dawn and olive at dusk. Space tilesets have their own milder remaps (metal never
+  turns brown); sky gradients are stepped solid bands. Day is brightest and most neutral; dawn is
   cooler and a little lower (grey-green lawns, slate stone, peach-pink highlights and top edges); dusk is warm and
   15-20% lower (olive lawns with ochre/orange tips, warm taupe stone, deeper woods, plum shadows cast long to the
   east); night is dark but keeps material hues (teal-green grass, brown wood, slate stone, blue water) with lit
-  windows, lanterns and lamps. Lamp pools are centred under a visible lamp head, clipped to the floor they light,
-  and brighten the pixels toward sodium cream (solid core, ordered falloff rings). All background layers, fg
+  windows, lanterns and lamps. Lamp pools are centred under a visible lamp head: one solid lit colour per material
+  with a 2px falloff ring (1px solid, 1px 50%), never clipped to a path or tile edge. All background layers, fg
   included, are drawn in the world's z -10 pass, so scenery never covers Pom. Backgrounds are far / main / fg layers
   of 448x256 segments painted once and cached; rare fast foreground flyers (birds, leaves, steam) are drawn per frame.
 - **Hit-stop**: `Game.step()` skips every module except effects, ui and audio while
@@ -151,8 +156,26 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
   (pure: per-breed `{breed, n}` head counts startWave would spawn; feeds ui's next-wave preview). Formations are a
   true Galaga lattice: every cat owns one 32x32 cell for the whole wave (holes stay holes; a fully booped row lets the
   rows below move up), at most 8 columns, centred on the area's lane walls (`LANES` in `interaction/formation.ts`;
-  world owners: tell interaction if a stage's walls move). Waves allow 2 player turds on screen (bosses and bonus
-  stages 4). Memory carriers' look is drawn by memories, not here
+  world owners: tell interaction if a stage's walls move; street `[112, 336]`, alley `[98, 350]`). The outermost
+  cat keeps 16 px of air to the lane walls at the far end of its sway (`WALL_GAP`). Waves allow 2 player turds on
+  screen (bosses and bonus stages 4). Memory carriers' look is drawn by memories, not here.
+  Wave variety: 10 formation shapes in a ring (`galaga flanks block vee diamond barrel pillars arrow wings chevron`),
+  one step per wave from `areaIdx * 3` (`formation.shapeFor`; the lattice-like family galaga/block/barrel/arrow never
+  appears twice in a row), and 9 entries (content's five plus `convoy`, `drop`, `flank`, `escort`; `formation.entryFor`
+  never repeats an entry on consecutive waves). Streams loop in the open field under the rack (or down the side
+  gutters), then rise straight into their column; every column fills top cell first, so no entering cat crosses a
+  parked one (`src/interaction/waves.test.ts`). The caged pup rides one row pitch above a top-row capturer.
+  Dives: a diver leaves through an empty column beside it, straight down to just under the rack, and only there
+  turns toward Pom; wingmates are locked to the leader's arc position (32 px beside or 44 px behind), separate dive
+  groups yield to each other, and capturer beams start only well below the rack.
+  Big Cats: hp is content's `hp` with a floor of `max(230, 160 + 8 * areaIndex)` (content now carries those values).
+  Every fight has an escort squad of the sector's own breeds (minus capturers): 4 (two pairs) through sector 10, 6
+  after, +2 once grumpy (max 6), streaming in with the entrance swoop in a wedge under the boss (shoulders +-34, wings
+  +-66, rear guard), peeling off in Galaga dives and topped up 60 ticks after the squad drops to one. Escorts are
+  ordinary cats (normal `cat:boop`, breed points) and fly off on `boss:defeat`; the boss's drift and charges keep
+  inside `interaction.bossRange()`. Each hit scores `10 + 10*phase + 5*tier`; a phase change pays
+  `250 * phase * (1 + tier)` with 3 frames of a white-hot palette swap (outline and shading kept), then a red/gold
+  palette cycle, hit-stop, boom burst, shockwave ring and reinforcements
 - **save**: `save()` (throttled), `flush()`, `load(slot = 'main')` (`'main'` | `'backup'`: the slot tried
   first; returns `'ok'` | `'recovered'` | `'corrupt'` | `'none'`; legacy `load(false)` = load without resuming),
   `hasSave()`, `wipe()` (keeps hi score + settings), `info()` (slot health, `persistent`), `recoveryOptions()`
@@ -164,7 +187,11 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
   title, map, pause menu and recovery screen.
 - **ui**: `toast(text, opts?)` (`opts.kind`: `'warn'` = bad news, peri frame + pink cross; `'good'` = lime text;
   omitted = bad news matched from the text; `g.toastFn` forwards opts), `muteToasts(on)`, `holdToasts(on)` (at most 2
-  toasts on screen, 1 in a live wave / boss fight, the rest queue; none once the scene is `'ending'`). The RESCUED
+  toasts on screen, 1 in a live wave / boss fight, the rest queue; none once the scene is `'ending'`). In play and
+  bonus toasts sit in a reserved strip at the bottom of the playfield (below Pom's lowest flight row, stacking
+  upward), never over the formation or the boss; on the sector map they dock under the header bar; news waits through
+  a Big Cat's intro. `toastWaiting(text)` (queued here but not on screen yet) lets quest reveal a NEW QUEST only once
+  its toast is up. The HUD sector header and the map's sector log share one short name table (`LOG_SHORT`). The RESCUED
   album count reads `memories.albumShown()`; the ending card lists `quest.endingRewards()` under the stats,
   a static sound chip on the header row (reads `audio.running()` + volumes; the only sound widget), `openPause()`, `openMap()`, `showDialogue(nodeId)`,
   `dialogueBox(g, ctx, dock?)` (docks to the top while `quest.dock()` says Pom is under it; body lines from
@@ -190,8 +217,8 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
   The world director holds a boss defeat ~140 ticks before the outro dialogue so the finale plays out
 - **quest**: `check()`, `start(id)`, `dialogue(nodeId, done?)`, `available()`, `advance()`, `skipAll()` (bounded;
   also opens-and-skips a briefing staged behind the title card), `typing()`, `visibleLines()`, `cols`/`rows` (51x3,
-  long text is paged), `progress(q)`, `complete(q)`, `stages(q)`, `tracked()` (null while a NEW QUEST toast is still
-  held: no fallback), `focus()`, `goal(q, max?)`, `status(id)` (`'missed'` for a passed-by route), `missed(id)`,
+  long text is paged), `progress(q)`, `complete(q)`, `stages(q)`, `tracked()` (hides a quest until its NEW QUEST toast is on
+  screen: quest's own queue and ui's, via `ui.toastWaiting`), `focus()`, `goal(q, max?)`, `status(id)` (`'missed'` for a passed-by route), `missed(id)`,
   `revealed(id)`, `dock(boxH?)`, `stage(idOrNode, at?)`, `showSheet(on?)` (review sheet, drawn by quest's
   `overlay`), `heldToasts()`, `briefingPending()`, `seedRoute(areaId)` (automatic on a deep-link `area:enter`),
   `routeTo(areaId)`, `hasNode(id)`, `issue(file, msg)`. Reading `dlg` outside the frame painter promotes a briefing
@@ -217,10 +244,12 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
   pauses play: a sparkle and a rising '+1 MEMORY' (full 1px ink outline) pop at the pickup point. The memory card
   slides over the right HUD panel (y 119..289; compact 119..230; overlayZ 50, hidden while a menu is open or outside
   play/bonus, its clock parked) for ~3.8 s: one title size (1x), the whole memory text (scrolls 1px at a time if one
-  or two lines long), no N/18 number on the card. The polaroid hops into the album counter, which holds the old count
+  or two lines long), no N/18 number on the card. A memory whose body would not fit under the 64x62 polaroid shows the 32x31 half
+  polaroid instead, so its last line is on screen without waiting for the scroll; the lifted photo never rises above
+  the header's dashed rule. The polaroid hops into the album counter, which holds the old count
   (`albumShown()`) until it lands, then the SECTOR GOALS MEMORIES row pulses. A bundle (2+ photos) pages by itself at
   >= 110 ticks a page: up to 4 photos, or 3 plus a '+N MORE PHOTOS' page; its pager dots sit on the header row. Lost
-  photos get a 'RECOVERED' rubber-stamp print on the polaroid chin. `panelCard()` = side card up or parked. A missed memory (route not taken) returns
+  photos get a 'RECOVERED' rubber-stamp print on a solid chin-coloured backing. `panelCard()` = side card up or parked. A missed memory (route not taken) returns
   as a LOST MEMORY on the next wave's carrier; the final sector brings the whole backlog, so 18/18 is reachable on
   every route. Derived from content + state, no save data
 - **minigames**: `startBonus(id)` (sets scene 'bonus', emits `bonus:start`, intro, then `interaction.startBonus`;
