@@ -27,6 +27,21 @@ const TOAST_ALONE = 150;
  * How a quest reads to the player (journal row, detail card, HUD). `tone` picks the palette: 'missed' is a route
  * the player passed by (indigo / peri, MISSED), 'expired' is a quest the run ended before (softer NEXT TIME).
  */
+/** A held quest toast. `kind: 'warn'` is bad news (a quest closing, a hop that closes one): ui may style it apart. */
+interface QToast { t: string; reveal?: string; alone?: boolean; kind?: ToastKind; done?: EndingReward }
+export type ToastKind = 'good' | 'warn';
+/** A quest finished while the run was wrapping up (its toasts were skipped so the ending card stays clean). */
+export interface EndingReward { questId: string; name: string; score: number; items: string[]; text: string }
+/** What a sector-map hop means for the quest log (quest.routeNote). */
+export interface RouteNote {
+  kind: 'closes' | 'finishes'; questName: string;
+  /** ready-made card line, e.g. 'FINISHES FOLLOW THE CATNIP' (fits `max` chars) */
+  text: string;
+  /** kind === 'finishes' (kept for ui's existing check) */
+  good: boolean;
+  /** other quests the same hop finishes / closes (beyond `questName`) */
+  more: number;
+}
 export interface QuestLook {
   state: QuestState; tone: 'locked' | 'active' | 'done' | 'missed' | 'expired';
   /** short pill for the journal row in place of the n/n counter ('' = show the counter) */
@@ -59,7 +74,13 @@ class Quest implements Module {
   /** quest dialogues waiting for a scene that can host them (not bonus/title/ending) */
   private deferred: string[] = [];
   /** quest toasts held until nothing else is being read (no dialogue, no sector title card) */
-  private toastQ: { t: string; reveal?: string; alone?: boolean }[] = [];
+  private toastQ: QToast[] = [];
+  /**
+   * The final sector is cleared (or the ending is up): the run is wrapping up behind an iris and the ending title
+   * card, so quest news goes quiet. Rewards are still paid; `endingRewards()` lists them for the ending stats.
+   */
+  private finale = false;
+  private finaleLog: EndingReward[] = [];
   private toastGap = TOAST_GAP;
   /** the sector map just opened: put the cursor on the exit that finishes a quest (once per visit) */
   private mapFresh = false;
@@ -80,9 +101,10 @@ class Quest implements Module {
     g.bus.on('*', (p: any) => this.onEvent(p.evt, p));
     g.bus.on('scene:change', (p: any) => {
       this.dlgEngine.onSceneChange(p.from, p.to); this.flushDeferred();
+      if (p.to === 'ending') this.wrapUp();
       if (p.to === 'map') { this.mapFresh = true; try { this.routeHeadsUp(); } catch (e) { g.reportError('quest', e); } }
     });
-    g.bus.on('game:new', () => { this.dlgEngine.reset(); this.deferred = []; this.toastQ = []; this.unrevealed.clear(); this.touched = {}; this.check(); });
+    g.bus.on('game:new', () => { this.dlgEngine.reset(); this.deferred = []; this.toastQ = []; this.unrevealed.clear(); this.touched = {}; this.finale = false; this.finaleLog = []; this.check(); });
     // deep links (tools, showcases, tests) land mid-route: start the quests the skipped sectors would have started
     g.bus.on('area:enter', (p: any) => { try { if (this.isDeepLink(p?.areaId)) this.seedRoute(p.areaId); } catch (e) { g.reportError('quest', e); } });
     // boss banter: optional content nodes taunt-<bossId> (boss arrives) and defeat-<bossId> (opens the outro)
@@ -184,26 +206,62 @@ class Quest implements Module {
   }
 
   // ---------------- toasts (one thing to read at a time) ----------------
-  private say(t: string, reveal?: string) { this.toastQ.push({ t, reveal }); this.flushToasts(); }
+  private say(t: string, reveal?: string, done?: EndingReward) {
+    if (this.inFinale()) { if (reveal) this.unrevealed.delete(reveal); return; }
+    this.toastQ.push({ t, reveal, done }); this.flushToasts();
+  }
   /** News that must not be buried (a quest closing, a route choice): jumps the queue and is read alone. */
-  private sayAlone(t: string) {
-    const i = this.toastQ.findIndex(x => !x.alone); const e = { t, alone: true };
+  private sayAlone(t: string, kind?: ToastKind) {
+    if (this.inFinale()) return;
+    const i = this.toastQ.findIndex(x => !x.alone); const e: QToast = { t, alone: true, kind };
     if (i < 0) this.toastQ.push(e); else this.toastQ.splice(i, 0, e);
     this.flushToasts();
   }
   /** Release held quest toasts one by one once no conversation or sector title card is on screen. */
   private flushToasts() {
-    if (!this.toastQ.length || this.g.paused) return;
+    if (!this.toastQ.length || this.g.paused || this.inFinale()) return;
     const g = this.g; const sc = g.state.scene;
     if (sc !== 'play' && sc !== 'bonus' && sc !== 'map') return;
     if (this.dlgEngine.busy()) return;
     if (sc === 'play' && Number(g.mods.world?.titleCard ?? 0) > 0) return;
     if (g.tick - this.toastT < this.toastGap && !g.headless) return;
     this.toastT = g.tick;
-    const t = this.toastQ.shift()!; g.mods.ui?.toast(t.t);
+    const t = this.toastQ.shift()!;
+    if (t.kind) g.mods.ui?.toast(t.t, { kind: t.kind }); else g.mods.ui?.toast(t.t);
     this.toastGap = t.alone ? TOAST_ALONE : TOAST_GAP;
     if (t.reveal) { this.unrevealed.delete(t.reveal); this.touched[t.reveal] = g.tick + 0.5; }
   }
+  /** The run is wrapping up: the final sector was cleared, or the ending is set / on screen. */
+  private inFinale() { const s = this.g.state; return this.finale || !!s.ending || s.scene === 'ending'; }
+  /**
+   * The ending scene is up: drop quest toasts still waiting (a completion whose toast never showed is kept in
+   * `endingRewards()`), and clear toasts already on screen so nothing stacks over the ending title card.
+   */
+  private wrapUp() { this.enterFinale(); }
+  /**
+   * The climax is over (the final Big Cat is down, or the final sector is cleared / the ending is up): quest news
+   * goes quiet from here. Completions still waiting for their toast move to `endingRewards()`, and toasts already
+   * on screen or parked by ui (`toastPend`, held while a memory card is up) are dropped so nothing stacks over the
+   * victory dialogue or the ending title card. Idempotent.
+   */
+  private enterFinale() {
+    this.finale = true;
+    for (const x of this.toastQ) if (x.done && !this.finaleLog.some(r => r.questId === x.done!.questId)) this.finaleLog.push(x.done);
+    this.toastQ = []; this.unrevealed.clear();
+    const ui = this.g.mods.ui; if (!ui) return;
+    if (typeof ui.muteToasts === 'function') { const was = !!ui.toastsMuted; ui.muteToasts(true); ui.muteToasts(was); }
+    else if (Array.isArray(ui.toasts)) ui.toasts = [];
+    // ui parks toasts here while a memory reveal card is up and flushes them the next tick it is not; quest owns
+    // this clear for now (docs/core-requests/quest.md, Polish 2 round 2)
+    if (Array.isArray(ui.toastPend)) ui.toastPend = [];
+  }
+  /** True for the area that ends the game (content `ending`). */
+  private isEndingArea(id: unknown) { return typeof id === 'string' && !!this.g.content.areas?.find?.(a => a?.id === id)?.ending; }
+  /**
+   * Quests finished while the run was wrapping up (final sector clear, or whose toast was still waiting when the
+   * ending came up): rewards were paid quietly; the ending stats can list them. Not saved (one run's news).
+   */
+  endingRewards(): EndingReward[] { return this.finaleLog.slice(); }
   /** Quest toasts not shown yet (tests). */
   heldToasts() { return this.toastQ.map(x => x.t); }
   /** False while a just-started quest's NEW QUEST toast is still held (the HUD should not spoil it). */
@@ -218,6 +276,18 @@ class Quest implements Module {
 
   onEvent(evt: string, p: any) {
     if (!evt || IGNORED.has(evt)) return;
+    // clearing a sector that ends the game: whatever this clear finishes is paid quietly (ending stats list it)
+    // a fresh sector (e.g. a save loaded after an earlier finale this session) talks again; nothing enters an area
+    // between the finale and the ending card, so the ending stats still see this run's quiet rewards
+    if (evt === 'area:enter' && this.finale && !this.g.state.ending && this.g.state.scene !== 'ending') { this.finale = false; this.finaleLog = []; }
+    if (evt === 'area:clear' && !this.finale && this.isEndingArea(p?.areaId)) this.enterFinale();
+    // the final Big Cat going down is the climax: its quests (home_again, big_cats) pay quietly under the victory
+    // dialogue instead of stacking QUEST COMPLETE / REWARD toasts over Pom's last lines
+    if (evt === 'boss:defeat' && !this.finale) {
+      const end = this.g.content.areas?.find?.(a => a?.ending);
+      if (this.isEndingArea(this.g.state.areaId) || (end?.boss && p?.bossId === end.boss)) this.enterFinale();
+    }
+    if (evt === RUN_END) this.enterFinale();
     this.q.push({ evt, p });
     if (this.busy) return;
     this.busy = true;
@@ -278,7 +348,7 @@ class Quest implements Module {
     this.unrevealed.delete(q.id);
     this.g.ops.setQuest(q.id, 'missed');
     this.g.bus.emit('quest:progress', { questId: q.id, ...p, missed: true });
-    if (!quiet) this.sayAlone(`${q.name.toUpperCase()}: MISSED. NEXT FLIGHT!`);
+    if (!quiet) this.sayAlone(`${q.name.toUpperCase()}: MISSED. NEXT FLIGHT!`, 'warn');
   }
   /** Why a closed quest closed: 'route' (another branch was taken), 'run' (the flight ended first), or null. */
   closedBy(id: string): 'route' | 'run' | null {
@@ -306,21 +376,31 @@ class Quest implements Module {
   /** Open quests that entering `areaId` would close as missed (the map card warns: 'CLOSES FOLLOW THE CATNIP'). */
   forfeits(areaId: string): NQuest[] {
     const e = { areaId, waveIndex: 0 };
-    return this.quests().filter(q => this.status(q.id) === 'active' && q.expire.some(t => t.on === 'area:enter' && matchPayload(t.match, e)));
+    return this.quests().filter(q => this.status(q.id) === 'active' && q.expire.some(t => t.on === 'area:enter' && matchPayload(t.match, e) && this.holds(t.when)));
   }
   /** Open quests that entering `areaId` would complete (the map card cheers: 'FINISHES FOLLOW THE CATNIP'). */
   completes(areaId: string): NQuest[] {
     const e = { areaId, waveIndex: 0 };
-    return this.quests().filter(q => this.status(q.id) === 'active' && q.complete.on === 'area:enter' && q.complete.count <= 1 && matchPayload(q.complete.match, e));
+    return this.quests().filter(q => this.status(q.id) === 'active' && q.complete.on === 'area:enter' && matchPayload(q.complete.match, e) && this.holds(q.complete.when)
+      && (this.g.state.inventory[PKEY(q.id)] ?? 0) + 1 >= q.complete.count);
   }
+  /** A trigger's condition (quiet: a bad condition reads as false, like matches()). */
+  private holds(when: unknown) { try { return evalCond(when as any, this.g.state); } catch { return false; } }
   /**
-   * One line for the sector map's NEXT HOP card about what this hop means for the quest log, or null.
-   * `good` is true for a completion (draw it in lime / gold), false for a forfeit (peri / pink).
+   * What taking the hop to `areaId` means for the quest log, for the sector map's NEXT HOP card, or null when it
+   * changes nothing. `kind`: 'finishes' (entering completes an open quest: lime / gold) or 'closes' (entering
+   * forfeits one: peri / pink); a hop that does both reports the finish. `questName` is the quest's display name,
+   * `text` a ready-made line that fits `max` chars, `more` how many other quests the same hop finishes / closes.
+   * Only hops the map can offer matter (gated exits are filtered by world.exitsFrom), so a sealed route never
+   * reads FINISHES. Never throws.
    */
-  routeNote(areaId: string, max = 40): { text: string; good: boolean } | null {
+  routeNote(areaId: string, max = 40): RouteNote | null {
+    if (typeof areaId !== 'string' || !areaId) return null;
     const fit = (verb: string, q: NQuest) => { const s = `${verb} ${q.name.toUpperCase()}`; return s.length > max ? s.slice(0, max) : s; };
-    const c = this.completes(areaId)[0]; if (c) return { text: fit('FINISHES', c), good: true };
-    const f = this.forfeits(areaId)[0]; if (f) return { text: fit('CLOSES', f), good: false };
+    try {
+      const c = this.completes(areaId); if (c.length) return { kind: 'finishes', questName: c[0].name, text: fit('FINISHES', c[0]), good: true, more: c.length - 1 };
+      const f = this.forfeits(areaId); if (f.length) return { kind: 'closes', questName: f[0].name, text: fit('CLOSES', f[0]), good: false, more: f.length - 1 };
+    } catch (e) { this.g.reportError('quest', e); }
     return null;
   }
   /** Index into `exits` the map cursor should start on: the hop that finishes a quest, else one that closes none. */
@@ -353,9 +433,11 @@ class Quest implements Module {
       const lose = ex.filter(e => this.forfeits(e.to).includes(q)); if (!lose.length) continue;
       const win = ex.find(e => this.completes(e.to).includes(q));
       const name = q.name.toUpperCase();
-      if (win) { this.sayAlone(`${areaName(win.to)} HOP FINISHES ${name}`); this.sayAlone(`${areaName(lose[0].to)} HOP CLOSES ${name}`); }
-      else if (q.track) { const { have, need } = this.progress(q); this.sayAlone(`${name}: SEALED, ${have}/${need} MEMORIES`); }
-      else this.sayAlone(`${name}: THIS HOP CLOSES IT`);
+      // the NEXT HOP card already says FINISHES for the hop under the cursor (routeNote, cursor starts there):
+      // only the bad news about the other hop is worth a toast
+      if (win) this.sayAlone(`${areaName(lose[0].to)} HOP CLOSES ${name}`, 'warn');
+      else if (q.track) { const { have, need } = this.progress(q); this.sayAlone(`${name}: SEALED, ${have}/${need} MEMORIES`, 'warn'); }
+      else this.sayAlone(`${name}: THIS HOP CLOSES IT`, 'warn');
     }
   }
   /**
@@ -557,12 +639,15 @@ class Quest implements Module {
     for (const f of nq.reward.flags) g.ops.setFlag(f);
     for (const [k, v] of Object.entries(nq.reward.items)) if (v > 0) g.ops.addItem(k, v);
     if (nq.reward.score) g.ops.addScore(nq.reward.score);
-    this.say('QUEST COMPLETE: ' + nq.name.toUpperCase());
     const items = Object.entries(nq.reward.items).filter(([, v]) => v > 0).map(([k, v]) => {
       const it = g.content.items.find(i => i.id === k); return `${it ? it.name.toUpperCase() : k.toUpperCase()}${v > 1 ? ' X' + v : ''}`;
     });
     const parts = [nq.reward.score ? `+${fmt(nq.reward.score)}` : '', ...items].filter(Boolean);
-    if (parts.length) this.say('REWARD ' + parts.join(', '));
+    const rec: EndingReward = { questId: nq.id, name: nq.name, score: nq.reward.score || 0, items, text: parts.join(', ') };
+    // the run is wrapping up (final sector cleared / ending): paid quietly, listed for the ending stats instead
+    if (this.inFinale()) { if (!this.finaleLog.some(r => r.questId === nq.id)) this.finaleLog.push(rec); return; }
+    this.say('QUEST COMPLETE: ' + nq.name.toUpperCase(), undefined, rec);
+    if (parts.length) this.say('REWARD ' + parts.join(', '), undefined, rec);
     g.mods.audio?.sfx('quest');
   }
 
