@@ -24,7 +24,7 @@
   "note": "perfect-aim bot; human estimate 65-100 min"
  },
  "tests": {
-  "passed": 39,
+  "passed": 42,
   "failed": 0
  },
  "modules": {
@@ -90,15 +90,41 @@
   }
  },
  "openIssues": [
-  "art: persian/scottishfold/russianblue/bengal breed reads at 1x; fur speckle on bosses",
-  "world: dawn/dusk weak, night flattens values, backyard noisy, park lamp-pool bug",
-  "audio: critic cannot hear; 7.2 based on structure",
-  "interaction: turd readability, boss tells",
-  "ui: scanner low value, small toast-under-pause glitch"
+  "memory card covers live combat (fairness)",
+  "formations rarely read as a crisp Galaga grid",
+  "Pom off-model on ending/recovery dioramas",
+  "time of day invisible in moon/cafe/rooftops/park/docks",
+  "UI collisions: sound prompt over map title, mute button overlaps, subtitles truncated",
+  "flat ending (no finale sequence); ending text says six pups",
+  "sparse backgrounds: park/alley/docks/moon/cafe",
+  "1px stray line ~y140 in some sectors; sky seam",
+  "secret_route quest left active on moon route"
  ],
- "nextStep": "Read final-gate results (whole-game critic, blind judges, release verifier). Then /loop: rerun gauntlet on weakest modules (art 6.6, world 7.4, audio 7.2, player 7.6, quest 7.6).",
+ "nextStep": "Polish loop iteration 1: targeted builders (memories, interaction, ui, world, quest) on whole-game critic issues 1-11, integrate, re-run whole-game critic.",
  "passedModules": [
   "memories",
   "journal"
- ]
+ ],
+ "finalGate": {
+  "round": 1,
+  "wholeGameCritic": 7.3,
+  "criticPass": false,
+  "blindJudgeWinRate": 0.78,
+  "blindPairs": 6,
+  "releaseVerifier": {
+   "botAllPaths": true,
+   "softlocks": 0,
+   "endings": [
+    "ending_true",
+    "ending_good"
+   ],
+   "saveResumeBrowser": true,
+   "offlineBuild": true,
+   "externalRequests": 0,
+   "distKB": 704,
+   "loadMs": 164,
+   "fps": 60,
+   "tests": "42/42"
+  }
+ }
 }
