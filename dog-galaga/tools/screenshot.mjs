@@ -16,7 +16,7 @@ const base = args.url ?? 'http://127.0.0.1:4173/';
 const out = args.out ?? `shots/${args.showcase ?? args.area ?? args.scene ?? 'title'}-${args.tod ?? 'default'}`;
 const zoom = +(args.zoom ?? 2);
 const q = new URLSearchParams();
-for (const k of ['area', 'wave', 'tod', 'showcase', 'scene', 'advance', 'seed', 'autopilot', 'node', 'menu', 'tab', 'filter', 'ending', 'ticks', 'freeze', 'fx', 'fxt', 'touch', 'stage', 'at', 'phase']) if (args[k]) q.set(k, args[k]);
+for (const k of ['area', 'wave', 'tod', 'showcase', 'scene', 'advance', 'seed', 'autopilot', 'node', 'menu', 'tab', 'filter', 'ending', 'ticks', 'freeze', 'fx', 'fxt', 'touch', 'stage', 'at', 'phase', 'sheet', 'viewer', 'hits']) if (args[k]) q.set(k, args[k]);
 if (args.skipDialogue) { q.delete('advance'); q.delete('freeze'); }
 if (args.state) q.set('state', Buffer.from(args.state).toString('base64'));
 const url = base + (base.includes('?') ? '&' : '?') + q.toString();
@@ -35,6 +35,7 @@ log.loadMs = Date.now() - t0;
 if (args.skipDialogue) {
   await page.evaluate(({ adv, freeze }) => {
     const g = window.__game.game;
+    g.mods.quest?.skipAll?.();
     for (let n = 0; n < 60 && g.state.scene === 'dialogue' && g.mods.quest?.dlg; n++) g.mods.quest.advance();
     if (adv) window.__game.step(adv);
     if (freeze) g.paused = true;
