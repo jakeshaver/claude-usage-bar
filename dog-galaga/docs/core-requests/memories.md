@@ -167,3 +167,29 @@ outside play/bonus, the card is hidden and its clock parks; it resumes afterward
     card that pages through them by itself (pager dots on their own row). `panelCard()` = side card up or parked;
     `revealing()` / `showing()` / `frozen()` are kept and always false; `calm()` is unchanged." API list: add
     `panelCard()`, `frozen()`; stages add `file` (the polaroid mid-flight into the album).
+
+### Polish 2, round 2
+
+The card stays on the RIGHT HUD panel (now y 119..289, compact y 119..230), still never pauses play. `memories.frozen()`
+still exists and always returns false; no freeze hook is used or wanted (please do not add one).
+
+22. **ui (small, recommended): draw the album count from memories.** The RESCUED counter should only tick up when the
+    filed thumbnail lands. New API: `memories.albumShown()` = `state.memories.length` minus the photos still on the
+    card or mid-flight. In `ui` (right panel, RESCUED row) please replace
+    `` `${s.memories.length}/${g.content.memories.length}` `` with
+    `` `${g.mods.memories?.albumShown?.() ?? s.memories.length}/${g.content.memories.length}` ``.
+    Until then memories repaints that number itself (deep-night box at x RX+85..117, y 102..111, from its overlay,
+    play/bonus only, never under a menu), so nothing breaks either way; with the ui change the count also stays
+    correct under the pause menu and during dialogue.
+23. **ui, layout contract memories now relies on** (tell memories if any of these move): RESCUED album counter text at
+    (RX+86, 103) in a C.night box (RX+66, 98, 52x18); SECTOR GOALS at (RX+10, 230, w 108), MEMORIES row y 246 with
+    boxes at `x + w - 5 - (n - i) * 9 + 1` (8x9). After the card leaves, memories pulses that row for 40 ticks
+    (MEMORIES label blinks, the newly lit boxes get a 1px frame and a spark) when the card's photos belong to this
+    sector; hidden when the touch deck is up (the checklist is not drawn then).
+24. **ARCHITECTURE.md, memories line (replaces item 21's card wording)**: "The memory card slides over the right HUD
+    panel (y 119..289; compact 119..230) for ~3.8 s: one title size (1x), the whole memory text (scrolls 1px at a
+    time if one or two lines long), no N/18 number on the card. The polaroid hops into the album counter, which
+    holds the old count (`albumShown()`) until it lands, then the SECTOR GOALS MEMORIES row pulses. A bundle (2+
+    photos) pages by itself at >= 110 ticks a page: up to 4 photos, or 3 plus a '+N MORE PHOTOS' page; its pager
+    dots sit on the header row. Lost photos get a 'RECOVERED' rubber-stamp print on the polaroid chin. The field cue
+    '+1 MEMORY' has a full 1px ink outline." API list: add `albumShown()`; `goalPulse` is internal.

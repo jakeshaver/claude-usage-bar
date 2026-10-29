@@ -83,7 +83,7 @@ describe('memories: lost-memory recovery', () => {
 });
 
 describe('memories: side-panel card (no freeze)', () => {
-  it('collect() never pauses the game: the card plays on the HUD panel and leaves after ~3 s', () => {
+  it('collect() never pauses the game: the card plays on the HUD panel and leaves after ~3.8 s', () => {
     const { g, M } = fresh();
     playing(g);
     expect(g.state.scene).toBe('play');
@@ -95,7 +95,7 @@ describe('memories: side-panel card (no freeze)', () => {
     expect(M.showing()).toBe(false);
     expect(M.frozen()).toBe(false);
     expect(g.state.memories).toContain('mem_03');
-    for (let i = 0; i < 175; i++) { g.step(); expect(g.paused).toBe(false); }
+    for (let i = 0; i < 220; i++) { g.step(); expect(g.paused).toBe(false); }
     expect(M.panelCard()).toBe(true);
     for (let i = 0; i < 20; i++) g.step();
     expect(M.panelCard()).toBe(false);
@@ -157,6 +157,32 @@ describe('memories: side-panel card (no freeze)', () => {
   });
 });
 
+describe('memories: album count lands with the photo', () => {
+  it('the shown album count holds the old number until the thumbnail lands, then ticks up', () => {
+    const { g, M } = fresh();
+    playing(g);
+    g.state.memories = ['mem_01'];
+    M.collect('mem_02');
+    expect(g.state.memories.length).toBe(2);
+    expect(M.albumShown()).toBe(1);
+    const r = M.reveals[0];
+    while (r.t < 14 + r.hold + 26 - 1) g.step();
+    expect(M.albumShown()).toBe(1);
+    g.step();
+    expect(M.albumShown()).toBe(2);
+  });
+  it('after the card leaves, the new MEMORIES box in SECTOR GOALS pulses', () => {
+    const { g, M } = fresh();
+    playing(g);
+    const here = M.placed(g.state.areaId)[0];
+    g.state.memories = g.state.memories.filter((x: string) => x !== here.id);
+    M.collect(here.id);
+    for (let i = 0; i < 400 && M.panelCard(); i++) g.step();
+    expect(M.panelCard()).toBe(false);
+    expect(M.goalPulse?.ids).toEqual([here.id]);
+  });
+});
+
 describe('memories: bundle collapse', () => {
   it('three or more photos caught at once make one bundle card, not a long queue of freezes', () => {
     const { g, M } = fresh();
@@ -167,9 +193,24 @@ describe('memories: bundle collapse', () => {
     expect(g.state.memories.length).toBe(6);
     expect(M.reveals.length).toBe(1);
     expect(M.reveals[0].ids).toEqual(six);
-    // pages through all six by itself, never pausing play
-    for (let i = 0; i < 400; i++) { g.step(); expect(g.paused).toBe(false); }
+    // pages through three of them and a '+3 MORE' page by itself, never pausing play, gone in under 8 s
+    for (let i = 0; i < 480; i++) { g.step(); expect(g.paused).toBe(false); }
     expect(M.panelCard()).toBe(false);
+  });
+  it('bundle pages are slow enough to read (>= 90 ticks) and cap at three photos plus a MORE page', () => {
+    const { g, M } = fresh();
+    playing(g);
+    g.state.memories = [];
+    const all = g.content.memories.map((m: any) => m.id);
+    M.collectMany(all.slice(1));                                    // the 17-photo final-sector backlog
+    const r = M.reveals[0]; const seen: string[] = []; let last = '', since = 0, minRun = 1e9;
+    while (M.reveals[0] === r && r.t < 1000) {
+      g.step();
+      const p = (M as any).page(r); const key = p.summary ? 'more' : String(p.i);
+      if (key !== last) { if (last && seen.length > 1) minRun = Math.min(minRun, since); seen.push(key); last = key; since = 0; } else since++;
+    }
+    expect(seen).toEqual(['0', '1', '2', 'more']);
+    expect(minRun).toBeGreaterThanOrEqual(90);
   });
   it('a backlog bundle never lists a photo that is already in the album', () => {
     const { g, M } = fresh();

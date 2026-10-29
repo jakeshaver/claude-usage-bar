@@ -14,6 +14,8 @@ type Ctx = CanvasRenderingContext2D;
 interface Drop { id: string; x: number; y: number; vx: number; vy: number; t: number; lost: boolean; swoop: boolean; more: string[] }
 /** The reveal card queued after a pickup. */
 interface Reveal { id: string; t: number; lost: boolean; n: number; hold: number; ids: string[]; base: number }
+/** one bundle page (or the single card): photo index, start tick, develop 0..1, and whether it is the '+N MORE' page */
+interface Page { i: number; at: number; dev: number; summary: boolean; pages: number; cur: number }
 /** the '+1 MEMORY' cue left at the pickup point (world coords) */
 interface Cue { x: number; y: number; t: number; label: string; lost: boolean }
 /** the carrier's boop moment: a white silhouette flash + star burst */
@@ -30,20 +32,32 @@ export interface Pending extends Carry { more: Carry[] }
  * Play never stops for it: nothing on the field is covered. On the field itself the catch only leaves a small
  * sparkle and a rising '+1 MEMORY'. Timing in ticks:
  */
-const IN = 14, HOLD = 132, HOLD_QUEUED = 96, FILE = 26, OUT = 12;
-/** a bundle (3+ photos at once) pages through its photos on the same card: first page, then each further page */
-const PAGE0 = 56, PAGE = 34;
+const IN = 14, HOLD = 176, HOLD_QUEUED = 120, FILE = 26, OUT = 12;
+/**
+ * A bundle (2+ photos on one card) pages through its photos by itself, slowly enough to read: the first page, then
+ * each further one. Past four photos it shows the first three and then one '+N MORE PHOTOS' page (the journal has
+ * them all), so even the 17-photo final-sector backlog stays on the panel for under 8 s.
+ */
+const PAGE0 = 120, PAGE = 110, SUMMARY = 84, SHOW_ALL = 4, SHOW_MAX = 3;
+/** after the card leaves, the newly lit MEMORIES boxes in SECTOR GOALS pulse for this long */
+const GOAL_PULSE = 40;
 /** hit-stop on the carrier boop (ticks) and the white flash inside it */
 const STOP = 4;
 /** the photo develops over this many ticks (a bundle page develops faster) */
-const DEV = 34, DEV_PAGE = 14;
+const DEV = 34, DEV_PAGE = 16;
 /** the polaroid pops up out of the cat, hangs for a beat, then drifts */
 const POP = 40;
-/** right HUD panel: the card is 120 wide at x RX+4; tall layout y 122..286, compact (touch deck below) y 122..230 */
+/** right HUD panel: the card is 120 wide at x RX+4; tall layout y 119..289, compact (touch deck below) y 119..230 */
 const RX = PF_X + PF_W;
-const CARD_X = RX + 4, CARD_W = 120, CARD_Y = 122, CARD_H = 164, CARD_H_TOUCH = 108;
+const CARD_X = RX + 4, CARD_W = 120, CARD_Y = 119, CARD_H = 170, CARD_H_TOUCH = 111;
+/** polaroid slot inside the card (64x62) */
+const SLOT_DX = 28, SLOT_DY = 19;
 /** where the album counter's polaroid icon sits in the panel (the RESCUED row): the photo files into it */
 const ALBUM_X = RX + 75, ALBUM_Y = 107;
+/** ui's album counter text (RESCUED row) and the clear box behind it, which memories repaints with the shown count */
+const ALBUM_TX = RX + 86, ALBUM_TY = 103;
+/** ui's SECTOR GOALS block (x1, y 230, w 108): its MEMORIES row of polaroid boxes */
+const GOALS_X = RX + 10, GOALS_W = 108, GOALS_ROW = 246;
 /** the playfield cue at the catch point */
 const CUE_LIFE = 48;
 /** kept for the calm() API (other modules may still ask whether this is a fair moment for an interruption) */
@@ -79,6 +93,8 @@ class Memories implements Module {
   overlayZ = 50;
   /** Always false now: memories never holds g.paused (the old cozy freeze is gone). Kept for old readers. */
   holding = false;
+  /** SECTOR GOALS pulse on the MEMORIES boxes this card just filled (drawn once the card has slid away) */
+  goalPulse: { t: number; ids: string[] } | null = null;
   /** a showcase stage froze the scene on its key frame */
   private stageFrozen = false;
   private lostIds = new Set<string>();
@@ -158,7 +174,7 @@ class Memories implements Module {
     if (this.reveals.length > 2) {
       const from = this.reveals[0].t > 0 ? 1 : 0;
       const rest = this.reveals.splice(from); const all = rest.flatMap(r => r.ids);
-      this.reveals.push({ id: all[all.length - 1], t: 0, lost: rest.some(r => r.lost), n: base + fresh.length, hold: PAGE0 + (all.length - 1) * PAGE, ids: all, base: base + fresh.length - all.length });
+      this.reveals.push({ id: all[all.length - 1], t: 0, lost: rest.some(r => r.lost), n: base + fresh.length, hold: bundleHold(all.length), ids: all, base: base + fresh.length - all.length });
     }
     for (const r of this.reveals.slice(0, -1)) if (r.ids.length === 1) r.hold = Math.min(r.hold, HOLD_QUEUED);   // a queue of cards moves along faster
     for (const id of fresh) g.ops.addMemory(id);
@@ -182,6 +198,17 @@ class Memories implements Module {
   /** The cozy freeze is gone: memories never holds the game. Kept so no caller ever sees a stale freeze. */
   frozen() { return false; }
   /**
+   * The album count as it should read right now: photos still on their way into the album (developing on the card,
+   * or mid-flight) are not counted until their thumbnail lands, so the RESCUED counter ticks up with the flash.
+   * ui can draw this instead of `state.memories.length`; until it does, memories repaints the counter itself.
+   */
+  albumShown(g: Game = this.g): number {
+    const reduce = !!g.state.settings.reduceMotion;
+    let away = 0;
+    for (const r of this.reveals) if (r.t < IN + r.hold + (reduce ? 0 : FILE)) away += r.ids.length;
+    return Math.max(0, g.state.memories.length - away);
+  }
+  /**
    * Is this a fair moment for an interruption? Not over a sector title card, while a wave is still flying in, or
    * during a boss entrance / telegraph / attack / phase change. (The side-panel card no longer needs to wait.)
    */
@@ -195,13 +222,13 @@ class Memories implements Module {
   /**
    * Stage a moment for screenshots and freeze it there: carrier | drop | boop | reveal | lost | bundle | file, for
    * memory #index, `at` ticks into the moment (defaults: carrier 40, drop 88, reveal/lost 80 = photo developed,
-   * bundle 80 = second page, file = the polaroid mid-flight into the album).
+   * bundle 80 = first page developed, file = the polaroid mid-flight into the album).
    */
   stage(kind: string, index = 0, at = -1) {
     const g = this.g; const m = g.content.memories[index] ?? g.content.memories[0]; if (!m) return;
     g.mods.ui?.muteToasts?.(true);
     this.removeMemoryPickups();
-    this.drops = []; this.reveals = []; this.motes = []; this.rings = []; this.cues = [];
+    this.drops = []; this.reveals = []; this.motes = []; this.rings = []; this.cues = []; this.goalPulse = null;
     const run = (n: number) => { for (let i = 0; i < n; i++) { this.sim(g); this.stepReveal(g, true); } };
     if (kind === 'drop') {
       this.pending = null; this.clearGlow();
@@ -277,9 +304,17 @@ class Memories implements Module {
    */
   private stepReveal(g: Game, staged: boolean) {
     const sc = g.state.scene; const r = this.reveals[0];
-    if (!r || (sc !== 'play' && sc !== 'bonus')) return;
+    if ((!r && !this.goalPulse) || (sc !== 'play' && sc !== 'bonus')) return;
     if (!staged && (g.paused || (g.mods.ui?.menuOpen ?? 'none') !== 'none')) return;
-    if (++r.t >= IN + r.hold + FILE + OUT) this.reveals.shift();
+    if (this.goalPulse && ++this.goalPulse.t >= GOAL_PULSE) this.goalPulse = null;
+    if (!r) return;
+    if (++r.t >= IN + r.hold + FILE + OUT) {
+      this.reveals.shift();
+      // the sector checklist was under the card the whole time: light its new MEMORIES boxes up now
+      const here = new Set(this.placed(g.state.areaId).map(m => m.id));
+      const ids = r.ids.filter(id => here.has(id));
+      if (ids.length) this.goalPulse = { t: 0, ids };
+    }
   }
 
   private sim(g: Game) {
@@ -373,8 +408,10 @@ class Memories implements Module {
       if (c.t > CUE_LIFE - 10 && (c.t & 2)) return;
       const w = textWidth(c.label); const x = Math.round(Math.max(2, Math.min(WORLD_W - w - 2, c.x - w / 2)));
       const y = Math.round(c.y - 22 - Math.min(10, c.t / 3));
-      text(ctx, c.label, x, y, col(c.t < 6 ? '6' : c.lost ? 'l' : 'f'), { shadow: col('0') });
-      if (c.t < 14) { pxSpark(ctx, x - 4, y + 2, '6', c.t < 7 ? 2 : 1); pxSpark(ctx, x + w + 3, y + 2, c.lost ? 'l' : 'f', c.t < 7 ? 1 : 2); }
+      // a full 1px ink outline (8 neighbours), so it reads on bright day floors as well as dark grass
+      for (const [ox, oy] of OUTLINE) text(ctx, c.label, x + ox, y + oy, col('0'));
+      text(ctx, c.label, x, y, col(c.t < 6 ? '6' : c.lost ? 'l' : 'f'));
+      if (c.t < 14) { pxSpark(ctx, x - 5, y + 2, '6', c.t < 7 ? 2 : 1); pxSpark(ctx, x + w + 5, y + 2, c.lost ? 'l' : 'f', c.t < 7 ? 1 : 2); }
     });
     for (const d of this.drops) r.push(5, 1e6 + d.y, (ctx: Ctx) => {
       const bob = d.t < POP ? 0 : Math.round(Math.sin(d.t / 11) * 1.5);
@@ -394,10 +431,23 @@ class Memories implements Module {
    */
   overlay(g: Game, ctx: Ctx) {
     const r = this.reveals[0]; const sc = g.state.scene;
-    if (!r || r.t <= 0 || (sc !== 'play' && sc !== 'bonus')) return;
+    if (sc !== 'play' && sc !== 'bonus') return;
     if ((g.mods.ui?.menuOpen ?? 'none') !== 'none') return;
-    ctx.save(); ctx.beginPath(); ctx.rect(RX, 0, W - RX, H); ctx.clip();   // the slide never crosses into the playfield
-    try { this.panelIn(g, ctx, r); } finally { ctx.restore(); }
+    if (!r && !this.goalPulse) return;
+    ctx.save(); ctx.beginPath(); ctx.rect(RX, 0, W - RX, H); ctx.clip();   // never draws into the playfield
+    try {
+      // the RESCUED counter reads the count that has landed so far (photos still on the card are not in yet)
+      const shown = this.albumShown(g);
+      if (shown !== g.state.memories.length) this.albumCount(g, ctx, shown, col('6'));
+      if (r && r.t > 0) this.panelIn(g, ctx, r);
+      if (this.goalPulse && !g.mods.ui?.touch?.visible?.(g)) this.goalsPulse(g, ctx, this.goalPulse);
+    } finally { ctx.restore(); }
+  }
+
+  /** Repaint ui's album counter text (the box behind it is plain deep night) with `n`. */
+  private albumCount(g: Game, ctx: Ctx, n: number, k: string) {
+    ctx.fillStyle = col('1'); ctx.fillRect(ALBUM_TX - 1, ALBUM_TY - 1, 32, 10);
+    text(ctx, `${n}/${g.content.memories.length}`, ALBUM_TX, ALBUM_TY, k);
   }
 
   private panelIn(g: Game, ctx: Ctx, r: Reveal) {
@@ -417,44 +467,57 @@ class Memories implements Module {
     if (!m) return;
     const filing = r.t >= end;
     if (x < W) this.card(g, ctx, r, m, page, x, CARD_Y, h, compact, filing);
-    if (filing) this.fileFlight(ctx, r, m.id, reduce);
+    if (filing) this.fileFlight(g, ctx, r, m.id, reduce);
   }
 
-  /** which bundle page is up, when it started, and how far its photo has developed */
-  private page(r: Reveal) {
+  /**
+   * Which page is up. A single card is one page. A bundle shows up to four photos one by one; past that the first
+   * three, then a '+N MORE PHOTOS' page (i = the first photo not shown, summary = true).
+   */
+  private page(r: Reveal): Page {
     const n = r.ids.length;
-    if (n <= 1) return { i: 0, at: IN, dev: clamp01((r.t - IN + 6) / DEV) };
-    const i = r.t < IN + PAGE0 ? 0 : Math.min(n - 1, 1 + Math.floor((r.t - IN - PAGE0) / PAGE));
-    const at = i === 0 ? IN : IN + PAGE0 + (i - 1) * PAGE;
-    return { i, at, dev: i === 0 ? clamp01((r.t - IN + 6) / DEV) : clamp01((r.t - at + 2) / DEV_PAGE) };
+    if (n <= 1) return { i: 0, at: IN, dev: clamp01((r.t - IN + 6) / DEV), summary: false, pages: 1, cur: 0 };
+    const { shown, pages } = bundlePages(n);
+    const k = r.t - IN;
+    const cur = k < PAGE0 ? 0 : Math.min(pages - 1, 1 + Math.floor((k - PAGE0) / PAGE));
+    const at = cur === 0 ? IN : IN + PAGE0 + (cur - 1) * PAGE;
+    const summary = cur >= shown;
+    return { i: Math.min(n - 1, cur), at, dev: cur === 0 ? clamp01((k + 6) / DEV) : clamp01((r.t - at + 2) / DEV_PAGE), summary, pages, cur };
   }
 
-  private card(g: Game, ctx: Ctx, r: Reveal, m: MemoryDef, page: { i: number; at: number; dev: number }, x: number, y: number, h: number, compact: boolean, filing: boolean) {
+  private card(g: Game, ctx: Ctx, r: Reveal, m: MemoryDef, page: Page, x: number, y: number, h: number, compact: boolean, filing: boolean) {
     const rect = (xx: number, yy: number, w: number, hh: number, k: string) => { ctx.fillStyle = col(k); ctx.fillRect(xx, yy, w, hh); };
     const n = r.ids.length, bundle = n > 1, w = CARD_W;
     // this page's photo: a bundle may mix fresh and recovered ones, each keeps its own trim
-    const lost = bundle ? this.lostIds.has(m.id) || r.lost : r.lost;
+    const lost = bundle ? (page.summary ? r.lost : this.lostIds.has(m.id) || r.lost) : r.lost;
     const rimK = lost ? 'l' : 'f', rimK2 = lost ? 'm' : 'h', studK = lost ? 'm' : 'g';
     // frame: ink outline, two-tone rim, plum body with a darker foot bevel, corner studs
     rect(x - 1, y - 1, w + 2, h + 2, '0');
     rect(x, y, w, h, rimK); rect(x + 1, y + 1, w - 2, h - 2, rimK2);
     rect(x + 2, y + 2, w - 4, h - 4, 'v'); rect(x + 2, y + h - 4, w - 4, 2, '1');
     for (const [cx, cy] of [[x + 3, y + 3], [x + w - 5, y + 3], [x + 3, y + h - 5], [x + w - 5, y + h - 5]]) rect(cx, cy, 2, 2, studK);
-    // header: kicker (three calm blinks) + album count, then a rule
+    // header: kicker (three calm blinks); a bundle's pager dots sit right of it on the same row when they fit.
+    // No N/18 number here: the RESCUED counter right above is the one album count.
     const head = bundle ? 'FOUND AT LAST' : lost ? 'FOUND AGAIN' : 'MEMORY FOUND';
     const hb = r.t - IN; const flash = hb >= 0 && hb < 48 && ((hb >> 3) & 1) === 1;
-    text(ctx, head, x + 6, y + 6, col(flash ? '6' : rimK), { shadow: col('0') });
-    const count = `${bundle ? r.base + page.i + 1 : r.n}/${g.content.memories.length}`;
-    text(ctx, count, x + w - 6, y + 6, col('5'), { align: 'right', shadow: col('0') });
-    rect(x + 6, y + 15, w - 12, 1, rimK2); for (let xx = x + 6; xx < x + w - 6; xx += 2) rect(xx, y + 16, 1, 1, '1');
-    // the polaroid (64x62, taped on). A bundle shows the rest of the stack peeking out behind it.
-    const px = x + 28, py = y + (compact ? 20 : 22);
+    text(ctx, head, x + 6, y + 5, col(flash ? '6' : rimK), { shadow: col('0') });
     if (bundle) {
-      const left = n - 1 - page.i;
-      for (const [ox, oy, k, need] of [[6, -1, '4', 2], [3, 1, '5', 1]] as [number, number, string, number][]) {
-        if (left < need) continue;
-        rect(px + ox - 1, py + oy - 1, 66, 64, '0'); rect(px + ox, py + oy, 64, 62, k); rect(px + ox + 63, py + oy, 1, 62, '3');
+      const plus = page.pages > bundlePages(n).shown; const dw = pagerWidth(page.pages, plus); const dx0 = x + w - 6 - dw;
+      if (dx0 >= x + 6 + textWidth(head) + 4) {
+        for (let i = 0; i < page.pages; i++) {
+          const k = i === page.cur ? '6' : i < page.cur ? rimK : '3';
+          if (plus && i === page.pages - 1) { rect(dx0 + i * 5, y + 7, 3, 1, k); rect(dx0 + i * 5 + 1, y + 6, 1, 3, k); }   // '+' for the MORE page
+          else rect(dx0 + i * 5, y + 7, 2, 2, k);
+        }
       }
+    }
+    rect(x + 6, y + 14, w - 12, 1, rimK2); for (let xx = x + 6; xx < x + w - 6; xx += 2) rect(xx, y + 15, 1, 1, '1');
+    // the polaroid (64x62, taped on). A bundle shows the rest of the stack peeking out behind it.
+    const px = x + SLOT_DX, py = y + SLOT_DY;
+    const left = bundle && !page.summary ? n - 1 - page.i : 0;
+    for (const [ox, oy, k, need] of [[6, -1, '4', 2], [3, 1, '5', 1]] as [number, number, string, number][]) {
+      if (left < need || filing) continue;
+      rect(px + ox - 1, py + oy - 1, 66, 64, '0'); rect(px + ox, py + oy, 64, 62, k); rect(px + ox + 63, py + oy, 1, 62, '3');
     }
     if (filing) {
       // the photo has lifted out: four photo corners mark the empty slot, and it says where the photo went
@@ -463,45 +526,49 @@ class Memories implements Module {
       }
       text(ctx, 'INTO THE', px + 32, py + 22, col('4'), { align: 'center' });
       text(ctx, 'ALBUM!', px + 32, py + 32, col(lost ? 'l' : 'f'), { align: 'center', shadow: col('0') });
+    } else if (page.summary) {
+      // the rest of the backlog: a fanned little stack of half-size polaroids dropping onto the slot
+      const rest = r.ids.slice(page.i, page.i + 3); const k0 = r.t - page.at;
+      const x0 = px + 32 - Math.round((32 + (rest.length - 1) * 24) / 2);
+      rest.forEach((id, j) => {
+        const fx = x0 + j * 24, fy = py + [16, 9, 18][j] - Math.max(0, 4 - (k0 - j * 4));
+        if (k0 >= j * 4) halfPolaroid(ctx, id, fx, fy, this.lostIds.has(id));
+      });
     } else {
-      const drop = bundle && page.i > 0 ? Math.max(0, 3 - (r.t - page.at)) : 0;   // each new page drops into place
+      const drop = bundle && page.cur > 0 ? Math.max(0, 3 - (r.t - page.at)) : 0;   // each new page drops into place
       const blink = page.dev >= 1 && (r.t - IN) % 64 >= 56;
       polaroid(ctx, m.id, px, py - drop, page.dev, 1, blink, lost);
-      if (lost && page.dev >= 0.5) recoveredStamp(ctx, px + 3, py + 48, (c, str, sx, sy) => text(c, str, sx, sy, col('0')));
+      if (lost && page.dev >= 0.5) recoveredStamp(ctx, px + 5, py - drop + 50, (c, str, sx, sy) => text(c, str, sx, sy, col('n')));
     }
-    // title: 2x when it fits the card, else 1x on up to two lines (one in the compact layout)
-    const tx = x + 6, tw = w - 12, cols = Math.floor((tw + 1) / 6);
-    const title = m.title.toUpperCase();
-    let by = y + 106;
-    if (!compact && textWidth(title, 2) <= tw) { text(ctx, title, x + w / 2, y + 90, col('6'), { scale: 2, shadow: col('0'), align: 'center' }); by = y + 111; }
-    else {
-      const tl = compact ? [oneLine(title, cols)] : clampLines(wrap(title, cols), 2);
-      tl.forEach((ln, i) => text(ctx, ln, x + w / 2, y + (compact ? 86 : 90) + i * 9, col('6'), { shadow: col('0'), align: 'center' }));
-      by = y + 95 + tl.length * 9;
-    }
-    // body: the memory's first sentence, as many lines as fit above the footer
-    const foot = y + h - (compact ? 11 : 10);
-    if (!compact) {
-      const room = Math.max(0, Math.floor((foot - 8 - by) / 9));
-      clampLines(wrap(firstSentence(m.text).toUpperCase(), cols), room).forEach((ln, i) => text(ctx, ln, tx, by + i * 9, col('7')));
-    }
-    // footer: a bundle's pager dots, centred on their own row (nothing else shares it)
-    if (bundle) {
-      const step = n > 22 ? 4 : 5; const dw = n * step - (step - 2); const dx0 = Math.round(x + (w - dw) / 2);
-      for (let i = 0; i < n; i++) rect(dx0 + i * step, foot, 2, 2, i === page.i ? '6' : i < page.i ? rimK : '3');
-    }
+    // title: always the 1x font (one size on every card and page), up to two lines (compact: two, no body)
+    const more = n - page.i;
+    const title = page.summary ? `+${more} MORE PHOTOS` : m.title.toUpperCase();
+    const body = page.summary ? `ALL ${n} ARE SAFE IN THE ALBUM. READ EVERY ONE IN THE JOURNAL.` : m.text.toUpperCase();
+    const ty = y + SLOT_DY + 67;
+    const tl = clampLines(wrap(title, 18), 2);
+    tl.forEach((ln, i) => text(ctx, ln, x + w / 2, ty + i * 9, col('6'), { shadow: col('0'), align: 'center' }));
+    if (compact) return;
+    // body: the whole memory in a window down to the foot bevel. When it runs one or two lines long, the window
+    // scrolls up 1px at a time once the photo has had its moment, so the last line (the payoff) is always read.
+    const by = ty + tl.length * 9 + 2, bottom = y + h - 6;   // bottom: the last pixel row a glyph may use
+    const room = Math.floor((bottom - by - 6) / 9) + 1;
+    const lines = wrap(body, 18); const over = Math.max(0, lines.length - room) * 9;
+    const sc = over ? Math.min(over, Math.max(0, Math.floor((r.t - page.at - (bundle ? 46 : 76)) / (bundle ? 2 : 3)))) : 0;
+    ctx.save(); ctx.beginPath(); ctx.rect(x + 3, by - 1, w - 6, bottom - by + 2); ctx.clip();
+    try { lines.forEach((ln, i) => { const ly = by + i * 9 - sc; if (ly > by - 9 && (sc ? ly <= bottom : ly + 6 <= bottom)) text(ctx, ln, x + 6, ly, col('7')); }); }
+    finally { ctx.restore(); }
   }
 
   /**
    * The flourish: the polaroid lifts out of the card and hops into the album counter above it, stepping down in
-   * exact sizes (64x62 polaroid, 32x31, then the 9x10 thumbnail) along a little arc; the counter box flashes and
-   * sparkles when it lands.
+   * exact sizes (64x62 polaroid, 32x31, then the 9x10 thumbnail) along a little arc; when it lands the counter
+   * ticks up (it held the old count until now), its number flashes and the box sparkles.
    */
-  private fileFlight(ctx: Ctx, r: Reveal, id: string, reduce: boolean) {
+  private fileFlight(g: Game, ctx: Ctx, r: Reveal, id: string, reduce: boolean) {
     const end = IN + r.hold; const k = r.t - end; const f = k / FILE;
     const lost = r.lost;
     if (!reduce && f < 1) {
-      const sx = CARD_X + 28 + 32, sy = CARD_Y + 22 + 31;
+      const sx = CARD_X + SLOT_DX + 32, sy = CARD_Y + SLOT_DY + 31;
       const u = clamp01((f - 0.18) / 0.82); const e = u * u * (3 - 2 * u);
       const cx = Math.round(sx + (ALBUM_X - sx) * e), cy = Math.round(sy + (ALBUM_Y - sy) * e - Math.sin(Math.PI * e) * 16);
       if (f < 0.25) polaroid(ctx, id, sx - 32, sy - 31 - Math.round(f * 16), 1, 1, false, lost);
@@ -510,15 +577,43 @@ class Memories implements Module {
       if (f >= 0.25 && (k & 1)) pxSpark(ctx, cx + (k & 2 ? 7 : -7), cy + 4, lost ? 'l' : 'f', 1);
       return;
     }
-    // landed: the album counter box flashes (white, then gold) and four sparks pop round the icon
+    // landed: the count ticks up now, the number flashes white then gold, the box outline flashes, four sparks pop
     const a = reduce ? k : k - FILE; if (a < 0 || a > 16) return;
+    if (a < 12) this.albumCount(g, ctx, this.albumShown(g), col(a < 4 ? '6' : lost ? 'l' : 'f'));
     const bx = RX + 65, byy = 97, bw = 54, bh = 20;
     ctx.fillStyle = col(a < 4 ? '6' : a < 10 ? (lost ? 'l' : 'f') : (lost ? 'm' : 'g'));
     if (a < 14 || (a & 1)) { ctx.fillRect(bx, byy, bw, 1); ctx.fillRect(bx, byy + bh - 1, bw, 1); ctx.fillRect(bx, byy, 1, bh); ctx.fillRect(bx + bw - 1, byy, 1, bh); }
     const d = 7 + (a >> 1);
     if (a < 12) for (const [ox, oy] of [[-d, -3], [d, -3], [-d + 2, 5], [d - 2, 5]]) pxSpark(ctx, ALBUM_X + ox, ALBUM_Y + oy, a < 6 ? '6' : lost ? 'l' : 'f', a < 6 ? 2 : 1);
   }
+
+  /**
+   * After the card has gone, the SECTOR GOALS row it was hiding gets its moment: the MEMORIES label blinks gold and
+   * each box this card just lit gets a blinking 1px frame and a spark (ui's layout: box x = right edge - 5 - (n - i) * 9 + 1).
+   */
+  private goalsPulse(g: Game, ctx: Ctx, p: { t: number; ids: string[] }) {
+    const mems = this.placed(g.state.areaId); const n = mems.length; if (!n) return;
+    const on = p.t < GOAL_PULSE - 8 || (p.t & 2) === 0; if (!on) return;
+    const k = (p.t >> 3) & 1 ? 'f' : '6';
+    text(ctx, 'MEMORIES', GOALS_X + 15, GOALS_ROW, col(k));
+    mems.forEach((m, i) => {
+      if (!p.ids.includes(m.id)) return;
+      const bx = GOALS_X + GOALS_W - 5 - (n - i) * 9 + 1, by = GOALS_ROW - 1;
+      ctx.fillStyle = col(k);
+      ctx.fillRect(bx - 1, by - 1, 10, 1); ctx.fillRect(bx - 1, by + 9, 10, 1); ctx.fillRect(bx - 1, by - 1, 1, 11); ctx.fillRect(bx + 8, by - 1, 1, 11);   // hugs the box (its neighbour is 1px away)
+      if (p.t < 16) pxSpark(ctx, bx + 4, by - 5 - (p.t >> 2), p.t < 8 ? '6' : 'f', p.t < 8 ? 2 : 1);
+    });
+  }
 }
+
+/** a bundle of n photos: how many get their own page, and how many pages in all (the last may be '+N MORE') */
+function bundlePages(n: number) { const shown = n <= SHOW_ALL ? n : SHOW_MAX; return { shown, pages: shown + (n > shown ? 1 : 0) }; }
+/** how long a bundle card holds (all its pages) */
+function bundleHold(n: number) { const { shown, pages } = bundlePages(n); return PAGE0 + (shown - 1) * PAGE + (pages > shown ? SUMMARY : 0); }
+/** the pager dots' width (2px dots on a 5px step; the '+' for a MORE page is 3px wide) */
+function pagerWidth(pages: number, plus: boolean) { return pages * 5 - 3 + (plus ? 1 : 0); }
+
+const OUTLINE = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1], [1, 2]];
 
 function clamp01(v: number) { return Math.max(0, Math.min(1, v)); }
 
@@ -539,7 +634,5 @@ function clampLines(lines: string[], max: number): string[] {
   return out;
 }
 
-/** first sentence of a memory, for the card (the journal has the whole text) */
-function firstSentence(s: string) { const m = s.match(/^.*?[.!?](\s|$)/); return (m ? m[0] : s).trim(); }
 
 export const makeMemories = (): Module => new Memories();

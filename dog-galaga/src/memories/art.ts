@@ -557,15 +557,14 @@ export function whiteSilhouette(ctx: Ctx, rows: string[] | null, cacheKey: strin
   if (img) ctx.drawImage(img, Math.round(cx - img.width / 2), Math.round(cy - img.height / 2));
 }
 
-/** A small "RECOVERED" rubber stamp (teal ink, 1px border, slightly uneven) for a lost memory's photo corner. */
+/** A "RECOVERED" rubber-stamp print for a lost photo, struck on the polaroid chin (below the image, never over it). */
 export function recoveredStamp(ctx: Ctx, x: number, y: number, label: (c: Ctx, s: string, x: number, y: number) => void) {
+  // A rubber-stamp print on the polaroid's chin (never over the photo): 'RECOVERED' in deep-blue ink, struck a hair
+  // crooked (the right half sits 1px higher), with a ruled underline and a couple of ink-starved pixels.
   x = Math.round(x); y = Math.round(y);
-  const w = 58, h = 11;
-  R(ctx, x - 1, y - 1, w + 2, h + 2, '0');
-  R(ctx, x, y, w, h, '7'); R(ctx, x, y, w, 1, 'm'); R(ctx, x, y + h - 1, w, 1, 'm'); R(ctx, x, y, 1, h, 'm'); R(ctx, x + w - 1, y, 1, h, 'm');
-  R(ctx, x + 2, y + 2, w - 4, h - 4, 'l'); D(ctx, x + 2, y + 2, w - 4, h - 4, 'm');
-  label(ctx, 'RECOVERED', x + 3, y + 2);
-  P(ctx, x + 1, y + 1, '7'); P(ctx, x + w - 2, y + h - 2, '7');   // worn corners of the ink
+  label(ctx, 'RECOV', x, y + 1); label(ctx, 'ERED', x + 30, y);
+  R(ctx, x, y + 9, 29, 1, 'n'); R(ctx, x + 29, y + 8, 24, 1, 'n');
+  P(ctx, x + 7, y + 9, 'm'); P(ctx, x + 40, y + 8, 'm'); P(ctx, x + 50, y + 8, 'm');
 }
 
 /**
