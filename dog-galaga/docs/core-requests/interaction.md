@@ -181,3 +181,18 @@ Round 1 (interaction only, no core changes needed). Notes for the integrator and
   Interaction now also credits any hits `minigames.hits` holds that interaction did not count (the showcase's pinned
   tally), so BOOPS/AIM never trail the bonus board. Minigames: if the bonus showcase should show non-zero BOOPS,
   pin the tally after interaction's flight has started (`--at` beyond the intro), or set `stats` in the showcase.
+
+Round 2 (interaction only, no core changes needed). Notes for the integrator and other owners:
+- **True Galaga lattice:** every cat now owns ONE cell for the whole wave (enters into it, dives from it, returns to
+  it); cells never move sideways, so holes stay holes and every row shares one integer pitch (32 x 32 px). The old
+  close-ranks repacking (the source of the staircases and of cats sliding into occupied cells) is gone. Only when a
+  whole row is booped do the rows below move up one row (columns unchanged). A runtime check reports
+  `two cats share a formation cell` through `g.reportError` if the invariant ever breaks (never seen in a 13-area sweep).
+- **Lattice fixed on the lane, not the camera:** the rack is centred on per-area lane walls (interaction's
+  `LANES` table in formation.ts: alley, cafe, docks, factory, mothership; others use world x 64..384) and is never
+  wider than the lane (the mothership drops to a still 6-wide rack between its yarn cable and conduit). World owners:
+  if a stage's walls move, tell interaction so the table follows.
+- **Minigames (bonus results nit, critic #10):** the 'NUMBER OF HITS' bar is still tallying while the HUD already
+  shows the final BOOPS, and the lower 60% of the results panel is empty. Please either fill it with a per-squadron
+  breakdown (interaction already sends `group` in every bonus `cat:boop` payload) or shrink the panel.
+- **Runaway kittens** (splitter babies) now trail a short 3-dot streak so they read as deliberate, not as a lost grid cat.
