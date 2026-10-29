@@ -18,8 +18,8 @@
    "ending_true"
   ],
   "botMinutes": [
-   31,
-   35
+   36,
+   38
   ],
   "note": "perfect-aim bot; human estimate 65-100 min"
  },
@@ -40,7 +40,7 @@
    "history": null
   },
   "world": {
-   "score": 7.4,
+   "score": 7.6,
    "status": "wave1: 4 rounds, did not pass 8.5",
    "history": null
   },
@@ -49,12 +49,12 @@
    "status": "wave2 4 rounds, fail"
   },
   "interaction": {
-   "score": 7.8,
+   "score": 7.2,
    "status": "wave1: 4 rounds, did not pass 8.5",
    "history": null
   },
   "ui": {
-   "score": 8.1,
+   "score": 8.2,
    "status": "wave1: 4 rounds, did not pass 8.5",
    "history": null
   },
@@ -69,7 +69,7 @@
    "history": null
   },
   "quest": {
-   "score": 7.6,
+   "score": 6.5,
    "status": "wave2 4 rounds, fail"
   },
   "save": {
@@ -78,7 +78,7 @@
   },
   "memories": {
    "score": 8.5,
-   "status": "PASSED wave2 round 4"
+   "status": "PASSED polish1 round 2"
   },
   "minigames": {
    "score": 8.1,
@@ -100,14 +100,14 @@
   "1px stray line ~y140 in some sectors; sky seam",
   "secret_route quest left active on moon route"
  ],
- "nextStep": "Polish loop iteration 1: targeted builders (memories, interaction, ui, world, quest) on whole-game critic issues 1-11, integrate, re-run whole-game critic.",
+ "nextStep": "Polish loop 2 running (world tod remap + density, interaction lattice, ui subtitles/toasts/ending, memories card into side panel, journal missed quests, quest toasts). After it: re-run whole-game critic; loop until >=8.5.",
  "passedModules": [
   "memories",
   "journal"
  ],
  "finalGate": {
   "round": 1,
-  "wholeGameCritic": 7.3,
+  "wholeGameCritic": 7.6,
   "criticPass": false,
   "blindJudgeWinRate": 0.78,
   "blindPairs": 6,
@@ -125,6 +125,16 @@
    "loadMs": 164,
    "fps": 60,
    "tests": "42/42"
-  }
+  },
+  "history": [
+   {
+    "round": 1,
+    "wholeGameCritic": 7.3
+   },
+   {
+    "round": "polish1",
+    "wholeGameCritic": 7.6
+   }
+  ]
  }
 }
