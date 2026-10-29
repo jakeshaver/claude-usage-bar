@@ -135,8 +135,9 @@ const smooth = (v: number) => { const e = v < 0 ? 0 : v > 1 ? 1 : v; return e * 
 /** HUD roster short names (one 9px line each in the 108px HOSTILES slot); the journal keeps the full names. */
 /** Ticks after a Big Cat's entrance that toasts keep waiting (covers its taunt and the first telegraphed tell). */
 const BOSS_INTRO_GRACE = 150;
-/** Sector log short names, so every row keeps the regular face (NEXT HOP still shows the full name). */
-const LOG_SHORT: Record<string, string> = { station: 'SCRATCH POST STATION', cafe: 'PURRFECT CUP CAFE', rooftops: 'MANHATTAN ROOFS' };
+/** Sector short names: one display name for the HUD sector header and the map's sector log whenever the full name
+ *  would not fit one line of the regular face (NEXT HOP still shows the full name). */
+const LOG_SHORT: Record<string, string> = { station: 'SCRATCH STATION', cafe: 'PURRFECT CUP CAFE', rooftops: 'MANHATTAN ROOFS' };
 const HUD_BREED: Record<string, string> = {
   tabby: 'TABBY GRUNT', tuxedo: 'TUXEDO DIVER', siamese: 'SIAMESE', calico: 'CALICO', persian: 'PUFFBALL',
   scottishfold: 'YARNWITCH', bengal: 'BENGAL BOLT', sphynx: 'ZIGZAGGER', mainecoon: 'MAINE COON',
@@ -435,9 +436,15 @@ class UI implements Module {
    */
   drawToasts(ctx: CanvasRenderingContext2D) {
     const sc = this.g?.state.scene;
-    const up = sc === 'map' || sc === 'title' || sc === 'recovery';
-    const cx = sc === 'map' ? Math.round((10 + MAP_LIST_X) / 2) : PF_X + PF_W / 2;
-    const base = sc === 'title' || sc === 'recovery' ? 336 : sc === 'map' ? 276 : this.bossBarOn ? 24 : 8;
+    // play / bonus: the lane is the reserved strip under Pom's flight ceiling (she never flies below MIN..MAX_Y + her
+    // sprite), stacking upward, so news never covers the Galaga formation, a diving cat or the boss up top. While a
+    // conversation is up the pill takes the edge the dialogue box leaves free.
+    const dlgTop = sc === 'dialogue' && (this.g?.mods.quest?.dock?.(DLG_H + 3) === 'top');
+    const bottomLane = sc === 'play' || sc === 'bonus' || (sc === 'dialogue' && dlgTop);
+    const up = sc === 'title' || sc === 'recovery' || bottomLane;
+    // sector map: docked in the strip right under the header bar, never over the route grid or its nodes
+    const cx = sc === 'map' ? W / 2 : PF_X + PF_W / 2;
+    const base = sc === 'title' || sc === 'recovery' ? 336 : sc === 'map' ? 43 : bottomLane ? H - 3 : this.bossBarOn ? 24 : 8;
     const cap = this.toastCap();
     let acc = 0;
     this.toasts.forEach((x, i) => {
@@ -710,9 +717,10 @@ class UI implements Module {
       else text(ctx, nm, x + 10, cy, C.pale);
       text(ctx, String(e.n), x + w, cy, C.text, { align: 'right' });
     });
-    for (let i = Math.min(3, list.length); i < 3; i++) dither(ctx, x + 10, y + i * 9 + 3, w - 10, 1, C.indigo, 'check');
     if (list.length > 3) { const rest = list.slice(2).reduce((a, e) => a + e.n, 0); text(ctx, `+${list.length - 2} MORE BREEDS`, x + 10, y + 18, C.dim); text(ctx, String(rest), x + w, y + 18, C.text, { align: 'right' }); }
-    const ly = y + 31;
+    // the section collapses to its rows: CATS LEFT follows the last breed row with a fixed 4px gap (no empty band
+    // when the wave has one or two breeds); the slot's spare height falls below, before SECTOR GOALS
+    const ly = y + Math.min(3, list.length) * 9 + 4;
     const tot = Math.max(1, this.waveCats, cats.length);
     text(ctx, 'CATS LEFT', x, ly, C.dim); text(ctx, `${cats.length}/${tot}`, x + w, ly, C.hot, { align: 'right' });
     segBar(ctx, x, ly + 10, 18, 5, 4, cats.length / tot, C.hot);
@@ -780,8 +788,10 @@ class UI implements Module {
    * the subtitle takes one main-face line when it fits, else the small-caps tier on one line (or two balanced lines,
    * 7px pitch) so the block ends at least 6px above the WAVE header. Never a marquee, never truncated.
    */
-  areaTitle(ctx: CanvasRenderingContext2D, A: { name: string; subtitle?: string }, x: number, y: number, w: number) {
-    const name = A.name.toUpperCase(); const sub = (A.subtitle ?? '').toUpperCase();
+  areaTitle(ctx: CanvasRenderingContext2D, A: { id?: string; name: string; subtitle?: string }, x: number, y: number, w: number) {
+    // the same short display name the sector log uses (SCRATCH STATION), so the header stays one line
+    const full = A.name.toUpperCase(); const sh = A.id ? LOG_SHORT[A.id] : undefined;
+    const name = textWidth(full) > w && sh && textWidth(sh) <= w ? sh : full; const sub = (A.subtitle ?? '').toUpperCase();
     let yy = y;
     const nl = balancePx(name, w, textWidth);
     if (nl) for (const l of nl) { text(ctx, l, x, yy, C.text, { shadow: C.ink }); yy += 9; }
@@ -1348,20 +1358,25 @@ class UI implements Module {
     } else small('AND EVERY PUP STILL ON THE WAY HOME');
     gap(26); title('THE FELINE ARMADA', C.hot, C.pink, C.mag); gap(8);
     // every cast entry: a name line (wrapped in one colour) and, for the Big Cats, one dim role line (their sector)
+    // every text line is its own 14px row (13px scrim + 1px clear), so two lines never share a scrim or touch
+    const LH = 14;
     const grid = (list: { sprite: string; lines: string[]; role?: string }[], cell: number, sh: number) => {
       for (let r = 0; r < list.length; r += 3) {
         const row = list.slice(r, r + 3);
-        items.push({ h: sh + 26, draw: (ctx, y, t) => row.forEach((e, i) => {
+        const nl = Math.max(...row.map(e => e.lines.length + (e.role ? 1 : 0)));
+        items.push({ h: sh + 8 + nl * LH, draw: (ctx, y, t) => row.forEach((e, i) => {
           const x = cx + (i - (row.length - 1) / 2) * cell;
           drawSprite(ctx, e.sprite, x, y + sh / 2, { frame: frameCount(e.sprite) > 1 ? ((t >> 4) + i) % 2 : 0 });
           // names and role lines carry a full 1px ink outline, so they read on every band of either sky
-          e.lines.forEach((l, k) => inked(ctx, l, x, y + sh + 3 + k * 9, C.text));
-          if (e.role) inked(ctx, e.role, x, y + sh + 3 + e.lines.length * 9, C.gold);
+          e.lines.forEach((l, k) => inked(ctx, l, x, y + sh + 4 + k * LH, C.text));
+          if (e.role) inked(ctx, e.role, x, y + sh + 4 + e.lines.length * LH, C.gold);
         }) });
       }
     };
     const ens = g.content.enemies.filter(e => SHEETS[e.sprite]);
-    grid(ens.filter(e => e.behavior !== 'boss').map(e => ({ sprite: e.sprite, lines: wrap(e.name.toUpperCase(), 20).slice(0, 2) })), 124, 34);
+    // the armada: one line per breed in a 150px column (the full name when it fits, else the HUD's short name)
+    const one = (id: string, nm: string) => { const f = nm.toUpperCase(); return textWidth(f) <= 140 ? f : HUD_BREED[id] ?? f; };
+    grid(ens.filter(e => e.behavior !== 'boss').map(e => ({ sprite: e.sprite, lines: [one(e.id, e.name)] })), 150, 34);
     gap(22); title('THE BIG CATS', C.gold, C.cream, C.burnt); gap(10);
     grid(ens.filter(e => e.behavior === 'boss').map(e => {
       const home = g.content.areas.find(a => a.boss === e.id);
@@ -1556,7 +1571,7 @@ class UI implements Module {
       const head = tru ? 'HOMEWARD BOUND' : 'HEADING HOME'; const tw = numWidth(head) + 36;
       chamferFill(ctx, W / 2 - tw / 2, 10, tw, 26, C.ink, 6); chamferLine(ctx, W / 2 - tw / 2, 10, tw, 26, C.burnt, 6);
       headline(ctx, head, W / 2, 17, C.gold, C.cream, C.burnt);
-      const lbl = P.shown ? `PUPS HOME ${home}/${P.shown}` : 'HOME AT LAST'; const lw = textWidth(lbl) + 24;
+      const lbl = P.shown ? `PUPS HOME ${home}/${P.shown}` : 'PUPS STILL ON THE WAY'; const lw = textWidth(lbl) + 24;
       chamferFill(ctx, W / 2 - lw / 2, 40, lw, 13, C.night, 3); chamferLine(ctx, W / 2 - lw / 2, 40, lw, 13, C.burnt, 3);
       icon(ctx, 'paw', W / 2 - lw / 2 + 6, 43, C.gold); text(ctx, lbl, W / 2 - lw / 2 + 16, 43, C.gold);
     } else if (T < P.card) {
@@ -1709,9 +1724,13 @@ class UI implements Module {
     if (s0 >= 0) {
       const stats: [string, string, string, string][] = [['star', String(s.score), 'PTS', C.gold], ['cat', String(s.stats.catsBooped), 'BOOPED', C.hot], ['paw', String(P.pups), 'PUPS', C.line],
         ['photo', `${s.memories.length}/${g.content.memories.length}`, 'MEMORIES', C.violet], ['clock', String(Math.floor(s.stats.playTicks / 3600)), 'MIN', C.lime], ['moon', String(s.stats.naps), 'NAPS', C.pale]];
-      const ws = stats.map(([, v, l]) => 26 + textWidth(v) + 6 + textWidth(l) + 8); const gapX = 5;
-      let cx = Math.round(W / 2 - (ws.reduce((a, b) => a + b, 0) + gapX * (ws.length - 1)) / 2);
+      const ws = stats.map(([, v, l]) => 26 + textWidth(v) + 6 + textWidth(l) + 8); const gapX = 7;
+      const rowW = ws.reduce((a, b) => a + b, 0) + gapX * (ws.length - 1);
+      let cx = Math.round(W / 2 - rowW / 2);
       const cy = 40;
+      // the chips sit in one ink tray (it drops in with the first chip), so the moon, searchlights and clouds never
+      // show through the even 7px gaps between them
+      if (s0 >= 0) { const ty = cy - 3 - Math.max(0, 4 - s0); chamferFill(ctx, cx - 4, ty, rowW + 8, 24, C.ink, 5); chamferLine(ctx, cx - 4, ty, rowW + 8, 24, C.night, 5); }
       stats.forEach(([ic, v, l, c], i) => {
         const cw = ws[i]; const k = s0 - i * 5;
         if (k >= 0) {

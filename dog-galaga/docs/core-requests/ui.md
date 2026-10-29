@@ -192,3 +192,31 @@
   rows, or 2 + `+n MORE QUESTS`) 24px under the stats chips, so it rides up with them when the story window fades.
 - Not done (yours, optional): memories item 20 cleanup (`toastsHeld()` memories branch and the `drawToasts` skip are
   inert now that `revealing()` / `showing()` are always false).
+
+## Polish 3
+
+1. **memories (card body clipped, `src/memories/index.ts` `card()`):** the HUD memory side card is fixed at
+   `CARD_Y = 119, CARD_H = 170`, and its body window only scrolls 76 ticks after the photo lands, so for a frame range the
+   last body line is lost (station z1: 'GOTCHA DAY' ends at 'SHE SAID THAT IS HOW SHE', 'KNEW.' never shows until the
+   scroll). Please size the body from `wrap(body, 18).length` (shrink the photo slot to the 32x31 half polaroid, or drop
+   the title to 1 line, when `lines > room`) so the final line is visible without waiting for the scroll. (ui side: the
+   sector header is now always one line for station, 'SCRATCH STATION', so nothing above the card changes height.)
+2. **memories (header covered while filing, `fileFlight()`):** at `f < 0.25` the lifted polaroid is drawn at
+   `sy - 31 - f * 16`, i.e. up to 4px above the slot, which puts it over the 'FOUND A...' kicker and the header rule
+   (docks dusk +900: reads 'FOUND A[photo]'). Please clamp the lift so the photo's top never rises above `CARD_Y + 16`
+   (the dashed rule row), or hide the kicker while the photo is in flight.
+3. **memories (stamp + rule clearance):** `recoveredStamp` is struck straight onto the photo chin, and the card's
+   `scanlines`/dither rows cross it at zoom 3 (alley z3). Please give the stamp a solid 1px-padded backing rect in the
+   chin colour before the letters. Also add 2px between the title's dashed dither row and the first body line
+   (`by = ty + tl.length * 9 + 4`).
+4. **quest (content):** with `inventory.pups = 0`, `ending_good`'s story still says 'A few puppies are still finding
+   their way back' (fine) but some copy assumed pups came home; ui now labels the flight plate 'PUPS STILL ON THE WAY'
+   instead of 'HOME AT LAST' when no pup is home. Please check the ending text reads right for 0 pups.
+5. **quest:** the park boss wave HUD shows the tracked quest 'PARK PALS 10/11' before its 'NEW QUEST' toast fires
+   (ui now holds every toast through the boss intro, ~150 ticks after the entrance). `tracked()` should keep a quest
+   in `unrevealed` until its NEW QUEST toast is actually on screen (e.g. reveal on ui's toast display, or have ui call
+   back: ui can expose `toastShown(text)` if you want it).
+6. **FYI (ui):** toasts in play / bonus now use a reserved strip at the bottom of the playfield (below Pom's lowest
+   flight row, stacking upward), never the top where the formation and the boss sit; on the sector map they dock
+   right under the header bar. The HUD sector header and the map's sector log share one short name table
+   (`LOG_SHORT`: station = 'SCRATCH STATION').
