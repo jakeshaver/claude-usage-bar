@@ -18,13 +18,13 @@
    "ending_true"
   ],
   "botMinutes": [
-   36,
-   38
+   41,
+   43
   ],
   "note": "perfect-aim bot; human estimate 65-100 min"
  },
  "tests": {
-  "passed": 49,
+  "passed": 53,
   "failed": 0
  },
  "modules": {
@@ -40,8 +40,8 @@
    "history": null
   },
   "world": {
-   "score": 6.0,
-   "status": "polish2: tod still checker-dithered (measured 74-89%)"
+   "score": 7.0,
+   "status": "polish3 r2: lawn blade stripes, lamp pools, rooftops tod"
   },
   "player": {
    "score": 7.6,
@@ -49,11 +49,11 @@
   },
   "interaction": {
    "score": 8.0,
-   "status": "polish2 r2"
+   "status": "polish3 r2"
   },
   "ui": {
-   "score": 8.2,
-   "status": "polish2 r2"
+   "score": 8.6,
+   "status": "PASSED polish3 r2"
   },
   "audio": {
    "score": 7.2,
@@ -97,15 +97,16 @@
   "1px stray line ~y140 in some sectors; sky seam",
   "secret_route quest left active on moon route"
  ],
- "nextStep": "Polish loop 3 running (world tod palette remap <5% checker + alley/nebula/moon; interaction boss escorts + points per hit + wave variety; ui hostiles list, ending handoff, toast suppression). Then whole-game critic; target 8.5.",
+ "nextStep": "Polish loop 4 running (world x3 rounds: tod per area, lamp pools, alley, nebula, factory, backyard; interaction: formation air, escort wings, sector signature waves; ui nits; memories nits). Then whole-game critic; target 8.5.",
  "passedModules": [
   "memories",
   "journal",
-  "quest"
+  "quest",
+  "ui"
  ],
  "finalGate": {
   "round": 1,
-  "wholeGameCritic": 8.0,
+  "wholeGameCritic": 8.2,
   "criticPass": false,
   "blindJudgeWinRate": 0.78,
   "blindPairs": 6,
@@ -136,6 +137,10 @@
    {
     "round": "polish2",
     "wholeGameCritic": 8.0
+   },
+   {
+    "round": "polish3",
+    "wholeGameCritic": 8.2
    }
   ]
  }
