@@ -293,7 +293,9 @@ function titleCard(ctx: CanvasRenderingContext2D, name: string, sub: string, idx
     ctx.fillStyle = TEAL; for (let x = x0 + ch + 6; x < x1 - 20; x += 8) ctx.fillRect(x, y0 + 2, 1, (x / 8) % 4 ? 1 : 3);
   } else if (e < 30) { ctx.fillStyle = CYAN; ctx.fillRect(x0, cy, x1 - x0, 1); ctx.fillStyle = INK; ctx.fillRect(x0, cy + 1, x1 - x0, 1); }
   // (closing: the panel folds shut and is simply gone; no stray 1px scan line lingers across the playfield)
-  if (hh < 30) return;
+  // closing: the words are clipped to the folding panel (never an empty plate outliving its text)
+  if (hh < 3) return;
+  ctx.save(); ctx.beginPath(); ctx.rect(x0, y0 + 1, x1 - x0, y1 - y0 - 2); ctx.clip();
   const typed = (str: string, start: number, speed = 1.5) => str.slice(0, Math.max(0, Math.floor((e - start) * speed)));
   const label = `SECTOR ${String(idx).padStart(2, '0')}`;
   const lx = x0 + 16;
@@ -312,6 +314,7 @@ function titleCard(ctx: CanvasRenderingContext2D, name: string, sub: string, idx
   // progress bar
   const bw = Math.round((x1 - x0 - 40) * Math.min(1, Math.max(0, (e - 30) / 80)));
   ctx.fillStyle = DEEP; ctx.fillRect(x0 + 20, y1 - 6, x1 - x0 - 40, 2); ctx.fillStyle = CYAN; ctx.fillRect(x0 + 20, y1 - 6, bw, 2);
+  ctx.restore();
 }
 function chevron(ctx: CanvasRenderingContext2D, x: number, y: number, color: string) {
   ctx.fillStyle = color; for (let i = 0; i < 4; i++) { ctx.fillRect(x + i, y + i, 2, 1); ctx.fillRect(x + i, y + 6 - i, 2, 1); }
