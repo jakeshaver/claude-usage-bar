@@ -275,3 +275,53 @@ Round 2 (interaction only, no core code changes needed). ARCHITECTURE interactio
 - REQUEST (ui) quest toasts over the boss bar: already resolved by ui's polish 3 bottom toast lane (play / bonus toasts
   now sit at the bottom of the playfield) and its boss-intro hold.
 - REQUEST (world) backyard props: forwarded to world.md (world-owned, not changed here).
+
+## Polish 4
+
+Round 1 (interaction only, no core code changes needed). Please update the ARCHITECTURE interaction entry:
+- **Lattice air:** cells are now `COL_SP` 40 x `ROW_SP` 34 (12px / 6px of air between opaque cats), at most 7 columns x
+  4 rows. The pitch never shrinks: a narrow lane gets fewer columns (street / alley 5, mothership 4, cafe / docks /
+  factory 6, open stages 7). Cats that do not fit the shape's cells wait off stage as **reinforcements** (`plan().reserve`,
+  at most ~70% of the rack) and fly in, in flights of up to four, into holes they can reach without passing a parked cat
+  (straight down an empty column, or up from under the rack). They are in `interaction.cats` from the start (state
+  `wait`, `res: true`), so ui's CATS LEFT and `wave:start.count` / `wavePreview` already include them.
+- **Shapes:** narrow lanes (<= 5 columns) walk their own ring `chevron checker diamond squads vee galaga wings arrow`
+  (new: `checker` = staggered half-offset rows, `squads` = 2x2 squadrons with a second line in the gaps). `flanks` is
+  two mirrored squadrons now; gapped shapes never leave an odd cat in a partial row (it waits as a reinforcement).
+- **Sector signatures** (`formation.SIGNATURES`, waves 3 and 7 of each sector, every other wave on the mothership):
+  street ambush (whole columns slam down), park frisbee arcs over the top, alley pop-outs from the side walls,
+  rooftops water-tower swoop, cafe conga line, docks tide streams + a rack that bobs like moored boats, factory
+  conveyor belt, sky loop-the-loops, moon floaty drift (and slower, swaying dives all sector long), nebula zigzag
+  gutters, station orbit ring around the rack, mothership remixes them all. Backyard stays plain (tutorial).
+- **Escorts:** fixed wing slots, every escort a cat's width (28px) clear of the Big Cat's hitbox and of its craft art,
+  56px between escorts, homes clamped to lane wall + 16px. Wide lanes: upper wings beside the boss, shoulders under it
+  (they step out of the charge lane while it winds up), lower wings under the upper ones. Narrow lanes (street,
+  alley, mothership): a V of four (the Empress's outer pair rides high at the walls over her throne wings).
+  Squad: 4 in sectors 1-3, 4 (+2 grumpy) in 4-8, 6 from sector 9; topped up after 90 ticks once it drops below 4
+  (sectors 1-3: once only two are left), so mid/late fights hold 4-6 escorts. `bossRange()` no longer widens past the
+  lane (the boss holds the middle when there is no room to drift).
+Bot: 42-43 min on all 8 paths.
+
+Round 2 (interaction only). Please update the ARCHITECTURE interaction entry:
+- **Pitch per wave:** the column pitch follows the wave's widest breed (`formation.pitchFor`: opaque sprite width + 12,
+  at least `COL_SP` 40; maine coon waves 44, fold waves 42). The shape still follows the area's base lattice (so a
+  sector's shape ring never changes); the column count shrinks to keep the pitch inside the lane.
+- **Gutters:** `latticeFor` keeps a one-cat side gutter free (`GUTTER` 18: stream line at lane wall + 18) where the lane
+  allows (open stages, cafe, docks, factory: 5-6 columns); gutterless lanes (street, alley, mothership) remap gutter
+  entries (`formation.NO_GUTTER`: swirl -> loop / escort, split -> flank, rain -> drop, zigzag -> convoy, orbit -> tide,
+  swoop -> conveyor). Entry paths are kept inside the lane once on screen (`inLane`: gutter line beside / above the
+  rack, lane wall in the open field under it); only the sky's cloud loops swing out beside the rack.
+- **Rows re-centre:** a lopsided row (an inner hole, or all its cats on one side) slides together onto its middle cells
+  after the regroup lull (mirror-symmetric rows, e.g. flanks / wings, are kept).
+- **Signature tells:** a signature wave sketches its lane paths as marching pixel dots for 54 ticks before the first cat
+  flies (dots never drawn across the rack). Conga is one line under the rack (far columns first); frisbee is a low arc
+  across the open field; float drops whole rows as a sheet; docks rows bob +-5px; zigzag drops the gutter, then zigzags
+  across the field; orbit runs on the lane's own gutter lines.
+- **Rack shade:** docks / factory / alley draw a 50% ink dither band (25% falloff ring) behind the rack on layer 0.
+- **Escorts:** refilled in mirrored pairs (each wing pair together, each cat from its own side; a broken pair whistles
+  up its partner in sectors 4+), entering escorts bend onto their slot's live position, refill gap 60 ticks in sectors
+  4+. Mothership: a low V under the throne (outer pair at the walls just under the saucer rim, inner pair a row lower).
+  Narrow-lane escorts rise from under the field. All boss telegraphs (spiral ring, summon sparkles) draw under the cats.
+- REQUEST (ui): the FOUND AGAIN memory card slides over the right HUD in early play: at station tick ~350 it is caught
+  mid-slide and clipped off the screen edge, and at zoom 1 (cafe) its title text collides with the polaroid. Please
+  keep the card inside the right HUD column during its slide and give the title its own line above the polaroid.

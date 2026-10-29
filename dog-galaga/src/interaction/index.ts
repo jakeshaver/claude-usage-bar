@@ -1,14 +1,14 @@
 import type { Game, Module } from '../core/game';
 import { WORLD_W, H } from '../core/game';
 import type { EnemyDef, WaveDef, BonusDef } from '../core/types';
-import { drawSprite } from '../art/sprite';
+import { drawSprite, spriteRows } from '../art/sprite';
 import { col } from '../core/palette';
-import { entryPath, divePath, bonusPath, Track, type Pt, type TrackPos } from './paths';
+import { entryPath, divePath, bonusPath, Track, selfGaps, type Pt, type TrackPos } from './paths';
 import { tuning, type Tuning } from './tuning';
 import { pxRing, pxDither, pxSpark, pxDisc } from '../core/pixel';
 import { ditherShadow, captureBeam, bubble, drawBullet, drawCombat, plaster, tractor, pickupBadge } from './art';
 import { Boss } from './boss';
-import { COL_SP, ROW_SP, WALL_GAP, layout, shapeFor, entryFor, latticeFor, laneOf, cellsUnique, closeRows, type Shape, type Entry } from './formation';
+import { COL_SP, ROW_SP, WALL_GAP, GUTTER, plan, shapeFor, entryFor, signatureFor, latticeFor, laneOf, pitchFor, line, cellsUnique, closeRows, type Shape, type Entry } from './formation';
 
 export type CatState = 'wait' | 'enter' | 'home' | 'form' | 'dive' | 'return' | 'leave' | 'flyby' | 'kdive';
 export interface Cat {
@@ -40,6 +40,8 @@ export interface Cat {
   lead?: number; sOff?: number;
   /** dive: arc length of the exit down the empty column (it rides the rack's sway until then) and the sway at launch */
   exitLen?: number; sw0?: number;
+  /** reinforcement waiting off stage for a hole in the rack (no cell yet) */
+  res?: boolean;
 }
 /** `art` names the bullet sprite (cats: blt_fur / blt_yarn, bosses: one per bossPattern). */
 export interface Shot { x: number; y: number; vx: number; vy: number; kind: 'turd' | 'hairball' | 'yarn'; t: number; art?: string }
@@ -48,7 +50,7 @@ export interface Pickup { kind: string; x: number; y: number; vy: number; t: num
 const WAVE_LIMIT = 75 * 60;  // cats lose interest after 75s, so waves can never stall
 const MAX_TURDS = 4;
 const WAVE_TURDS = 2;       // Galaga's two-shot limit against the formation (spread shots add their extra lanes)
-// Formation grid (Galaga-like readability): at most 10 columns x 4 rows of flat rows, with clear lanes between cats.
+// Formation grid (Galaga-like readability): at most 7 columns x 4 rows on a 40x34 pitch, with air between every cat.
 // The top row sits under the HUD toast lane (a single toast spans y 8..22), the bottom row stays above y ~160.
 const FORM_TOP = 50;
 const STREAM_STEP = 11;     // ticks between cats in one entry lane (11 x 4.0 >= 44px along the path: 32px sprites never overlap)
@@ -65,24 +67,12 @@ const PUP_LIFT = 14;        // the formation sits this much lower when a captive
                             // gets its own slot one row pitch above the top row, clear of the HUD toast lane (y <= 22)
 const REST_TICKS = 24;      // a cat parks at least this long before it may dive again
 const REST_LAST = 72;       // ...and much longer in the last stand: the stragglers visibly return between dives
-const ESC_GAP = 60;         // ticks after the squad drops to one escort before the Big Cat whistles up the rest
-/** How far each Big Cat tier's body and craft reach below its centre (cat, jets, saucer, the Empress's throne). */
-const BOSS_BOTTOM = [34, 32, 38, 44];
-/**
- * Escort squad around a Big Cat, slot i (pairs mirrored left/right) relative to the boss centre: a wedge cradling the
- * boss (Galaga's boss with its escorts in tow). Pair 0 rides under its shoulders, pair 1 up on the wings (a V-wedge),
- * pair 2 trails below the wings. Every escort is >= 30px from its neighbours and clear of every tier's craft, and the centre
- * strip under the boss stays open so Pom can always reach it.
- */
-function escOffset(i: number, tier: number): Pt {
-  const sg = i & 1 ? 1 : -1; const bot = BOSS_BOTTOM[tier] ?? 34;
-  switch (i >> 1) {
-    case 0: return [sg * 34, bot + 2];    // shoulders, low and close
-    case 1: return [sg * 66, bot - 24];   // wings, up beside the boss: a V-wedge with the boss riding in its notch
-    default: return [sg * 66, bot + 30];  // rear guard, trailing under the wings
-  }
-}
-const ESC_EXT = 66 + 14;    // the squad's half width from the boss centre (outermost escort's far edge)
+const ESC_GAP = 90;         // ticks the squad stays short-handed before the Big Cat whistles up replacements
+/** Escort cats' half width (opaque) and the air every escort keeps: one cat's width (28px) from the boss's hitbox and
+ *  from each other (centre pitch 56 between escorts). */
+const ESC_HALF = 14, ESC_AIR = 28;
+/** How far each Big Cat tier's art reaches: half width (cat, jets, saucer, throne wings) and below its centre. */
+const BOSS_HW = [34, 36, 48, 78], BOSS_BOTTOM = [34, 32, 38, 44];
 const HURRY_LEAVE = 6 * 60; // once only ~30% of a wave is left, stragglers dive from their slots, then fly off after 6s
 /** Stages with no ground below the action (sky and space): nothing to cast a shadow on. */
 const AIRBORNE = new Set(['sky', 'moon', 'nebula', 'station', 'mothership']);
@@ -92,6 +82,28 @@ const TOD_TINT: Record<string, Record<string, string> | undefined> = { night: { 
 const TOD_RIM: Record<string, string | undefined> = { night: '5', dusk: '7' };
 /** Floors light enough that cats read without the rim (fewer stacked outlines on a busy screen). */
 const BRIGHT_FLOOR = new Set(['moon']);
+
+/** Opaque width of a cat sprite (widest of its frames), cached: wide breeds (maine coon, fold) widen the lattice pitch. */
+const widthCache = new Map<string, number>();
+function spriteW(name: string): number {
+  let w = widthCache.get(name);
+  if (w === undefined) {
+    w = 28;
+    for (const f of [0, 1]) {
+      const rows = spriteRows(name, f); if (!rows) continue;
+      let l = 99, r = -1;
+      for (const row of rows) for (let x = 0; x < row.length; x++) if (row[x] !== '.' && row[x] !== ' ') { if (x < l) l = x; if (x > r) r = x; }
+      if (r >= l) w = Math.max(f ? w : 0, r - l + 1);
+    }
+    widthCache.set(name, w);
+  }
+  return w;
+}
+/** Ticks a signature wave's flight path is sketched on the field (a dotted telegraph) before its first cat flies. */
+const SIG_LEAD = 54;
+/** Busy backdrops (moored boats, machine panels, dusk brick): a dithered shade band sits behind the rack. */
+const RACK_SHADE = new Set(['docks', 'factory', 'alley']);
+const shadeCache = new Map<string, HTMLCanvasElement>();
 
 /** Interaction: turds, cats, formations, dives, damage, bosses, pickups. */
 class Interaction implements Module {
@@ -116,7 +128,14 @@ class Interaction implements Module {
   /** this wave's entry choreography (content entry, or convoy / drop / flank / escort picked per wave) */
   entry: Entry = 'swirl-left';
   /** Big Cat escorts: countdown to the next squad, the squad's anchor x, the side the next squad streams in from */
-  escT = 0; escAx = WORLD_W / 2; escAy = 76; escSide = 1;
+  escT = 0; escAx = WORLD_W / 2; escAy = 76; escSide = 1; escSpread = 0;
+  /** every cell of this wave's shape (reinforcements fly into the empty ones), the reinforcement cooldown, and the
+   *  sector signature's rack motion (docks: rows bob like moored boats) */
+  cells: { row: number; u: number }[] = []; reT = 0; bob = false;
+  /** signature wave telegraph: ticks since the wave started (-1: none) and the lane paths it sketches */
+  sigT = -1; sigTracks: Track[] = []; sigFloor = 0; sigHalf = 0;
+  /** the column count the wave's shape was laid out on (a silhouette may sit on a narrower lattice than the lane's) */
+  planCols = 6;
   /** phase-change shockwaves around the Big Cat */
   shocks: { x: number; y: number; t: number }[] = [];
 
@@ -158,7 +177,7 @@ class Interaction implements Module {
   /** Galaga grid: every cat keeps its own cell for the whole wave (holes stay holes, columns never shift). Only when a
    *  whole row has been booped do the rows below it move up one row, in one calm glide after a short lull. */
   private closeRanks() {
-    const mem = this.cats.filter(c => !c.dead && c.st !== 'leave' && c.st !== 'kdive' && c.st !== 'flyby');
+    const mem = this.cats.filter(c => !c.dead && !c.res && c.st !== 'leave' && c.st !== 'kdive' && c.st !== 'flyby');
     const key = mem.length;
     if (key === this.ranks) { this.rankKey = key; this.rankT = 0; return; }
     if (key !== this.rankKey) { this.rankKey = key; this.rankT = 0; }
@@ -167,11 +186,25 @@ class Interaction implements Module {
     this.ranks = key;
     if (!mem.length) return;
     const rows = closeRows(mem.map(c => c.row));
-    mem.forEach((c, i) => {
-      if (rows[i] === c.row) return;
-      c.row = rows[i]; const s = this.cell(c.row, c.u);
-      c.slot = s; c.gFrom = [c.home[0], c.home[1]]; c.gT = 0; c.gMid = null;
-    });
+    const moved = new Set<Cat>();
+    mem.forEach((c, i) => { if (rows[i] !== c.row) { c.row = rows[i]; moved.add(c); } });
+    // a row left lopsided (a hole inside it, or all its cats on one side) re-centres: its cats slide together, in order,
+    // onto the middle cells of their own row (never past each other), so the rack never reads as broken
+    if (this.entryDone && !mem.some(c => c.st === 'wait' || c.st === 'enter' || c.st === 'home')) {
+      const byRow = new Map<number, Cat[]>();
+      for (const c of mem) { const a = byRow.get(c.row) ?? []; a.push(c); byRow.set(c.row, a); }
+      for (const cs of byRow.values()) {
+        const us = cs.map(c => c.u);
+        if (us.every(u => us.some(v => Math.abs(v + u) < 0.01))) continue;   // mirror-symmetric (gapped shapes too): keep
+        const odd = this.planCols % 2 === 1, frac = Math.abs(us[0] % 1) > 0.25;
+        const M = frac === !odd ? this.planCols : this.planCols - 1;   // half-offset rows (checker, squads) sit on M-1
+        const mean = us.reduce((a, b) => a + b, 0) / us.length;
+        const want = line(cs.length, M, mean < 0 ? -1 : 1);
+        if (want.length !== cs.length) continue;
+        cs.sort((a, b) => a.u - b.u).forEach((c, k) => { if (Math.abs(c.u - want[k]) > 0.01) { c.u = want[k]; moved.add(c); } });
+      }
+    }
+    for (const c of moved) { c.slot = this.cell(c.row, c.u); c.gFrom = [c.home[0], c.home[1]]; c.gT = 0; c.gMid = null; }
     this.checkCells(mem);
   }
   /** The lattice invariant: one cat per cell. */
@@ -186,8 +219,18 @@ class Interaction implements Module {
     const T = tuning(g, w.fireRate, w.diveRate);
     const areaIdx = g.content.areas.findIndex(a => a.id === areaId);
     const by = new Map<string, number>();
-    for (const h of layout(w, shapeFor(areaIdx, i), i, id => this.enemy(id), Math.round(22 + 12 * T.d), latticeFor(areaId).cols)) by.set(h.def.id, (by.get(h.def.id) ?? 0) + 1);
+    const geo = this.waveGeo(areaId, areaIdx, i, w); const p = plan(w, geo.shape, i, id => this.enemy(id), Math.round(22 + 12 * T.d), geo.lat.cols);
+    for (const d of [...p.homes.map(h => h.def), ...p.reserve]) by.set(d.id, (by.get(d.id) ?? 0) + 1);
     return [...by].map(([breed, n]) => ({ breed, n }));
+  }
+
+  /** A wave's lattice: the shape follows the area's base lattice (so a sector's shape ring never changes); the column
+   *  pitch follows the wave's widest breed, and the column count shrinks to keep that pitch inside the lane. */
+  private waveGeo(areaId: string, areaIdx: number, i: number, w: WaveDef) {
+    const base = latticeFor(areaId);
+    const pitch = pitchFor(Math.max(28, ...w.cats.map(c => spriteW(this.enemy(c.breed).sprite))));
+    const lat = latticeFor(areaId, pitch);
+    return { shape: shapeFor(areaIdx, i, base.cols), pitch, lat, base };
   }
 
   startWave(areaId: string, i: number) {
@@ -203,91 +246,178 @@ class Interaction implements Module {
     const areaIdx = g.content.areas.findIndex(a => a.id === areaId);
     const holderWave = w.cats.some(c => this.enemy(c.breed).behavior === 'capturer') && !g.state.flags['pup_' + areaId];
     this.formTop = FORM_TOP + (holderWave ? PUP_LIFT : 0);
-    this.rowSp = ROW_SP; this.colSp = COL_SP;
-    this.shape = shapeFor(areaIdx, i);
     // the lattice is fixed on the area's lane (never rides the camera) and is never wider than the lane
-    const lat = latticeFor(areaId); this.cx = lat.cx; this.cols = lat.cols; this.amp = lat.amp;
+    const geo = this.waveGeo(areaId, areaIdx, i, w); const lat = geo.lat, lat0 = geo.base;
+    this.rowSp = ROW_SP; this.colSp = geo.pitch;
+    this.cx = lat.cx; this.cols = lat.cols; this.amp = lat.amp;
+    this.shape = geo.shape;
     let n = 0; const first = this.cats.length;
-    this.ranks = -1; this.rankKey = -1; this.rankT = 0;
-    const slots = layout(w, this.shape, i, id => this.enemy(id), Math.round(22 + 12 * T.d), this.cols).map(h => ({ def: h.def, row: h.row, u: h.u, slot: this.cell(h.row, h.u) }));
+    this.ranks = -1; this.rankKey = -1; this.rankT = 0; this.reT = 0;
+    const pl = plan(w, this.shape, i, id => this.enemy(id), Math.round(22 + 12 * T.d), this.cols);
+    this.cells = pl.cells; this.planCols = pl.cols;
+    const slots = pl.homes.map(h => ({ def: h.def, row: h.row, u: h.u, slot: this.cell(h.row, h.u) }));
     // entry lanes run in parallel and back to back (Galaga: the convoy assembles in ~4s, not over half the wave).
     // The entry is picked per wave (formation.entryFor), so consecutive waves fly in differently:
     //   swirl / loop / split / rain: streams of pairs abreast;  convoy: two single-file snakes, one per half;
     //   flank: two squadrons sweep in from both sides at once (pairs in echelon); escort: tight trios;
-    //   drop: columns fall straight into place, bottom row first (each cat only ever passes empty cells).
+    //   drop: columns fall straight into place, bottom row first (each cat only ever passes empty cells);
+    //   the sector signatures (formation.SIGNATURES): ambush, frisbee, popout, swoop, conga, tide, conveyor,
+    //   cloudloop, float, zigzag, orbit.
     // Each lane fills its cells top row first, so a cat climbing into its cell only ever passes empty cells.
-    const entry = this.entry = entryFor(areaIdx, i, (area?.waves ?? []).map(id => g.content.waves.find(x => x.id === id)?.entry ?? w.entry));
+    const entry = this.entry = entryFor(areaIdx, i, (area?.waves ?? []).map(id => g.content.waves.find(x => x.id === id)?.entry ?? w.entry), areaId, geo.base.cols);
+    this.bob = entry === 'tide';
+    const fromTop = entry === 'drop' || entry === 'ambush' || entry === 'float';
+    const oneSide = entry === 'frisbee' || entry === 'conga' || entry === 'conveyor' || entry === 'orbit';
+    const waveSide = i % 2 ? -1 : 1;
     const maxRow = slots.reduce((m, s) => Math.max(m, s.row), 0);
-    const below = slots.reduce((m, s) => Math.max(m, s.slot[1]), 0) + 40;   // the open field just under the rack
+    const below = Math.max(...slots.map(s => s.slot[1]), this.formTop + (this.cells.reduce((m, c) => Math.max(m, c.row), 0)) * this.rowSp) + 40;   // the open field just under the rack
     const rackL = Math.min(...slots.map(s => s.slot[0])), rackR = Math.max(...slots.map(s => s.slot[0]));
+    const us = [...new Set(slots.map(s => s.u))].sort((p, q) => p - q);
+    // ambush: whole columns slam down one after another, outermost first, alternating sides
+    const ambushRank = new Map(us.map(u => [u, 0]));
+    [...us].sort((p, q) => Math.abs(q) - Math.abs(p) || (i % 2 ? q - p : p - q)).forEach((u, k) => ambushRank.set(u, k));
+    const rowSideN = new Map<string, number>();
     const laneN = new Map<string, number>(); const laneOfCat = new Map<Cat, string>(); const sideN = new Map<number, number>();
-    for (const { def, slot, row, u } of slots) {
-      let side = 1, lat = 0, key = '', delay = -1;
+    // popout: in each row, the cells nearest the middle are filled first (a cat sliding in only passes empty cells)
+    const popOrder = [...slots].sort((p, q) => Math.abs(p.u) - Math.abs(q.u));
+    // conga: one line from one side, the far columns first (each dancer peels up past cells that are still empty)
+    // (column by column, far first, top cell first in each: the line only ever passes under columns not yet started)
+    const congaOrder = [...slots].sort((p, q) => (q.u - p.u) * waveSide || p.row - q.row);
+
+    // a stream that flies a loop is spaced so a cat never comes round the loop just as its follower enters it
+    let step0 = STREAM_STEP;
+    const lap = entry === 'cloudloop';
+    if (lap && slots.length) {
+      const gaps = selfGaps(this.entryTrack(entry, 1, slots[0].slot, below, rackL, rackR).track);
+      const v = T.entrySpeed; const maxG = Math.max(0, ...gaps);
+      for (let s = STREAM_STEP; s <= 72; s++) {
+        let ok = true;
+        for (let k = 1; k * s * v <= maxG + 60 && ok; k++) if (gaps.some(gp => Math.abs(gp - k * s * v) < 24)) ok = false;
+        if (ok) { step0 = s; break; }
+      }
+    }
+    for (const { def, slot, row, u } of (entry === 'popout' ? popOrder : entry === 'conga' ? congaOrder : slots)) {
+      let side = 1, lat = 0, key = '', delay = -1, speed = T.entrySpeed;
       // each stream feeds its own half of the rack, so streams never cross under it
       const half = u < 0 || (u === 0 && n % 2 === 1) ? 1 : -1;
-      side = half;
+      side = oneSide ? waveSide : half;
       const hn = sideN.get(side) ?? 0; sideN.set(side, hn + 1);
+      const ci = Math.round(u + (this.cols - 1) / 2);
       switch (entry) {
         case 'escort': { // tight trios: a leader with two wingmen close on its tail, a clear gap to the next trio
           const m3 = hn % 3; lat = 0; key = side + ':e' + m3; delay = Math.floor(hn / 3) * 40 + m3 * 12;
           break;
         }
-        case 'flank': { // pairs in echelon, the second a cat-length behind and beside the first
-          const m2 = hn % 2; lat = m2 ? -18 : 18; key = side + ':f' + m2; delay = Math.floor(hn / 2) * 19 + m2 * 8;
+        case 'flank': { // pairs in echelon, the second a cat-length behind and beside the first (single file in a narrow lane)
+          const m2 = hn % 2; lat = !lat0.gutter ? 0 : m2 ? -18 : 18; key = side + ':f' + m2; delay = Math.floor(hn / 2) * 19 + m2 * 8;
           break;
         }
         case 'drop': { // a ripple across the columns, deepest row first; a column's cats fall 16 ticks (64px) apart
-          const ci = Math.round(u + (this.cols - 1) / 2);
-          side = half; key = 'col' + ci; delay = (maxRow - row) * 16 + (i % 2 ? this.cols - 1 - ci : ci) * 4;
+          key = 'col' + u; delay = (maxRow - row) * 16 + (i % 2 ? this.cols - 1 - ci : ci) * 4;
+          break;
+        }
+        case 'ambush': { // a whole column at once, deepest cat first, then the next column slams down
+          key = 'col' + u; delay = (ambushRank.get(u) ?? 0) * 22 + (maxRow - row) * 8; speed = T.entrySpeed * 1.6;
+          break;
+        }
+        case 'float': { // a slow low-gravity drift down, deepest row first, rippling across the columns
+          // whole rows drift down together like a sheet of balloons (a 3-tick ripple across), deepest row first
+          key = 'col' + u; delay = (maxRow - row) * 40 + (i % 2 ? this.cols - 1 - ci : ci) * 3; speed = T.entrySpeed * 0.5;
+          break;
+        }
+        case 'popout': { // both side walls pop cats out row by row, innermost cell of each row first
+          const rk = side + ':' + row; const k = rowSideN.get(rk) ?? 0; rowSideN.set(rk, k + 1);
+          key = 'pop' + rk; delay = k * 18 + row * 12;
           break;
         }
         default: lat = 0;   // single file: the gutter turns are too tight for a cat flying abreast
       }
       key = key || side + ':' + lat; const li = laneN.get(key) ?? 0; laneN.set(key, li + 1);
-      if (delay < 0) delay = li * STREAM_STEP + Math.floor(li / 8) * LANE_BREAK;
-      // the choreography is drawn around the world centre: ride it over to the formation centre, and start the far
-      // ends just outside the visible playfield, so cats are on screen within a few ticks of their cue
-      const pts = entryPath(entry, side, [slot[0], slot[1]], below + (entry === 'escort' ? 24 : 0), side > 0 ? rackL - 40 : WORLD_W - rackR - 40).map(([x, y]) => [WORLD_W / 2 + Math.max(-ENTRY_EDGE, Math.min(ENTRY_EDGE, x - WORLD_W / 2)), y] as Pt);
-      const track = new Track(pts);
-      const p0 = track.at(0, tp);
+      if (delay < 0) delay = li * step0 + (lap ? 0 : Math.floor(li / 8) * LANE_BREAK);
+      const et = this.entryTrack(entry, side, slot, below + (entry === 'escort' ? 24 : 0), rackL, rackR);
+      const p0 = et.track.at(0, tp);
       // formations abreast close up into single file before the shared approach line (where cats peel off one by one)
-      const latEnd = lat && pts.length > 4 ? new Track(pts.slice(0, -3)).len : 0;
+      const latEnd = lat ? et.pre : 0;
       if (latEnd < 90) lat = 0;   // too short a glide to fly abreast (a lane hard against one side): single file
-      const c = this.mkCat(def, p0.x, p0.y, 'wait', { slot, track, speed: T.entrySpeed, lat, delay, side, diveSeed: g.rng.next(), row, u, latEnd });
+      const c = this.mkCat(def, p0.x, p0.y, 'wait', { slot, track: et.track, speed, lat, delay, side, diveSeed: g.rng.next(), row, u, latEnd });
       this.cats.push(c); laneOfCat.set(c, key);
       n++;
     }
     // no two cats may share an entry lane at the same moment (same lane start at the same off-screen point and would
     // fly stacked on top of each other): queue a late-comer one stream step behind
     // ...and every column fills top cell first: a cat rising into its cell only ever climbs past empty cells (it
-    // lands at least 12 ticks, ~1.5 cells, after the cat above it)
+    // lands at least 12 ticks, ~1.5 cells, after the cat above it). Entries from the top fill deepest cell first.
+    // Columns are fuzzy: a half-offset cell (checker, squads) shares the climb with both columns beside it.
     const mine = this.cats.slice(first);
     const arrive = (c: Cat) => c.delay + (c.track ? c.track.len / c.speed : 0);
-    for (let pass = 0; pass < 4; pass++) {
+    for (let pass = 0; pass < 40; pass++) {
       const lanes = new Map<string, number>();
       for (const c of [...mine].sort((a, b) => a.delay - b.delay)) {
         const key = laneOfCat.get(c)!; const last = lanes.get(key);
-        if (last !== undefined && c.delay < last + STREAM_STEP) c.delay = last + STREAM_STEP;
+        const step = entry === 'popout' ? 18 : step0;
+        if (last !== undefined && c.delay < last + step) c.delay = last + step;
         lanes.set(key, c.delay);
       }
-      if (entry === 'drop') break;
-      const colT = new Map<number, number>(); let moved = false;
-      for (const c of [...mine].sort((a, b) => a.row - b.row || a.delay - b.delay)) {
-        const prev = colT.get(c.u); const t = arrive(c);
-        if (prev !== undefined && t < prev + 12) { c.delay += Math.ceil(prev + 12 - t); moved = true; }
-        colT.set(c.u, arrive(c));
+      if (entry === 'popout') break;
+      const done: Cat[] = []; let moved = false;
+      const gap = fromTop ? 10 : 12;
+      for (const c of [...mine].sort((a, b) => (fromTop ? b.row - a.row : a.row - b.row) || a.delay - b.delay)) {
+        let need = -1e9;
+        for (const o of done) if (o.row !== c.row && Math.abs(o.u - c.u) < 0.9) need = Math.max(need, arrive(o) + gap);
+        const t = arrive(c);
+        if (t < need) { c.delay += Math.ceil(need - t); if (lap) c.delay = Math.ceil(c.delay / step0) * step0; moved = true; }
+        done.push(c);
       }
       if (!moved) break;
     }
-    this.total = this.cats.length; this.checkCells(this.cats);
-    this.rowN = new Map(); for (const c of this.cats) this.rowN.set(c.rid, (this.rowN.get(c.rid) ?? 0) + 1);
+    // a signature wave sketches its flight path on the field first (a dotted telegraph), then the cats follow it
+    this.sigT = -1; this.sigTracks = [];
+    if (signatureFor(areaId, i) === entry) {
+      this.sigT = 0; this.sigFloor = below - 22; this.sigHalf = Math.max(rackR - this.cx, this.cx - rackL) + 18;
+      const seen = new Set<string>();
+      for (const c of [...mine].sort((a, b) => a.delay - b.delay)) {
+        const k = laneOfCat.get(c)!; if (seen.has(k) || !c.track) continue;
+        seen.add(k); this.sigTracks.push(c.track); if (this.sigTracks.length >= 8) break;
+      }
+      for (const c of mine) c.delay += SIG_LEAD;
+    }
+    // reinforcements: the cats that do not fit the rack with air wait off stage for holes
+    for (const def of pl.reserve) this.cats.push(this.mkCat(def, -60, -60, 'wait', { delay: 1e9, res: true, row: -1, u: 99, diveSeed: g.rng.next() }));
+    this.total = this.cats.length; this.checkCells(this.cats.filter(c => !c.res));
+    this.rowN = new Map(); for (const c of this.cats) if (!c.res) this.rowN.set(c.rid, (this.rowN.get(c.rid) ?? 0) + 1);
     // a capturer may carry a lost pup (once per area)
     // the lost pup rides with a different capturer each wave, so its column moves around
     // the holder always rides in the top row, so its bubble has the free slot above it (never over another cat)
-    const caps = this.cats.filter(c => c.def.behavior === 'capturer' && c.row === 0);
+    const caps = this.cats.filter(c => c.def.behavior === 'capturer' && c.row === 0 && !c.res);
     const holder = caps.length ? caps[i % caps.length] : undefined;
     if (holder && !g.state.flags['pup_' + areaId]) holder.pup = true;
     g.bus.emit('wave:start', { areaId, waveIndex: i, count: this.cats.length });
+  }
+
+  /** An entry flight into `slot`: the choreography is drawn around the world centre and its far ends start just
+   *  outside the visible playfield, so cats are on screen within a few ticks of their cue. `pre` is the arc length
+   *  before the shared approach line (pairs flying abreast close up into single file there). */
+  private entryTrack(entry: Entry, side: number, slot: Pt, below: number, rackL: number, rackR: number): { track: Track; pre: number } {
+    const [l, r] = laneOf(this.g.state.areaId);
+    const raw = entryPath(entry, side, [slot[0], slot[1]], below, side > 0 ? rackL - 40 : WORLD_W - rackR - 40, [l + GUTTER, r - GUTTER]);
+    // the sky's loop-the-loops swing out beside the rack (no walls up there): only kept to the entry edge
+    const pts = entry === 'cloudloop' && AIRBORNE.has(this.g.state.areaId) && this.g.state.areaId !== 'mothership'
+      ? raw.map(([x, y]) => [WORLD_W / 2 + Math.max(-ENTRY_EDGE, Math.min(ENTRY_EDGE, x - WORLD_W / 2)), y] as Pt) : this.inLane(raw, below);
+    return { track: new Track(pts), pre: pts.length > 4 ? new Track(pts.slice(0, -3)).len : 0 };
+  }
+
+  /** Keep a flight path inside the lane: the first point (off stage) is only kept to the entry edge; every point after
+   *  it stays on or inside the lane's gutter lines (wall + GUTTER), so a stream never hugs or clips a wall, a crater or
+   *  a filament once it is on screen. The side gutter is one cat wide: a gutter run becomes a straight drop down the
+   *  gutter line (the curves' own snakes and loops are laid out inside the lane already). */
+  private inLane(pts: Pt[], below = 999): Pt[] {
+    const [l, r] = laneOf(this.g.state.areaId); const n = pts.length - 1;
+    return pts.map(([x, y], k) => {
+      const e = WORLD_W / 2 + Math.max(-ENTRY_EDGE, Math.min(ENTRY_EDGE, x - WORLD_W / 2));
+      // beside and above the rack: on the gutter line; in the open field under it: never past the lane wall
+      const g = y < below - 24 ? GUTTER : 0;
+      return [k > 0 && k < n && y > -20 ? Math.max(l + g, Math.min(r - g, e)) : e, y] as Pt;
+    }).filter((p, k, all) => k === 0 || k === all.length - 1 || Math.hypot(p[0] - all[k - 1][0], p[1] - all[k - 1][1]) >= 14);   // a folded corner leaves no stutter
   }
 
   startBoss(id: string) {
@@ -357,26 +487,106 @@ class Interaction implements Module {
   private liveSlot(c: Cat): Pt {
     if (c.eslot !== undefined) return this.escSlot(c.eslot);
     const sw = this.swayX();
-    return [Math.round(c.home[0]) + sw, Math.round(c.home[1])];
+    // docks signature: the rows bob like moored boats, a swell rolling across the columns (the same column always
+    // moves together, so a column never closes up)
+    const bob = this.bob ? Math.round(Math.sin(this.sway / 24 + c.u * 0.9) * 5) : 0;
+    return [Math.round(c.home[0]) + sw, Math.round(c.home[1]) + bob];
+  }
+
+  /**
+   * Reinforcements: cats that did not fit the rack with air wait off stage; once the grid has assembled and holes
+   * open, a small flight of up to four flies into empty cells it can reach without passing a parked cat (straight
+   * down a column that is empty above the hole, or up from under the rack when the column is empty below it).
+   */
+  private reinforce(timedOut: boolean) {
+    const resv = this.cats.filter(c => c.res && !c.dead);
+    if (!resv.length) return;
+    if (timedOut) { for (const c of resv) c.dead = true; return; }
+    if (!this.entryDone) return;
+    if (this.reT > 0) { this.reT--; return; }
+    const mem = this.cats.filter(c => !c.dead && !c.res && c.st !== 'leave' && c.st !== 'kdive' && c.st !== 'flyby');
+    if (mem.some(c => c.st === 'wait' || c.st === 'enter' || c.st === 'home' || c.gT < GLIDE_T)) return;
+    const maxRow = mem.reduce((m, c) => Math.max(m, c.row), -1);
+    const near = (o: Cat, u: number) => Math.abs(o.u - u) < 0.9;
+    const holes: { row: number; u: number; top: boolean }[] = [];
+    for (const cl of this.cells) {
+      if (cl.row > maxRow + 1 || mem.some(o => o.row === cl.row && Math.abs(o.u - cl.u) < 0.1)) continue;
+      const top = !mem.some(o => near(o, cl.u) && o.row < cl.row), bot = !mem.some(o => near(o, cl.u) && o.row > cl.row);
+      if (top || bot) holes.push({ ...cl, top });
+    }
+    // wait for a real gap (a flight of reinforcements, not a trickle), unless the rack is nearly gone
+    if (holes.length < Math.min(3, resv.length) && mem.length > 4) return;
+    holes.sort((a, b) => a.row - b.row || Math.abs(a.u) - Math.abs(b.u) || a.u - b.u);
+    const pick: typeof holes = [];
+    for (const h of holes) if (pick.length < 4 && !pick.some(p => Math.abs(p.u - h.u) < 0.9)) pick.push(h);
+    if (!pick.length) return;
+    const xs = mem.map(o => o.slot[0]); const rackL = xs.length ? Math.min(...xs) : this.cx, rackR = xs.length ? Math.max(...xs) : this.cx;
+    const below = Math.max(this.formTop + (maxRow + 1) * this.rowSp, ...mem.map(o => o.slot[1])) + 40;
+    pick.forEach((h, j) => {
+      const c = resv[j]; if (!c) return;
+      const slot = this.cell(h.row, h.u); const side = h.u < 0 ? 1 : -1;
+      const track = h.top ? new Track([[slot[0], -40], [slot[0], slot[1] - 40], slot]) : this.entryTrack('swirl-left', side, slot, below, rackL, rackR).track;
+      const p0 = track.at(0, tp);
+      Object.assign(c, { res: false, st: 'wait', delay: 1 + j * 14, slot, home: [slot[0], slot[1]], gFrom: [slot[0], slot[1]], gT: GLIDE_T, gMid: null,
+        row: h.row, u: h.u, rid: h.row, u0: h.u, track, s: 0, speed: this.T.entrySpeed, lat: 0, side, x: p0.x, y: p0.y, rest: 0 });
+    });
+    this.reT = 120;
+    this.g.mods.audio?.sfx('blip');
   }
 
   /** Where escort slot i sits right now: around the squad's anchor, which rides with the Big Cat. */
   private escSlot(i: number): Pt {
-    const [dx, dy] = escOffset(i, this.boss?.tier ?? 0);
-    return [Math.round(this.escAx + dx), Math.round(this.escAy + dy)];
+    const geo = this.escGeo(); const o = geo.slots[i] ?? geo.slots[geo.slots.length - 1];
+    const [l, rr] = laneOf(this.g.state.areaId); const pad = WALL_GAP + ESC_HALF;
+    // the shoulders under the boss step out of the charge lane while it winds up and pounces
+    const sg = o[0] < 0 ? -1 : 1; const dx = o[0] + (o[2] ? sg * Math.round(this.escSpread) : 0);
+    // homes never leave the lane: clamped to the wall + 16px of air
+    return [Math.max(l + pad, Math.min(rr - pad, Math.round(this.escAx + dx))), Math.round(this.escAy + o[1])];
+  }
+  /**
+   * Escort wing slots for this Big Cat (offsets from the boss centre; a third element marks the shoulders under it).
+   * Wide lanes: a cradle of wing slots, upper wings beside the boss, shoulders under it, lower wings stacked under the
+   * upper ones (pairs in that order: 4 escorts = wings + shoulders, 6 = all three). Narrow lanes (street, alley,
+   * mothership) have no room beside a drifting boss: a V of four, the inner pair under the boss and the outer pair up
+   * at its sides. Every escort sits ESC_AIR px (one cat) clear of the boss's hitbox and 56 px from its neighbours, and
+   * the centre strip under the boss (its charge lane) stays open.
+   */
+  private escGeo(): { slots: [number, number, number?][]; ext: number; wide: boolean } {
+    const r = this.boss?.r ?? 26; const tier = this.boss?.tier ?? 0; const [l, rr] = laneOf(this.g.state.areaId);
+    const hw = BOSS_HW[tier] ?? 34, bot = BOSS_BOTTOM[tier] ?? 34;
+    const laneHalf = (rr - l) / 2 - WALL_GAP - ESC_HALF;
+    // beside the boss: a cat of air from its hitbox, and clear of its craft's art (jets, saucer, throne wings)
+    const side = Math.max(r + ESC_AIR + ESC_HALF + 2, hw + 12 + ESC_HALF);
+    const pitch = 2 * ESC_HALF + ESC_AIR;         // 56: escort to escort
+    if (laneHalf - side >= 40) {
+      const sh = r + 16, up = -24;
+      return { wide: true, ext: side, slots: [[-side, up], [side, up], [-sh, up + 2 * pitch, 1], [sh, up + 2 * pitch, 1], [-side, up + pitch], [side, up + pitch]] };
+    }
+    const a = r + 4, low = Math.max(r + ESC_AIR + ESC_HALF, bot + 12 + ESC_HALF);
+    const b = Math.min(laneHalf, Math.max(side, laneHalf - 24));
+    // no room beside a craft this wide (the Empress's throne in the mothership's narrow hall): a low V under the
+    // throne, the outer pair at the walls just under the saucer rim and the wings, the inner pair a row lower under
+    // the throne's middle (both pairs readable below the dialogue box and clear of the throne art)
+    if (b < side) { const lo2 = bot + 14; return { wide: false, ext: laneHalf, slots: [[-laneHalf, lo2], [laneHalf, lo2], [-a, lo2 + 34, 1], [a, lo2 + 34, 1]] }; }
+    return { wide: false, ext: b, slots: [[-a, low, 1], [a, low, 1], [-b, low - pitch], [b, low - pitch]] };
   }
   /** World x range the Big Cat (and its squad's anchor) keeps to, so every escort stays WALL_GAP px inside the lane. */
   bossRange(): [number, number] {
-    const [l, rr] = laneOf(this.g.state.areaId); const ext = ESC_EXT;
+    const [l, rr] = laneOf(this.g.state.areaId); const ext = this.escGeo().ext + ESC_HALF;
     let lo = l + WALL_GAP + ext, hi = rr - WALL_GAP - ext; const mid = (l + rr) / 2;
-    if (hi - lo < 112) { lo = Math.min(lo, mid - 56); hi = Math.max(hi, mid + 56); }
+    if (hi < lo) lo = hi = mid;   // a lane too narrow to drift in: the squad holds the middle (never spills past a wall)
     return [Math.round(lo), Math.round(hi)];
   }
-  /** Escort squad size: 4 (two pairs) through sector 10, 6 at the end, one more pair once the Big Cat gets grumpy. */
+  /** Escort squad size: 4 (two pairs) in the first sectors, 4 (+2 once the Big Cat gets grumpy) in the middle, 6 from
+   *  sector 9 on; never more than the lane's wing slots (narrow lanes fly a V of four). */
   private escortSize(): number {
-    const g = this.g; const idx = Math.max(0, g.content.areas.findIndex(a => a.id === g.state.areaId));
-    return Math.min(6, (idx < 10 ? 4 : 6) + (this.boss && this.boss.phase > 0 ? 2 : 0));
+    const idx = this.sectorIdx();
+    return Math.min(this.escGeo().slots.length, idx < 3 ? 4 : idx < 8 ? 4 + (this.boss && this.boss.phase > 0 ? 2 : 0) : 6);
   }
+  private sectorIdx() { const g = this.g; return Math.max(0, g.content.areas.findIndex(a => a.id === g.state.areaId)); }
+  /** True when the squad is short enough to whistle up replacements: mid and late sectors keep 4-6 escorts on stage,
+   *  the first sectors refill once only two are left. */
+  private escortsLow(n: number) { const size = this.escortSize(); return this.sectorIdx() >= 3 ? n < Math.min(4, size) || n <= size - 3 : n <= size - 2; }
   /** The sector's own breeds (from its waves), minus capturers: escorts are regular cats. */
   private escortBreeds(): EnemyDef[] {
     const g = this.g; const area = g.mods.world.area(g.state.areaId); const ids: string[] = [];
@@ -384,17 +594,24 @@ class Interaction implements Module {
     const defs = ids.map(id => this.enemy(id)).filter(d => d.behavior !== 'capturer' && d.behavior !== 'boss');
     return defs.length ? defs : [this.enemy('tabby')];
   }
-  /** Whistle up escorts into every empty squad slot: one single-file stream, from alternating sides. */
+  /** Whistle up escorts into every empty squad slot, in mirrored pairs: each wing pair's two cats stream in at the
+   *  same moment, each from its own side (left slots from the left edge, right slots from the right), so the squad
+   *  refills symmetrically and never piles up on one side. */
   spawnEscorts() {
     const b = this.boss; if (!b) return;
     const n = this.escortSize(); const taken = new Set(this.cats.filter(c => c.eslot !== undefined && !c.dead).map(c => c.eslot!));
-    const breeds = this.escortBreeds(); const side = this.escSide = -this.escSide; let j = 0;
+    const breeds = this.escortBreeds(); this.escSide = -this.escSide; let j = 0;
+    const geo = this.escGeo();
     for (let i = 0; i < n; i++) {
       if (taken.has(i)) continue;
       const def = breeds[(i + (b.phase * 3)) % breeds.length]; const slot = this.escSlot(i);
-      const pts = entryPath('swirl-left', side, slot, slot[1] + 36).map(([x, y]) => [WORLD_W / 2 + Math.max(-ENTRY_EDGE, Math.min(ENTRY_EDGE, x - WORLD_W / 2)), y] as Pt);
+      const side = (geo.slots[i]?.[0] ?? 0) < 0 ? 1 : -1;
+      // a narrow hall has no gutter beside the boss: escorts rise straight up from under the field into their slots
+      const pts: Pt[] = geo.wide ? this.inLane(entryPath('swirl-left', side, slot, slot[1] + 36), slot[1] + 36)
+        : [[slot[0] - side * 10, H + 30], [slot[0] - side * 4, slot[1] + 90], [slot[0], slot[1] + 30], slot];
       const track = new Track(pts); const p0 = track.at(0, tp);
-      this.cats.push(this.mkCat(def, p0.x, p0.y, 'wait', { slot, track, speed: this.T.entrySpeed, lat: 0, delay: 1 + j * STREAM_STEP, side, diveSeed: this.g.rng.next(), row: 0, u: i, eslot: i }));
+      // the pair index sets the cue: both cats of a pair fly together, the next pair one stream step behind
+      this.cats.push(this.mkCat(def, p0.x, p0.y, 'wait', { slot, track, speed: this.T.entrySpeed, lat: 0, delay: 1 + (i >> 1) * STREAM_STEP * 2, side, diveSeed: this.g.rng.next(), row: 0, u: i, eslot: i }));
       j++;
     }
     if (j) this.g.mods.audio?.sfx('blip');
@@ -456,6 +673,7 @@ class Interaction implements Module {
     for (const s of this.spits) { s.x += s.vx; s.y += s.vy; s.t++; }
     this.spits = this.spits.filter(s => s.y < H + 10 && s.y > -20 && s.x > -10 && s.x < WORLD_W + 10);
     if (this.active) this.waveT++;
+    if (this.sigT >= 0 && this.mode === 'wave') { if (++this.sigT > SIG_LEAD + 160) { this.sigT = -1; this.sigTracks = []; } }
 
     const w = this.wave; const bonus = this.mode === 'bonus';
     // bonus stage: the HUD's BOOPS / AIM read the run stats, so they always include every bonus hit, also one tallied
@@ -468,11 +686,14 @@ class Interaction implements Module {
       }
     }
     const timedOut = this.waveT > WAVE_LIMIT && this.mode === 'wave';
-    if (!this.entryDone && this.mode === 'wave' && !this.cats.some(o => o.st === 'wait' || o.st === 'enter' || o.st === 'home')) this.entryDone = true;
+    if (!this.entryDone && this.mode === 'wave' && !this.cats.some(o => (o.st === 'wait' && !o.res) || o.st === 'enter' || o.st === 'home')) this.entryDone = true;
+    if (this.mode === 'wave' && w && !this.stageReq) this.reinforce(timedOut);
     if (this.mode === 'wave' && !this.stageReq) this.closeRanks();
     if (this.boss) { // the escort squad's anchor rides with the Big Cat, inside its range
       const [lo, hi] = this.bossRange(); this.escAx = Math.max(lo, Math.min(hi, this.boss.x));
-      this.escAy = Math.max(60, Math.min(88, this.boss.y));   // bobs with the boss, stays up when it pounces
+      this.escAy = Math.max(60, Math.min(84, this.boss.y));   // bobs with the boss, stays up when it pounces
+      const b = this.boss; const charging = b.atk === 'charge' && (b.st === 'tell' || b.st === 'attack');
+      this.escSpread += ((charging ? 26 : 0) - this.escSpread) * 0.15;
     }
     for (const s of this.shocks) s.t++;
     this.shocks = this.shocks.filter(s => s.t < 28);
@@ -489,7 +710,7 @@ class Interaction implements Module {
 
     // schedulers: dives and formation fire (Galaga style: a steady drumbeat, not random noise)
     // last stand: once only ~20% of the wave is left, the stragglers dive back to back, then give up and fly off
-    if (this.mode === 'wave' && this.entryDone && !this.hurry) {
+    if (this.mode === 'wave' && this.entryDone && !this.hurry && !this.cats.some(c => c.res)) {
       const alive = this.cats.filter(c => c.st !== 'leave' && c.st !== 'kdive').length;
       if (alive <= Math.max(2, Math.ceil(this.total * 0.3))) { this.hurry = 1; this.diveT = Math.min(this.diveT, 20); }
     }
@@ -526,7 +747,10 @@ class Interaction implements Module {
     if (this.mode === 'boss' && b0 && !b0.dead) {
       // the squad is topped up as soon as it is down to one escort (never a lone Big Cat for long), also mid-entrance
       const esc = this.cats.filter(c => c.eslot !== undefined && !c.dead);
-      if (esc.length > 1) this.escT = ESC_GAP - 20 * b0.phase;
+      // a broken wing pair (one of its two cats gone) also whistles up its partner, so the squad stays mirrored
+      const has = new Set(esc.map(c => c.eslot!)); const size = this.escortSize();
+      let broken = false; for (let k = 0; k + 1 < size; k += 2) if (has.has(k) !== has.has(k + 1)) broken = true;
+      if (!this.escortsLow(esc.length) && !(broken && this.sectorIdx() >= 3)) this.escT = (this.sectorIdx() >= 3 ? ESC_GAP - 30 : ESC_GAP) - 20 * b0.phase;
       else if (--this.escT <= 0 && b0.st !== 'phase') { this.spawnEscorts(); this.escT = ESC_GAP; }
       if (esc.length && !b0.entering && --this.diveT <= 0) {
         const rested = esc.filter(c => c.st === 'form' && c.rest >= 40);
@@ -560,7 +784,8 @@ class Interaction implements Module {
             // later one drops back: streams space themselves out
             if (Math.abs(dx) >= 30 || Math.abs(dy) >= 30) continue;
             const dot = dx * c.vx + dy * c.vy, side = 0.3 * Math.hypot(dx, dy) * Math.hypot(c.vx, c.vy);
-            if (dot > side || (dot > -side && o.id < c.id)) { sp *= 0.25; break; }
+            // (within a sprite of the cat ahead it holds still until that one has moved on)
+            if (dot > side || (dot > -side && o.id < c.id)) { sp *= Math.abs(dx) < 20 && Math.abs(dy) < 20 && o.id < c.id && this.entry !== 'cloudloop' ? 0 : 0.25; break; }
           }
           if (c.st === 'dive') {
             // two separate dive groups never fuse: the cat flying into the other eases off (or holds when close)
@@ -579,6 +804,12 @@ class Interaction implements Module {
             } else sp *= yieldK;
           }
           const tr = c.track!; c.s += sp; tr.at(c.s, tp);
+          // an escort's entry was drawn to where its slot was at the whistle: it bends smoothly onto the slot's live
+          // position (the squad rides with the drifting boss), so it lands in its own wing slot, never short of it
+          if (c.st === 'enter' && c.eslot !== undefined) {
+            const live = this.escSlot(c.eslot); const n = tr.xs.length - 1; const f = Math.min(1, c.s / Math.max(1, tr.len)); const e = f * f * (3 - 2 * f);
+            tp.x += (live[0] - tr.xs[n]) * e; tp.y += (live[1] - tr.ys[n]) * e;
+          }
           // lateral offset: pairs flying abreast, zigzag weave; fades in after the peel and out near the end
           // (an entry starts off screen at full offset, so pairs never sit on top of each other while they come in)
           const fade = c.st === 'enter' ? Math.min(1, ((c.latEnd ?? tr.len) - c.s) / 40) : Math.min(1, c.s / 40, (tr.len - c.s) / 50);
@@ -730,10 +961,12 @@ class Interaction implements Module {
     // (cats flying home or still entering count too: they are about to sit in their cells)
     const parked = this.cats.filter(o => !o.dead && (o.st === 'form' || o.st === 'home' || (!squad && (o.st === 'return' || o.st === 'enter'))) && (o.eslot === undefined) === !squad);
     const skip = new Set<Cat>();
-    const occ = (u: number, row: number) => parked.some(o => !skip.has(o) && o.u === u && o.row === row);
-    const colFree = (u: number, row: number) => !parked.some(o => !skip.has(o) && o.u === u && o.row >= row);
+    // columns are fuzzy: a half-offset cell (checker, squads) blocks both columns beside it
+    const occ = (u: number, row: number) => parked.some(o => !skip.has(o) && Math.abs(o.u - u) < 0.9 && o.row === row);
+    const colFree = (u: number, row: number) => !parked.some(o => !skip.has(o) && Math.abs(o.u - u) < 0.9 && o.row >= row);
     const openSide = (c: Cat): number => {
       if (c.eslot !== undefined) { const s = c.eslot & 1 ? 1 : -1; return parked.some(o => o !== c && Math.abs(o.x - (c.x + s * 32)) < 30 && o.y > c.y - 40) ? 0 : s; }
+      // exits always step a whole column over (a half-offset cell steps half a column out first)
       // prefer a free column inside the lattice (an exit outside the outer column flies close to the lane wall)
       const out = c.slot[0] < this.cx ? -1 : 1; const edge = (this.cols - 1) / 2 + 0.01;
       const order = Math.abs(c.u + out) <= edge ? [out, -out] : [-out, out];
@@ -741,15 +974,17 @@ class Interaction implements Module {
       return 0;
     };
     const bottom = parked.reduce((m, o) => Math.max(m, o.slot[1]), 0) + 16;
+    const P_ = this.colSp;   // one column over
     const exitOf = (c: Cat, s: number, canRise = true): Pt[] => {
       const x0 = c.x, y0 = c.y; const rise = canRise && !occ(c.u, c.row - 1) && !occ(c.u + s, c.row - 1);
-      const pts: Pt[] = rise ? [[x0, y0], [x0 + 10 * s, y0 - 12], [x0 + 26 * s, y0 - 16], [x0 + 36 * s, y0 - 4], [x0 + 32 * s, y0 + 18]]
-        : [[x0, y0], [x0 + 14 * s, y0 + 2], [x0 + 30 * s, y0 + 12]];
+      const k = P_ / 32;
+      const pts: Pt[] = rise ? [[x0, y0], [x0 + 12 * k * s, y0 - 12], [x0 + 26 * k * s, y0 - 16], [x0 + 36 * k * s, y0 - 4], [x0 + P_ * s, y0 + 18]]
+        : [[x0, y0], [x0 + 14 * k * s, y0 + 2], [x0 + (P_ - 2) * s, y0 + 12]];
       // straight down the empty column (points every 20px keep the smoothed curve on the column line) to just under
       // the rack's bottom edge, where it is free to turn
       const yEnd = Math.max(y0 + 40, bottom + 30);
-      for (let yy = pts[pts.length - 1][1] + 20; yy < yEnd - 10; yy += 20) pts.push([x0 + 32 * s, yy]);
-      pts.push([x0 + 32 * s, yEnd]);
+      for (let yy = pts[pts.length - 1][1] + 20; yy < yEnd - 10; yy += 20) pts.push([x0 + P_ * s, yy]);
+      pts.push([x0 + P_ * s, yEnd]);
       return pts;
     };
     const sides = inForm.map(openSide);
@@ -767,10 +1002,12 @@ class Interaction implements Module {
     const path = divePath(leader.x, leader.y, px + r.range(-T.aimSlop, T.aimSlop), b === 'splitter' ? 'basic' : b, r.range(-1, 1), H, side, exit);
     // the last one or two cats of a wave dive faster: the end of a wave stays snappy instead of dragging on
     const last = this.mode === 'wave' && this.cats.filter(c => !c.dead && c.st !== 'leave' && c.st !== 'kdive').length <= 2;
-    const speed = T.diveSpeed * (b === 'diver' ? 1.15 : b === 'tank' ? 0.8 : b === 'capturer' ? 0.9 : 1) * (last ? 1.3 : 1);
+    // moon signature: low gravity, every dive is a slow floaty glide with a lazy sway
+    const moon = g.state.areaId === 'moon';
+    const speed = T.diveSpeed * (b === 'diver' ? 1.15 : b === 'tank' ? 0.8 : b === 'capturer' ? 0.9 : 1) * (last ? 1.3 : 1) * (moon ? 0.78 : 1);
     const arm = (c: Cat, track: Track) => {
       c.track = track; c.s = 0; c.speed = speed; c.lat = 0; c.lead = undefined; c.sOff = 0; c.exitLen = 0; c.sw0 = this.swayX();
-      c.weave = c.def.behavior === 'zigzag' ? 14 : 0;
+      c.weave = c.def.behavior === 'zigzag' ? 14 : moon ? 10 : 0;
       c.st = 'dive'; c.group = leader.id; c.beam = 0; c.beamUsed = false; c.rest = 0;
       c.shots = r.int(0, T.diveShots) + (c.def.behavior === 'shooter' ? 1 : 0);
     };
@@ -925,10 +1162,57 @@ class Interaction implements Module {
     return false;
   }
 
+  /** Busy backdrops: a dithered ink band behind the whole rack (its shape's full lattice, swaying with it) dims the
+   *  props under it, so cats keep their silhouettes over boats, machine panels and dusk brick. 50% ink inside, a 25%
+   *  falloff ring, every pixel palette-exact. */
+  private renderShade(r: any) {
+    const live = this.cats.filter(c => !c.dead && !c.res && c.eslot === undefined && c.st !== 'leave');
+    if (!live.length) return;
+    const rows = live.map(c => c.row), maxRow = Math.max(...rows);
+    const us = this.cells.map(c => c.u);
+    const sw = this.swayX(), half = Math.round((Math.max(...us) - Math.min(...us)) * this.colSp / 2);
+    const cx = Math.round(this.cx + ((Math.max(...us) + Math.min(...us)) / 2) * this.colSp) + sw;
+    const x0 = cx - half - 22, x1 = cx + half + 22, y0 = this.formTop - 20, y1 = this.formTop + maxRow * this.rowSp + 22;
+    const X0 = (x0 - 3) & ~1, Y0 = (y0 - 3) & ~1, w = x1 + 3 - X0 + 1, h = y1 + 3 - Y0 + 1;
+    const key = w + 'x' + h; let cv = shadeCache.get(key);
+    if (!cv && typeof document !== 'undefined') {
+      cv = document.createElement('canvas'); cv.width = w; cv.height = h; const c = cv.getContext('2d')!;
+      c.fillStyle = col('0');
+      const ix0 = 3, ix1 = w - 4, iy0 = 3, iy1 = h - 4;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const ox = Math.max(0, ix0 - x, x - ix1), oy = Math.max(0, iy0 - y, y - iy1);
+        if (ox + oy > 4) continue;   // rounded corners
+        const on = ox || oy ? ((x + y) & 1) === 0 && (y & 1) === 0 : ((x + y) & 1) === 0;
+        if (on) c.fillRect(x, y, 1, 1);
+      }
+      shadeCache.set(key, cv);
+    }
+    if (cv) { const img = cv; r.push(0, 9999, (ctx: CanvasRenderingContext2D) => ctx.drawImage(img, X0, Y0)); }
+  }
+  /** Signature wave telegraph: the lane paths sketch themselves on the field as marching pixel dots, then the dots
+   *  are swallowed as the first cats fly along them. */
+  private renderSigTell(r: any) {
+    const t = this.sigT; const k = Math.min(1, t / 26); const eaten = Math.max(0, t - SIG_LEAD) * this.T.entrySpeed;
+    const blink = (t >> 3) & 1;
+    for (const tr of this.sigTracks) r.push(1, -999, (ctx: CanvasRenderingContext2D) => {
+      const end = tr.len * k;
+      for (let s = (t * 0.5) % 9; s < end; s += 9) {
+        if (s < eaten) continue;
+        tr.at(s, tp); if (tp.y < 4 || tp.y > H - 4) continue;
+        if (tp.y > this.formTop - 24 && tp.y < this.sigFloor && Math.abs(tp.x - this.cx) < this.sigHalf) continue;   // (never across the rack itself)
+        const x = Math.round(tp.x), y = Math.round(tp.y);
+        ctx.fillStyle = col('0'); ctx.fillRect(x - 1, y - 1, 4, 4);
+        ctx.fillStyle = col(blink ? 'f' : '6'); ctx.fillRect(x, y, 2, 2);
+      }
+    });
+  }
+
   render(g: Game, r: any) {
     const sc = g.state.scene;
     if (sc !== 'play' && sc !== 'bonus' && sc !== 'dialogue') return;
     const ground = this.grounded(), rim = this.rimKey(), tint = this.tint();
+    if (this.mode === 'wave' && RACK_SHADE.has(g.state.areaId) && this.cells.length) this.renderShade(r);
+    if (this.sigT >= 0 && this.mode === 'wave') this.renderSigTell(r);
     for (const c of this.cats) {
       if (c.st === 'wait' || c.y < -30 || c.dead) continue;
       const frame = Math.floor((c.t + c.id * 7) / 12) % 2;
