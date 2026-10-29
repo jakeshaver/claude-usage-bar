@@ -59,18 +59,19 @@ and applied by the integrator.
 - **Determinism**: fixed 60 Hz timestep. All randomness goes through
   `core/rng.ts` (mulberry32), seeded from `hash(saveSeed, areaId, waveIndex)`.
   `Math.random` is banned in src/ (lint check). Same seed + same inputs = same run.
-- **Time of day is light, not a recolour**: segments are painted into a palette-index buffer in day colours, then
-  every palette entry is lit by a coloured light (multiply + ambient in linear RGB, `paint.ts` `lightRamp`) and
-  matched back to the palette by hue-weighted OKLab distance, so each material keeps its hue family and only value and
-  temperature move. Where the lit colour falls between two entries, a 25/50/75% ordered dither of two neighbouring
-  entries is used; a few big ground materials are pinned per time of day (dewy lawn at dawn, olive lawn with amber
-  tufts at dusk, blue-green lawn at night). Dawn: cool slate neutrals, pink highlights, lavender shadows cast
-  down-left, peach rim light; dusk: darker, amber, plum shadows cast east, amber rim light on west faces; night: navy,
-  warm windows and sodium lamp pools (solid core + 2-step dither falloff). Lamp pools never get cut by a segment edge:
-  a pool from a world-spaced lamp spills into the neighbouring segment, any other pool shrinks to fit. Interiors use
-  their own lights (pale peach dawn, amber dusk, dim night with day-coloured pendant pools); sky and space tilesets
-  keep their own backdrops/ramps. Backgrounds are far / main / fg layers of 448x256 segments painted once and cached;
-  rare fast foreground flyers (birds, leaves, steam) are drawn per frame.
+- **Time of day is a palette remap**: segments are painted into a palette-index buffer in day colours, then each
+  time of day applies a hand-authored palette index -> palette index table (`world/paint.ts` `TOD_RAMP`,
+  `INDOOR_RAMP`, `SPACE_RAMP`, plus per-tileset `ramps` in `world/tiles.ts`) when the segment is cached. A large
+  material can map to a fixed 50% mix of two entries of nearly equal lightness (for example dark green + dark brown
+  for the olive dusk lawn, or dark green + plum for the night lawn), which reads as one in-between colour, so every
+  material keeps its hue and at least two value steps at every hour. Day is brightest and most neutral; dawn is
+  cooler and a little lower (grey-green lawns, slate stone, peach-pink highlights and top edges); dusk is warm and
+  15-20% lower (olive lawns with ochre/orange tips, warm taupe stone, deeper woods, plum shadows cast long to the
+  east); night is dark but keeps material hues (teal-green grass, brown wood, slate stone, blue water) with lit
+  windows, lanterns and lamps. Lamp pools are centred under a visible lamp head, clipped to the floor they light,
+  and brighten the pixels toward sodium cream (solid core, ordered falloff rings). All background layers, fg
+  included, are drawn in the world's z -10 pass, so scenery never covers Pom. Backgrounds are far / main / fg layers
+  of 448x256 segments painted once and cached; rare fast foreground flyers (birds, leaves, steam) are drawn per frame.
 - **Hit-stop**: `Game.step()` skips every module except effects, ui and audio while
   `g.mods.effects.frozen()` is true (a few ticks on big impacts). `frozen()` is always false headless,
   so the bot and tests never see it.
@@ -146,8 +147,12 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
   `poodle_nap` is an alias of `pom_nap`. `?showcase=player&filter=gallery` draws the frame gallery
 - **interaction**: `startWave(areaId, i)`, `startBoss(id)`, `liveCats()`, `clearAll()`, `spawnPickup(id,x,y)`,
   `startBonus(def)` (one single-file train of 8 per squadron: 9 ticks apart along the curve, squadrons 150 ticks
-  apart), `markGlow()`, `grounded()` (false in airborne sectors: no ground shadows). Memory carriers' look is drawn
-  by memories, not here
+  apart), `markGlow()`, `grounded()` (false in airborne sectors: no ground shadows), `wavePreview(areaId, i)`
+  (pure: per-breed `{breed, n}` head counts startWave would spawn; feeds ui's next-wave preview). Formations are a
+  true Galaga lattice: every cat owns one 32x32 cell for the whole wave (holes stay holes; a fully booped row lets the
+  rows below move up), at most 8 columns, centred on the area's lane walls (`LANES` in `interaction/formation.ts`;
+  world owners: tell interaction if a stage's walls move). Waves allow 2 player turds on screen (bosses and bonus
+  stages 4). Memory carriers' look is drawn by memories, not here
 - **save**: `save()` (throttled), `flush()`, `load(slot = 'main')` (`'main'` | `'backup'`: the slot tried
   first; returns `'ok'` | `'recovered'` | `'corrupt'` | `'none'`; legacy `load(false)` = load without resuming),
   `hasSave()`, `wipe()` (keeps hi score + settings), `info()` (slot health, `persistent`), `recoveryOptions()`
@@ -157,8 +162,10 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
   `chewed`, `memory`, `mono`, `plate`), `FLOPPY7` (7x7 menu glyph), `drawRecoveryCard`, `drawChewMedallion`.
   Overlay draws at `overlayZ = 100` (on top of ui). Ctrl/Cmd+C / Ctrl/Cmd+V copy / paste a save code on the
   title, map, pause menu and recovery screen.
-- **ui**: `toast(text)`, `muteToasts(on)`, `holdToasts(on)` (toasts are also held automatically while
-  `memories.revealing()`; held ones play when the card leaves; in a live wave / boss fight toasts play one at a time),
+- **ui**: `toast(text, opts?)` (`opts.kind`: `'warn'` = bad news, peri frame + pink cross; `'good'` = lime text;
+  omitted = bad news matched from the text; `g.toastFn` forwards opts), `muteToasts(on)`, `holdToasts(on)` (at most 2
+  toasts on screen, 1 in a live wave / boss fight, the rest queue; none once the scene is `'ending'`). The RESCUED
+  album count reads `memories.albumShown()`; the ending card lists `quest.endingRewards()` under the stats,
   a static sound chip on the header row (reads `audio.running()` + volumes; the only sound widget), `openPause()`, `openMap()`, `showDialogue(nodeId)`,
   `dialogueBox(g, ctx, dock?)` (docks to the top while `quest.dock()` says Pom is under it; body lines from
   `quest.visibleLines()`), `dev()`, `touch.visible(g)`, `bestChain`. The HUD quest slot reads `quest.tracked()` /
@@ -196,20 +203,24 @@ Module public APIs (what other modules may call via `g.mods.<id>`):
   passes is stored as `'missed'`: an `expire` trigger fired (route forfeit) or the `ending` event closed every quest
   still active (quietly). Presentation: `look(id)` (`{state, tone: locked|active|done|missed|expired, pill, tag,
   note, dimReward}`), `closedBy(id)` ('route' | 'run' | null), `flightMax()` (most quests one flight can reach),
-  `routeNote(areaId)` (NEXT HOP line), `completes(areaId)` / `forfeits(areaId)`, `preferredExit(exits)`
-- **memories**: `placed(areaId)`, `collect(id)`, `offer(areaId, wave)`, `missed(areaId, wave)`, `revealing()`, `showing()`, `calm()`,
-  `stage(kind, index, at)` (carrier|drop|boop|reveal|lost|bundle, frozen). The memory carrier wears a 2px gold
+  `routeNote(areaId)` (NEXT HOP line: `{kind: finishes|closes, questName, text, good, more}` or null),
+  `completes(areaId)` / `forfeits(areaId)`, `preferredExit(exits)`, `endingRewards()` (`{questId, name, score, items,
+  text}[]` paid quietly during the finale; cleared on `game:new`). Quest toasts carry `{kind: 'warn'|'good'}` for
+  route news, and go quiet once the final Big Cat is defeated (queued toasts, on-screen toasts and ui's `toastPend`
+  are dropped)
+- **memories**: `placed(areaId)`, `collect(id)`, `offer(areaId, wave)`, `missed(areaId, wave)`, `panelCard()`,
+  `albumShown()`, `revealing()` / `showing()` / `frozen()` (kept, always false), `calm()`,
+  `stage(kind, index, at)` (carrier|drop|boop|reveal|lost|bundle|file, frozen). The memory carrier wears a 2px gold
   silhouette rim (solid gold at night) with walking shimmer, a pixel crown and the polaroid in its mouth drawn above
   all cats. Booping it is a beat: 4-tick hit-stop, a 2-frame white silhouette flash, a 2px 8-ray star. The photo
-  sways down to Pom inside a 1px gold outline and a sparse dither glint (teal when recovered). Catching it starts a
-  ~2.2 s cozy beat (`g.paused` held, playfield dimmed one palette step (by day and dusk one step more on half the
-  pixels), always released on scene change; FIRE skips once developed). The card is a slim band docked to the top of
-  the playfield (y 6..54, y 22..70 under the boss bar; 1px ink line and 2px dither shadow below, only the polaroid
-  overhangs), one body line, hint 'TOOT: NEXT'. It waits for a calm moment: never over a sector title card, in the
-  first 90 ticks of a wave, or while a boss is in `enter` / `tell` / `attack` / `phase` (the photo is in the album at
-  once; play goes on until the card goes up). `showing()` = card on screen, `calm()` = a card may go up now,
-  `revealing()` = up or waiting (ui holds new toasts for that span and hides toasts already on screen while
-  `showing()`). 3+ photos at once become one 'N LOST MEMORIES' card (body: the two newest titles + a count). A missed memory (route not taken) returns
+  sways down to Pom inside a 1px gold outline and a sparse dither glint (teal when recovered). Catching it never
+  pauses play: a sparkle and a rising '+1 MEMORY' (full 1px ink outline) pop at the pickup point. The memory card
+  slides over the right HUD panel (y 119..289; compact 119..230; overlayZ 50, hidden while a menu is open or outside
+  play/bonus, its clock parked) for ~3.8 s: one title size (1x), the whole memory text (scrolls 1px at a time if one
+  or two lines long), no N/18 number on the card. The polaroid hops into the album counter, which holds the old count
+  (`albumShown()`) until it lands, then the SECTOR GOALS MEMORIES row pulses. A bundle (2+ photos) pages by itself at
+  >= 110 ticks a page: up to 4 photos, or 3 plus a '+N MORE PHOTOS' page; its pager dots sit on the header row. Lost
+  photos get a 'RECOVERED' rubber-stamp print on the polaroid chin. `panelCard()` = side card up or parked. A missed memory (route not taken) returns
   as a LOST MEMORY on the next wave's carrier; the final sector brings the whole backlog, so 18/18 is reachable on
   every route. Derived from content + state, no save data
 - **minigames**: `startBonus(id)` (sets scene 'bonus', emits `bonus:start`, intro, then `interaction.startBonus`;
