@@ -6,6 +6,11 @@ import { col } from '../core/palette';
 import { pxDash, pxRing, pxSpark } from '../core/pixel';
 import { BOSS_BULLET, bossRig, bossBruises, ditherShadow, ditherRect, bossGlow, drawCombat } from './art';
 
+/** Phase-change palette cycle: flushed red, white-hot gold, flushed red, its own colours (a 16-tick loop). */
+const HOT: Record<string, string> = { '6': 'c', '7': 'c', '8': 'c', '9': 'd', 'a': 'e', 'b': 'e', 'o': 'c', 'p': 'd', 'q': 'e', '5': 'c', '4': 'd', '3': 'e', 'g': 'r', 'f': 'c' };
+const GOLD: Record<string, string> = { '6': '6', '7': 'f', '8': 'f', '9': 'g', 'a': 'h', 'b': 'h', 'o': 'f', 'p': 'g', 'q': 'h', '5': 'f', '4': 'g', '3': 'h', 'c': 'f', 'd': 'g' };
+const FLASH: Record<string, string> = Object.fromEntries([...'123456789abcdefghijklmnopqrstuv'].map(k => [k, '12bvqkenu3ahpjm'.includes(k) ? '5' : '6']));
+const PHASE_CYCLE: ({ map: Record<string, string>; key: string } | undefined)[] = [{ map: HOT, key: 'ph-hot' }, { map: GOLD, key: 'ph-gold' }, { map: HOT, key: 'ph-hot' }, undefined];
 const BOSS_LIMIT = 150 * 60; // a boss that isn't beaten in 150s dozes off (counts as cleared): no softlocks
 const HOME_Y = 76;
 
@@ -27,10 +32,12 @@ export class Boss {
   /** 0 none, 1 hover jets, 2 saucer, 3 the Empress's throne: later Big Cats are bigger, wider silhouettes. */
   tier: number; hitT = 0;
   constructor(public g: Game, public ix: any, public def: EnemyDef) {
-    this.hp = this.maxHp = def.hp; this.pattern = def.bossPattern ?? 'sweep';
+    const areas = g.content.areas; const ai = areas.findIndex(a => a.boss === def.id);
+    // early Big Cats get a floor under their hp (content gives 50-90): every fight lasts long enough to feel like a
+    // boss fight (~40 s and up with the escort squad in the way), not a 15-second speed bump
+    this.hp = this.maxHp = Math.max(def.hp, ai < 0 ? 0 : Math.max(230, 160 + 8 * ai)); this.pattern = def.bossPattern ?? 'sweep';
     this.art = BOSS_BULLET[this.pattern] ?? 'blt_paw';
     this.enterFrom = g.rng.chance(0.5) ? -1 : 1;
-    const areas = g.content.areas; const ai = areas.findIndex(a => a.boss === def.id);
     this.tier = ai < 0 ? 0 : ai >= areas.length - 1 ? 3 : ai >= 8 ? 2 : ai >= 3 ? 1 : 0;
     this.r = [26, 28, 32, 36][this.tier];
   }
@@ -97,7 +104,7 @@ export class Boss {
       fx?.hitStop(6); fx?.shake(6, 30); fx?.flash('f', 8); fx?.burst(this.x, this.y, 'boom'); fx?.burst(this.x, this.y - 8, 'fur');
       g.mods.audio?.sfx('bark'); g.mods.audio?.sfx('thud');
       const bounty = 250 * this.phase * (1 + this.tier); g.ops.addScore(bounty); fx?.floatText(this.x, this.y - 44, String(bounty));
-      this.y -= 10; this.flash = 6;
+      this.y -= 10; this.flash = 0;
       this.ix.bossPhase?.(this.x, this.y);
       g.mods.ui?.toast(`${this.def.name.toUpperCase()} GETS GRUMPY!`);
       g.bus.emit('boss:phase', { bossId: this.def.id, phase: this.phase });
@@ -111,8 +118,8 @@ export class Boss {
         if (k >= 1) { this.entering = false; this.go('idle'); }
         break;
       }
-      case 'phase': // shakes it off: brief invulnerable flurry
-        this.jit = (this.stT >> 1) & 1 ? 2 : -2; if (this.stT % 6 === 0) this.flash = 3;
+      case 'phase': // shakes it off: brief invulnerable flurry (a 3-frame white flash, then it palette-cycles red-hot)
+        this.jit = (this.stT >> 1) & 1 ? 2 : -2;
         if (this.stT > 60) this.go('idle');
         break;
       case 'idle': {
@@ -247,15 +254,20 @@ export class Boss {
       });
     }
     r.push(2, y, (ctx: CanvasRenderingContext2D) => {
-      const blinkIn = (this.st === 'enter' || this.st === 'phase') && ((t >> 2) & 1);
-      const flash = this.flash > 0 || !!blinkIn && this.st === 'phase';
+      // phase change: 3 frames of white (inked outline kept), then the boss palette-cycles red-hot / gold while it
+      // shakes it off; an ordinary hit flashes white for a few frames, also inside its dark outline
+      const phaseFlash = this.st === 'phase' && this.stT <= 3;
+      const flash = this.flash > 0 || phaseFlash;
+      const cyc = this.st === 'phase' && !phaseFlash ? PHASE_CYCLE[(this.stT >> 2) % PHASE_CYCLE.length] : undefined;
       // idle: cycle every frame the sheet has (2-3), faster while winding up; bob a pixel on the slow beat
       const nf = frameCount(this.def.sprite); const frame = Math.floor(t / (this.st === 'tell' ? 6 : 12)) % nf;
       const bob = this.st === 'idle' ? (t >> 4) & 1 : 0;
       bossRig(ctx, tier, x, y, t, ph, true);
       // a warm orange rim glow hugs the Big Cat (white-hot yellow while it winds up: a second tell)
-      if (!flash) bossGlow(ctx, this.def.sprite, frame, x, y + bob, this.st === 'tell' && ((this.stT >> 2) & 1) === 1);
-      drawCombat(ctx, this.def.sprite, x, y + bob, { frame, rim: flash ? undefined : this.ix.rimKey(), sil: flash ? '6' : undefined });
+      if (!flash) bossGlow(ctx, this.def.sprite, frame, x, y + bob, (this.st === 'tell' && ((this.stT >> 2) & 1) === 1) || !!cyc);
+      // the flash is a white-hot palette swap, not a flat silhouette: the sprite's own ink outline stays, the shadows
+      // turn pale lavender and everything else white, so the Big Cat keeps its face and shape while it flashes
+      drawCombat(ctx, this.def.sprite, x, y + bob, { frame, rim: flash ? '0' : this.ix.rimKey(), recolor: flash ? FLASH : cyc?.map, tintKey: flash ? 'flash' : cyc?.key });
       if (!flash) bossBruises(ctx, x, y + bob, t, ph);
       bossRig(ctx, tier, x, y, t, ph, false);
       if (this.st === 'tell') { // "!" over the head

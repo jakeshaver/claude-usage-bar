@@ -121,31 +121,40 @@ function entryCurve(kind: string, side: number, slot: Pt, b: number): Pt[] {
  * Diver breeds add a full loop-de-loop mid-screen; basic cats curl back up (Galaga bees).
  * Paths end off screen (below or above); the cat then re-enters from the top and homes to its slot.
  */
-export function divePath(x0: number, y0: number, px: number, behavior: string, j: number, H: number, side = 0): Pt[] {
+export function divePath(x0: number, y0: number, px: number, behavior: string, j: number, H: number, side = 0, exit?: Pt[]): Pt[] {
   const s = side || (x0 < CX ? -1 : 1); // peel toward the open side (default: the nearest edge)
   // a tight half loop: half a row up, one column over, then down that column (the caller picks a side whose column
-  // and the cell above are empty, so the peel never crosses a parked neighbour)
-  const peel: Pt[] = [[x0, y0], [x0 + 10 * s, y0 - 12], [x0 + 26 * s, y0 - 16], [x0 + 36 * s, y0 - 4], [x0 + 32 * s, y0 + 22]];
+  // and the cell above are empty, so the peel never crosses a parked neighbour). `exit` replaces it: the caller's own
+  // route out of the rack (peel, then straight down the empty column to the open field under the rack)
+  const peel: Pt[] = exit ?? [[x0, y0], [x0 + 10 * s, y0 - 12], [x0 + 26 * s, y0 - 16], [x0 + 36 * s, y0 - 4], [x0 + 32 * s, y0 + 22]];
   const lx = Math.max(60, Math.min(388, px));
+  let rest: Pt[];
   switch (behavior) {
     case 'diver': {
       // swoop inward, a full loop-de-loop turning toward the middle, then a fast strike at the player
       const cx = Math.max(100, Math.min(348, (x0 + lx) / 2 + 24 * s));
       const a1 = -Math.PI / 2 + (s < 0 ? TAU : -TAU);
-      return [...peel, [cx + 40 * s, 128], [cx, 140], ...arc(cx, 176, 36, -Math.PI / 2, a1), [cx - 30 * s, 168], [lx + j * 20, 256], [lx - 30 * s, 320], [lx - 60 * s, H + 40]];
+      rest = [[cx + 40 * s, 128], [cx, 140], ...arc(cx, 176, 36, -Math.PI / 2, a1), [cx - 30 * s, 168], [lx + j * 20, 256], [lx - 30 * s, 320], [lx - 60 * s, H + 40]];
+      break;
     }
     case 'shooter': // shallow strafing pass: swoop down, curve across in front of Pom, then drop off the bottom
       // (never a long sideways exit along the screen edge, which reads as a straggler outside the lanes)
-      return [...peel, [(x0 + lx) / 2, 150], [lx + 40 * s, 200], [lx - 40 * s, 214], [lx - 90 * s, 252], [lx - 110 * s, H + 40]];
+      rest = [[(x0 + lx) / 2, 150], [lx + 40 * s, 200], [lx - 40 * s, 214], [lx - 90 * s, 252], [lx - 110 * s, H + 40]]; break;
     case 'tank': // slow, heavy, nearly straight dive
-      return [...peel, [(x0 * 2 + lx) / 3, 160], [lx + j * 30, 270], [lx + j * 40, H + 40]];
+      rest = [[(x0 * 2 + lx) / 3, 160], [lx + j * 30, 270], [lx + j * 40, H + 40]]; break;
     case 'capturer': // wide swoop with a lazy turn near the bottom, escorts in tow
-      return [...peel, [lx + 50 * s, 170], [lx, 246], [lx - 50 * s, 280], [lx - 90 * s, 246], [lx - 70 * s, 200], [lx - 20 * s, 228], [lx + 10 * s, H + 40]];
+      rest = [[lx + 50 * s, 170], [lx, 246], [lx - 50 * s, 280], [lx - 90 * s, 246], [lx - 70 * s, 200], [lx - 20 * s, 228], [lx + 10 * s, H + 40]]; break;
     case 'zigzag': // straight line, the weave is added on top while flying
-      return [...peel, [(x0 + lx) / 2, 150], [lx, 240], [lx - 20 * s, H + 40]];
+      rest = [[(x0 + lx) / 2, 150], [lx, 240], [lx - 20 * s, H + 40]]; break;
     default: // basic: swoop at the player, hook past it and off the bottom (it drops back in above its slot)
-      return [...peel, [(x0 + lx) / 2 + 20 * s, 160], [lx + j * 24, 250], [lx - 40 * s, 290], [lx - 80 * s, 296], [lx - 104 * s, H + 40]];
+      rest = [[(x0 + lx) / 2 + 20 * s, 160], [lx + j * 24, 250], [lx - 40 * s, 290], [lx - 80 * s, 296], [lx - 104 * s, H + 40]];
   }
+  if (exit) { // the attack runs entirely below the rack: squash it into the field between the exit and the bottom
+    const top = exit[exit.length - 1][1] + 18; const on = rest.filter(p => p[1] < H);
+    const minY = Math.min(...on.map(p => p[1]));
+    if (on.length && minY < top) rest = rest.map(p => (p[1] < H ? [p[0], top + (p[1] - minY) * (H - top) / (H - minY)] as Pt : p));
+  }
+  return [...peel, ...rest];
 }
 
 /** Treat Bonanza fly-by paths (no shooting: pure flying show). */

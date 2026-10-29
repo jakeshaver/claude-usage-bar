@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createGame } from '../core/boot';
-import { shapeFor, entryFor, latticeFor, laneOf, COL_SP, WALL_GAP } from './formation';
+import { shapeFor, entryFor, latticeFor, laneOf, layout, LATTICE_FAMILY, COL_SP, WALL_GAP } from './formation';
 
 const entriesOf = (g: any, a: any) => a.waves.map((id: string) => g.content.waves.find((w: any) => w.id === id)?.entry ?? 'swirl-left');
 
@@ -11,9 +11,21 @@ describe('interaction waves', () => {
       const es = entriesOf(g, a);
       for (let i = 1; i < a.waves.length; i++) {
         expect(shapeFor(ai, i), `${a.id} wave ${i} shape`).not.toBe(shapeFor(ai, i - 1));
+        // galaga / block / barrel / arrow all read as the same rectangle: never two of them back to back
+        expect(LATTICE_FAMILY.has(shapeFor(ai, i)) && LATTICE_FAMILY.has(shapeFor(ai, i - 1)), `${a.id} wave ${i} lattice twice`).toBe(false);
         expect(entryFor(ai, i, es), `${a.id} wave ${i} entry`).not.toBe(entryFor(ai, i - 1, es));
       }
     });
+  });
+
+  it('every wave lays out one cat per cell, inside the lane lattice', () => {
+    const g = createGame({ headless: true });
+    g.content.areas.forEach((a, ai) => a.waves.forEach((wid: string, i: number) => {
+      const w = g.content.waves.find((x: any) => x.id === wid)!; const M = latticeFor(a.id).cols;
+      const hs = layout(w, shapeFor(ai, i), i, (id: string) => g.content.enemies.find((e: any) => e.id === id)!, 30, M);
+      expect(new Set(hs.map(h => h.row + ':' + h.u)).size, `${a.id}/${i}`).toBe(hs.length);
+      for (const h of hs) expect(Math.abs(h.u), `${a.id}/${i}`).toBeLessThanOrEqual((M - 1) / 2);
+    }));
   });
 
   it('the full lattice keeps WALL_GAP px of air to the lane walls at the far end of its sway', () => {

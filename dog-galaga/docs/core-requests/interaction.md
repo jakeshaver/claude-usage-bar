@@ -236,3 +236,29 @@ Round 1 (interaction only, no core code changes needed). Please update the ARCHI
   14 px lower in pup waves), never over a cat.
 - Content/world owners FYI: boss fights are still short in the first sectors (Sergeant Whiskers falls in ~20 s with
   4 turds on screen); if the critic wants 60-90 s fights, that is the bosses' `hp` in content.
+
+Round 2 (interaction only, no core code changes needed). ARCHITECTURE interaction line updates, plus three requests:
+- **Escorts:** 4 escorts (two pairs) through sector 10, 6 after, +2 once grumpy (max 6). The squad streams in with
+  the Big Cat's entrance swoop and is topped up 60 ticks after it drops to one escort (no more lone-boss stretches).
+  Wedge: shoulders low (±34), wings up beside the boss (±66, a V with the boss in the notch), rear guard under the
+  wings. `ESC_EXT` is 80, so `bossRange()` is a little narrower.
+- **Boss hp floor:** `Boss` uses `max(def.hp, max(230, 160 + 8 * areaIndex))` (backyard..docks 230, then 234..256;
+  the Empress keeps 300). Autopilot fights now run ~45-90 s; bot 41-43 min on all 8 paths.
+  REQUEST (content/journal owner): the journal's `HP ${e.hp}` line shows the content value (50 for Sergeant
+  Whiskers). Either raise the bosses' `hp` in content/enemies.json to the values above (then my floor is a no-op)
+  or have the journal show `max(e.hp, ...)`. No need to do both.
+- **Phase change:** 3 frames of a white-hot palette swap (ink outline and lavender shading kept, never a flat
+  silhouette), then the boss palette-cycles red/gold for the rest of the shake-off; hit flashes use the same swap.
+- **Dives:** a diver leaves through an empty column beside it (half loop up when the cells above are free, else a
+  sidestep), straight down that column (riding the rack's sway) to just under the rack, and only there turns toward
+  Pom; the attack path is squashed into the field below the rack. Wingmates come from the row under the leader, fly
+  their own exit and are locked to the leader's arc position (32 px beside it, or 44 px behind in file), so a group
+  never fuses. Separate dive groups yield to each other. Capturer beams start only well below the rack.
+- **Shapes:** ring order `galaga flanks block vee diamond barrel pillars arrow wings chevron`, one step per wave from
+  `areaIdx * 3`; the lattice-like family (galaga, block, barrel, arrow) never appears twice in a row (tested).
+  Silhouette shapes fit snugly (narrower or deeper lattice) so a small wave still shows its outline.
+- **Lanes:** street `[112, 336]` (the road between the curbs: 6 columns), alley `[98, 350]` (the drawn drainpipes).
+- REQUEST (ui): the "NEW QUEST: ..." toast stays up through the whole first boss phase and sits on the boss bar.
+  Please shorten quest toasts while `interaction.mode === 'boss'` (or drop them below the bar).
+- REQUEST (world): backyard background props (patio umbrella, fountain) sit under the top rows of the rack
+  (y ~40-140, x ~140-330), which makes the rack busy. Please move them below y ~200 or outside x 120-330.

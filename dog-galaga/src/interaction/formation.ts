@@ -12,7 +12,8 @@ const CAT_W = 28;
 
 /** Lane walls per area (world x, the playfield is 448 wide): buildings, rails, conduits the rack must stay inside. */
 const LANES: Record<string, [number, number]> = {
-  alley: [92, 362],       // brick walls both sides
+  street: [112, 336],     // the road between the curbs (x 120-327): the rack never hangs over the sidewalks or houses
+  alley: [98, 350],       // the drawn drainpipes (x ~93-97 left, ~350 right), not the brick behind them
   cafe: [80, 382],        // window wall left, pendant windows right
   docks: [104, 400],      // boardwalk on the left
   factory: [70, 374],     // pipe wall left, catwalk right
@@ -87,13 +88,16 @@ export function shapeRows(shape: Shape, R: number, M = MAX_COLS): number[][] {
 const capacity = (shape: Shape, R: number, M: number) => shapeRows(shape, R, M).reduce((a, r) => a + r.length, 0);
 
 /**
- * Every formation silhouette, in an order where neighbours look very different. A sector walks this ring with a
- * stride of 3 (coprime with 10) from its own start, so consecutive waves never repeat a shape and a 10-wave sector
- * shows every one of them. Deterministic: wavePreview and startWave always agree.
+ * Every formation silhouette, in the order a sector walks them (one step per wave, from its own start), so a 10-wave
+ * sector shows every one of them. The four lattice-like blocks (galaga, block, barrel, arrow all read as a 3-4 row
+ * rectangle on screen) sit at ring positions 0, 2, 5, 7: never next to each other, also around the wrap, so two
+ * consecutive waves are never both a plain block. Deterministic: wavePreview and startWave always agree.
  */
-export const SHAPES: Shape[] = ['galaga', 'pillars', 'diamond', 'flanks', 'chevron', 'block', 'vee', 'wings', 'barrel', 'arrow'];
+export const SHAPES: Shape[] = ['galaga', 'flanks', 'block', 'vee', 'diamond', 'barrel', 'pillars', 'arrow', 'wings', 'chevron'];
+/** Shapes that read as the same rectangular rack on screen. */
+export const LATTICE_FAMILY = new Set<Shape>(['galaga', 'block', 'barrel', 'arrow']);
 export function shapeFor(areaIdx: number, waveIdx: number): Shape {
-  return SHAPES[(Math.max(0, areaIdx) * 7 + waveIdx * 3) % SHAPES.length];
+  return SHAPES[(Math.max(0, areaIdx) * 3 + waveIdx) % SHAPES.length];
 }
 
 /** Entry choreographies: the content's five, plus convoy (two snakes), drop (columns fall in), flank (two squadrons
@@ -136,6 +140,18 @@ export function layout(w: WaveDef, shape: Shape, waveIdx: number, enemy: (id: st
   }
   const queue = [...lead.slice(0, 4), ...rest].slice(0, Math.max(2, cap));
   let R = shape === 'diamond' ? 4 : 3; while (R < MAX_ROWS && capacity(shape, R, M) < queue.length) R++;
+  // the silhouette shapes fit snugly (a narrower or deeper lattice), so a wave that would only fill the top rows of a
+  // wide vee or diamond still shows its outline instead of collapsing into a plain block
+  if (!LATTICE_FAMILY.has(shape)) {
+    let best = { w: capacity(shape, R, M) - queue.length, m: M, r: R };
+    if (best.w < 0) best.w = 1e9;
+    const mMin = Math.max(shape === 'flanks' ? 6 : 5, M - 3);
+    for (let m = M; m >= mMin; m--) for (let r = shape === 'diamond' ? 4 : 3; r <= MAX_ROWS; r++) {
+      const w = capacity(shape, r, m) - queue.length;
+      if (w >= 0 && w < best.w) best = { w, m, r };
+    }
+    if (best.w < 1e9) { M = best.m; R = best.r; }
+  }
   const rows = shapeRows(shape, R, M); const out: Home[] = [];
   const edgeIn = waveIdx % 2 === 1;
   rows.forEach((us, ri) => {
