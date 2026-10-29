@@ -72,3 +72,36 @@
     - Intro: fire / confirm after 40 ticks skips the briefing straight to the 3-2-1. After the first stage the
       flag `bonus_seen` is set (in `finish`), and later stages play a short intro (title at once, no rules line,
       countdown at tick 34, 136 ticks total instead of 168).
+
+## Round 4 (wave 2)
+
+11. **interaction (`startBonus` in `src/interaction/index.ts`, `bonusPath` in `paths.ts`): one clean ribbon per
+    squadron (critic r3 #1, still open: request 9 was not applied).** Today's code is still
+    `lat: k % 2 ? -8 : 8, delay: gi * 140 + Math.floor(k / 2) * 16`, so cats 2k and 2k+1 launch on the same tick
+    16 px apart and two or three 32 px sprites stack into blobs (screenshot `shots/m4-fly.png`, pairs at x ~350-430).
+    Please:
+    - `lat: 0, delay: gi * 150 + k * 8` at `speed: 2.5` (8 ticks x 2.5 = 20 px of arc between consecutive cats,
+      the 18-20 px gap the critic asked for; use `k * 9` for 22 px if the tight curves still overlap outlines).
+      Spacing is along the curve (time offset), never lateral, so each squadron is one single-file chain.
+    - Keep every lane inside the playfield minus a 16 px margin: today's control points use x = -30 / 480 / 330
+      and y up to 330 (`figure8`, `cross`, `default`), which carries whole squadrons over the sidewalks and under the
+      right HUD edge. Entry/exit points may stay off-screen, but all *visible* turns should satisfy
+      `16 <= x <= 368` (playfield-local, 384 wide) — e.g. clamp interior points to that range, or scale the paths
+      `x' = 16 + (x / 448) * 352`.
+    - Consecutive squadrons 150 ticks apart so mirrored chains cross instead of stacking. Minigames' fly limit
+      (`groups*140 + 1800`) still covers it.
+12. **interaction: add the squadron index to the bonus `cat:boop` payload** — `{ ..., bonus: true, group: gi }`
+    (store `gi` on the cat in `startBonus`). Minigames already reads `p.group` when present: the live counter then
+    fills the real squadron's strip and flashes it white with a `+8` tick when all 8 of *that* squadron are hit.
+    Without it, strips fill in hit order (a strip completes every 8 hits).
+13. **ui (right panel, `scene === 'bonus'`): no duplicate tally, no empty section (critic r3 #6; supersedes 1/4/5/8).**
+    The panel still shows `BONANZA` + `0 / 40` + `TREATS CAUGHT` during the flight (a second counter next to the
+    playfield one) and an empty header during intro and results. Please either
+    (a) collapse the BONANZA section entirely while `g.mods.minigames?.active?.()`, or
+    (b) mirror exactly the playfield number in all three phases: `HITS ${String(m.liveHits()).padStart(2,'0')}/${m.total()}`
+        with `m = g.mods.minigames` (both defined from `startBonus` until `bonus:end`), never interaction's tally.
+    (a) is preferred: the playfield counter is now a 2x-legible display numeral on an ink plate.
+14. **showcase help text:** the bonus showcase also accepts `&hits=N` (fly: the tally is pinned 3 ticks before
+    `at`, so `at` shows the squadron-complete flash; results: N hits instead of 70%). The screenshot tool doesn't
+    forward `hits`, but it can ride on `--url=http://127.0.0.1:4214/?hits=19`. Note: the capture happens ~140
+    ticks into the phase, so `at` values beyond that are not reached.

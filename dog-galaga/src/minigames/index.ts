@@ -5,7 +5,8 @@ import { PALETTE } from '../core/palette';
 import { Rng } from '../core/rng';
 import { text, textWidth } from '../art/font';
 import { drawSprite } from '../art/sprite';
-import { C, rect, frame, dither, scanlines, chamferFill, chamferLine, darkOf, lighter, hintRow, keys, dimRect } from '../ui/draw';
+import { C, rect, frame, dither, scanlines, chamferFill, chamferLine, darkOf, lighter, hintRow, keys, type Device } from '../ui/draw';
+import { display, displayWidth, displayCovers, star, DISPLAY_H, type Scheme } from './display';
 
 /**
  * Treat Bonanza: Galaga-style challenging stages. Cats fly scripted patterns (run by interaction.startBonus)
@@ -36,14 +37,14 @@ const PER_HIT = 100;
 const HARD_CAP = 60 * 90;     // nothing in a bonus stage may take longer than 90 s (pause excluded)
 const NO_FLIGHT = 90;         // fly ticks without a running interaction flight before the results open anyway
 const CCY = 226;              // countdown reticle / GO! centre (screen y)
-const GREEN = PALETTE[20];
 /** Timing contract, exported for the watchdog tests. */
 export const BONUS_TIMING = { INTRO, NO_FLIGHT, HARD_CAP, RESULTS_MAX: 26 + 60 + 26 + 40 + 240 };    // dark green: the GO! outline
 
 /** Results board timeline, computed once when the results open. */
 interface Board { hits: number; total: number; bonus: number; perfect: boolean; hitsAt: number; roll: number; bonusAt: number; bonusRoll: number; doneAt: number; end: number; H: number }
 /** Overlay confetti: pixel bits that tumble above the results board. */
-interface Bit { x: number; y: number; vx: number; vy: number; c: string; k: number; life: number }
+interface Bit { x: number; y: number; vx: number; vy: number; c: string; k: number; life: number; tint: string }
+const RAINBOW = [C.hot, C.orange, C.gold, C.lime, C.line, C.violet];
 
 const plural = (s: string, n: number) => n === 1 ? s : s.endsWith('Y') ? s.slice(0, -1) + 'IES' : s + 'S';
 
@@ -78,19 +79,24 @@ class Minigames implements Module {
   mutedToasts = false;    // we muted the HUD toasts (and so must unmute them)
   resultFromBus = false;
   bits: Bit[] = [];
+  gHits: number[] = [];   // per-squadron hits when cat:boop carries a group index (else strips fill in order)
+  byGroup = false;
+  gFlash: number[] = [];  // per-squadron completion flash countdown (strip white + "+8")
   rng = new Rng(0xb0a7);  // cosmetic only: never touches the game's seeded stream
-  /** showcase pinning: ?showcase=bonus&phase=intro|fly|results|perfect&at=<tick> */
-  demo: { phase: string; at: number; repeat: boolean } | null = null;
+  /** showcase pinning: ?showcase=bonus&phase=intro|fly|results|perfect&at=<tick>[&hits=N (fly: tally set 3 ticks before the pin)] */
+  demo: { phase: string; at: number; repeat: boolean; hits: number } | null = null;
 
   init(g: Game) {
     this.g = g;
     if (!g.headless && typeof location !== 'undefined') {
       const p = new URLSearchParams(location.search); const sc = p.get('showcase');
-      if ((sc === 'bonus' || sc === 'minigames') && p.get('phase')) this.demo = { phase: p.get('phase')!, at: +(p.get('at') ?? -1), repeat: p.get('repeat') === '1' };
+      if ((sc === 'bonus' || sc === 'minigames') && p.get('phase')) this.demo = { phase: p.get('phase')!, at: +(p.get('at') ?? -1), repeat: p.get('repeat') === '1', hits: +(p.get('hits') ?? -1) };
     }
     g.bus.on('cat:boop', (p: any) => {
       if (this.st !== 'fly' || !p?.bonus) return;
       this.hits++; this.pop = 10;
+      const gi = Number.isInteger(p.group) ? p.group : -1;
+      if (gi >= 0 && gi < 32) { this.byGroup = true; this.gHits[gi] = (this.gHits[gi] ?? 0) + 1; }
     });
     g.bus.on('bonus:result', (p: any) => {
       if (this.st !== 'fly') return;          // stale, duplicate or our own echo: the watchdog/intro own the flow
@@ -112,6 +118,7 @@ class Minigames implements Module {
     if (!def) { g.bus.emit('bonus:end', { id, hits: 0, total: 0 }); return; }
     this.def = def; this.hits = 0; this.pop = 0; this.board = null; this.all = 0; this.noFlight = 0;
     this.added = 0; this.revealed = false; this.bits = []; this.resultFromBus = false;
+    this.gHits = []; this.byGroup = false; this.gFlash = [];
     this.flyLimit = def.groups * 140 + 60 * 30;
     this.repeat = !!g.state.flags?.bonus_seen || !!this.demo?.repeat;
     this.countAt = this.repeat ? COUNT_AT_REPEAT : COUNT_AT; this.intro = this.countAt + 3 * BEAT + 12;
@@ -121,7 +128,7 @@ class Minigames implements Module {
     try { g.mods.interaction?.clearAll(); } catch (e) { g.reportError('minigames', e); }
     this.go('intro');
     if (this.demo && (this.demo.phase === 'results' || this.demo.phase === 'perfect')) {
-      const tot = def.groups * 8; this.go('fly'); this.openResults(this.demo.phase === 'perfect' ? tot : Math.round(tot * 0.7), tot);
+      const tot = def.groups * 8; this.go('fly'); this.openResults(this.demo.phase === 'perfect' ? tot : this.demo.hits >= 0 ? this.demo.hits : Math.round(tot * 0.7), tot);
     }
   }
 
@@ -148,7 +155,7 @@ class Minigames implements Module {
     total = Number.isFinite(total) && total > 0 ? Math.floor(total) : this.total();
     hits = Math.max(0, Math.min(total, Number.isFinite(hits) ? Math.floor(hits) : this.liveHits()));
     const perfect = total > 0 && hits === total; const bonus = perfect ? PERFECT_BONUS : hits * PER_HIT;
-    const hitsAt = 26, roll = Math.min(60, hits * 2), bonusAt = hitsAt + roll + 26, bonusRoll = perfect ? 0 : (bonus > 0 ? 40 : 0);
+    const hitsAt = 26, roll = Math.min(60, hits * 2), bonusAt = hits === 0 ? hitsAt + 8 : hitsAt + roll + 26, bonusRoll = perfect ? 0 : (bonus > 0 ? 40 : 0);
     const doneAt = bonusAt + bonusRoll + (perfect ? 60 : 14);
     this.board = { hits, total, bonus, perfect, hitsAt, roll, bonusAt, bonusRoll, doneAt, end: bonusAt + bonusRoll + (perfect ? 240 : 150), H: perfect ? 168 : 128 };
     this.shown = { hits: 0, bonus: 0 };
@@ -201,7 +208,12 @@ class Minigames implements Module {
     const holdResults = !!d && this.st === 'results' && !!this.board && this.t >= this.board.end - 20;
     if (!pinned && !holdResults) this.t++;
     this.all++;
-    if (this.pop > 0) this.pop--;
+    if (!pinned) { if (this.pop > 0) this.pop--; for (let i = 0; i < this.gFlash.length; i++) if (this.gFlash[i] > 0) this.gFlash[i]--; }
+    if (d && d.hits >= 0 && this.st === 'fly' && this.t === Math.max(1, d.at - 3)) { this.hits = d.hits; this.pop = 10; }   // showcase: pin a tally
+    if (this.st === 'fly') {
+      const have = this.groupHave(); 
+      for (let i = 0; i < have.length; i++) if (have[i] >= 8 && this.gFlash[i] === undefined) { this.gFlash[i] = 36; this.sfx('pickup'); }
+    }
     if (!pinned) this.stepBits();
 
     if (this.st === 'intro') {
@@ -226,8 +238,8 @@ class Minigames implements Module {
       }
       if (t >= b.bonusAt) {
         if (b.perfect) {
-          if (t === b.bonusAt) { this.pay(b.bonus); this.reveal(); this.sfx('quest'); this.fx(e => { e.flash('f', 6); e.shake(2, 8); }); this.cannon(80); }
-          if (!pinned && t > b.bonusAt && t < b.bonusAt + 120 && t % 3 === 0) this.cannon(3);
+          if (t === b.bonusAt) { this.pay(b.bonus); this.reveal(); this.sfx('quest'); this.fx(e => { e.flash('f', 6); e.shake(2, 8); }); this.cannon(28); }
+          if (!pinned && (t === b.bonusAt + 40 || t === b.bonusAt + 80 || t === b.bonusAt + 120)) { this.cannon(18); this.sfx('pickup'); }
           // confetti cannons from the bottom of the clear side columns (never under the board) and hearts on Pom
           for (const [dt, sx, fy] of [[8, 20, 330], [16, PF_W - 20, 330]] as const)
             if (t === b.bonusAt + dt) this.fx((e, camX) => e.burst(camX + sx, fy, 'confetti'));
@@ -255,16 +267,16 @@ class Minigames implements Module {
   /** Fire `n` bits: half pop up from the board's top edge, half rain down the two clear side columns. */
   private cannon(n: number) {
     const r = () => this.rng.next(); const bx = PF_X + PF_W / 2 - 152, by = 64;
-    const cols = [C.gold, C.hot, C.line, C.lime, C.cream, C.violet, C.pink];
+    const cols = [C.gold, C.hot, C.line, C.lime, C.violet, C.pink, C.orange]; const tints = ['f', 'l', 'c', 'i', 't'];
     for (let i = 0; i < n; i++) {
-      const c = cols[Math.floor(r() * cols.length)]; const k = Math.floor(r() * 4);
-      if (i % 2 === 0) this.bits.push({ x: bx + 8 + r() * 288, y: by, vx: (r() - 0.5) * 2.2, vy: -1.2 - r() * 2.4, c, k, life: 150 + Math.floor(r() * 60) });
+      const c = cols[Math.floor(r() * cols.length)]; const k = r() < 0.18 ? 3 : Math.floor(r() * 3); const tint = tints[Math.floor(r() * tints.length)];
+      if (i % 2 === 0) this.bits.push({ x: bx + 8 + r() * 288, y: by, vx: (r() - 0.5) * 2.4, vy: -1.4 - r() * 2.4, c, k, life: 150 + Math.floor(r() * 60), tint });
       else {
-        const x = i % 4 === 1 ? PF_X + 4 + r() * 34 : PF_X + PF_W - 38 + r() * 34;
-        this.bits.push({ x, y: -4 - r() * 20, vx: (r() - 0.5) * 0.6, vy: 0.6 + r() * 1.2, c, k, life: 260 });
+        const x = i % 4 === 1 ? PF_X + 6 + r() * 30 : PF_X + PF_W - 36 + r() * 30;
+        this.bits.push({ x, y: -6 - r() * 30, vx: (r() - 0.5) * 0.6, vy: 0.6 + r() * 1.0, c, k, life: 300, tint });
       }
     }
-    if (this.bits.length > 260) this.bits.splice(0, this.bits.length - 260);
+    if (this.bits.length > 120) this.bits.splice(0, this.bits.length - 120);
   }
   private stepBits() {
     if (!this.bits.length) return;
@@ -278,14 +290,16 @@ class Minigames implements Module {
   private drawBits(ctx: CanvasRenderingContext2D, T: number, keep: { x: number; y: number; w: number; h: number }) {
     for (const p of this.bits) {
       const x = Math.round(p.x), y = Math.round(p.y); if (x < PF_X + 1 || x > PF_X + PF_W - 4) continue;
-      if (x + 3 > keep.x && x - 2 < keep.x + keep.w && y + 2 > keep.y && y - 2 < keep.y + keep.h) continue;   // off the board
+      const R = p.k === 3 ? 5 : 3;
+      if (x + R > keep.x && x - R < keep.x + keep.w && y + R > keep.y && y - R < keep.y + keep.h) continue;   // off the board
       if (p.life < 20 && (T & 2)) continue;              // fade = blink out
-      const ph = ((T >> 2) + p.k) & 3;
-      if (p.k === 3) {                                    // tiny star, glinting white
-        rect(ctx, x - 1, y, 3, 1, p.c); rect(ctx, x, y - 1, 1, 3, p.c); if (ph === 0) rect(ctx, x, y, 1, 1, C.text);
-      } else if (ph === 0) rect(ctx, x, y, 3, 1, p.c);    // tumbling ribbon: wide, diagonal, tall, diagonal
-      else if (ph === 2) rect(ctx, x + 1, y - 1, 1, 3, p.c);
-      else { rect(ctx, x, y, 2, 1, p.c); rect(ctx, x + 1, y + 1, 2, 1, p.c); }
+      const ph = ((T >> 2) + p.k + Math.floor(p.x)) & 3;
+      if (p.k === 3) { if (x > PF_X + 5 && x < PF_X + PF_W - 6) star(ctx, x, y, ph >> 1, p.tint); continue; }
+      // tumbling ribbon with a highlight pixel: 3x2 face-on, 2x3 side-on, 3x1 edge-on
+      const hi = lighter(p.c);
+      if (ph === 0 || ph === 2) { rect(ctx, x - 1, y, 3, 2, ph ? darkOf(p.c) : p.c); rect(ctx, x - 1, y, 1, 1, hi); }
+      else if (ph === 1) { rect(ctx, x, y - 1, 2, 3, p.c); rect(ctx, x, y - 1, 1, 1, hi); }
+      else rect(ctx, x - 1, y, 3, 1, hi);
     }
   }
 
@@ -295,7 +309,7 @@ class Minigames implements Module {
     if (this.st === 'idle' || g.state.scene !== 'bonus') return;
     const T = g.tick;
     if (this.st === 'intro') this.drawIntro(ctx, T);
-    if (this.st === 'fly' || (this.st === 'intro' && this.t > this.intro - 24)) this.drawCounter(ctx, T);
+    if (!g.paused && (this.st === 'fly' || (this.st === 'intro' && this.t > this.intro - 24))) this.drawCounter(ctx, T);
     if (this.st === 'fly' && this.t < GO_T) this.drawGo(ctx, this.t);
     if (this.st === 'results') this.drawResults(ctx, T);
   }
@@ -372,20 +386,12 @@ class Minigames implements Module {
     const n = this.g.content.bonus.indexOf(def) + 1;
     const tag = `BONUS STAGE ${String(Math.max(1, n)).padStart(2, '0')}`;
     const tw = textWidth(tag) + 12;
-    chamferFill(ctx, cx - tw / 2, top + 9, tw, 11, C.deep, 3); chamferLine(ctx, cx - tw / 2, top + 9, tw, 11, C.line, 3);
-    text(ctx, tag, cx, top + 11, C.ice, { align: 'center' });
+    chamferFill(ctx, cx - tw / 2, top + 7, tw, 11, C.deep, 3); chamferLine(ctx, cx - tw / 2, top + 7, tw, 11, C.line, 3);
+    text(ctx, tag, cx, top + 9, C.ice, { align: 'center' });
     // the stage's own name types in letter by letter, the newest letter flashing white
-    const title = (def.name || 'Treat Bonanza').toUpperCase() + '!';
-    const sc = textWidth(title, 3) <= PF_W - 24 ? 3 : 2;
-    const shown = this.repeat ? title.length : Math.min(title.length, Math.max(0, Math.floor((t - 10) / 2)));
-    if (shown > 0) {
-      const full = textWidth(title, sc); const left = Math.round(cx - full / 2);
-      for (let i = 0; i < shown; i++) {
-        const fresh = i === shown - 1 && shown < title.length;
-        const c = fresh ? C.text : ((T >> 3) + i) % 14 === 0 ? C.cream : C.gold;
-        this.outlined(ctx, title[i], left + i * 6 * sc + Math.floor(5 * sc / 2), top + 27, c, C.burnt, sc, C.ink);
-      }
-    }
+    // the stage's own name in the display face, revealed by a masked wipe left to right (its final position
+    // never moves) with a bright scan bar riding the wipe edge
+    this.title(ctx, (def.name || 'Treat Bonanza').toUpperCase() + '!', cx, top + 24, this.repeat ? 1 : Math.max(0, Math.min(1, (t - 10) / 26)));
     // briefing lines
     const L = this.repeat ? 14 : 40;   // briefing reveal (repeat visits: at once, and without the rules line)
     if (t > L) {
@@ -408,7 +414,7 @@ class Minigames implements Module {
     }
     // skip hint under the band while the briefing reads (first visit only: repeat visits are already short)
     if (!this.repeat && t > SKIP_AT && t < this.countAt && (T >> 4) % 4 !== 3)
-      hintRow(ctx, [[keys(this.g.input.lastDevice ?? 'keyboard').fire, 'SKIP']], cx, CY + BH / 2 + 12, C.gold);
+      hintRow(ctx, [[keys(this.dev()).fire, 'SKIP']], cx, CY + BH / 2 + 12, C.gold);
     // countdown: 3, 2, 1 inside a spinning targeting reticle
     const ct = t - this.countAt;
     if (ct >= 0 && ct < 3 * BEAT) {
@@ -420,8 +426,8 @@ class Minigames implements Module {
       this.annulus(ctx, ccx, ccy, 29, 30, acc, 6, 0.55, T * 0.04);
       this.annulus(ctx, ccx, ccy, 33, 34, darkOf(acc), 4, 0.3, -T * 0.03);
       if (lt < 8 && !(lt & 1)) { const r = 27 + lt * 2; this.annulus(ctx, ccx, ccy, r, r + 1, lighter(acc)); }   // beat shockwave
-      const s = lt < 3 ? 5 : 4;
-      this.outlined(ctx, num, ccx + 1, ccy - Math.round(7 * s / 2) - 2, lt < 3 ? C.text : lighter(acc), darkOf(acc), s, null);
+      const sch: Scheme = lt < 2 ? 'flash' : (['ice', 'violet', 'hot'] as const)[k];
+      display(ctx, num, ccx, ccy - DISPLAY_H - 3 + (lt < 2 ? -1 : 0), sch, { scale: 2, align: 'center' });
       for (let i = 0; i < 3; i++) rect(ctx, ccx - 10 + i * 8, ccy + 17, 5, 2, i <= k ? acc : C.indigo);   // beat pips, inside the disc
     }
   }
@@ -431,40 +437,84 @@ class Minigames implements Module {
     const cx = PF_X + PF_W / 2, cy = CCY;
     if (t > GO_T - 10 && (t & 2)) return;            // blinks out
     for (let i = 0; i < 2; i++) { const r = Math.min(GO_R - i * 12, 24 + t * 3 - i * 12); if (r > 8) this.annulus(ctx, cx, cy, r, r + 1, i ? C.lime : C.cream, 12, 0.6, t * 0.05); }
-    this.outlined(ctx, 'GO!', cx + 2, cy - 14, t < 4 ? C.text : C.lime, GREEN, 4);
+    display(ctx, 'GO!', cx, cy - DISPLAY_H - (t < 3 ? 1 : 0), t < 3 ? 'flash' : 'lime', { scale: 2, align: 'center' });
+  }
+
+  /** Hits per squadron strip: real squadrons when cat:boop carries `group`, else strips fill in order. */
+  private groupHave(): number[] {
+    const groups = Math.max(1, Math.ceil(this.total() / 8)); const hits = this.liveHits(); const out: number[] = [];
+    for (let gi = 0; gi < groups; gi++) out.push(this.byGroup ? Math.min(8, this.gHits[gi] ?? 0) : Math.max(0, Math.min(8, hits - gi * 8)));
+    return out;
   }
 
   /**
-   * Live hit counter: frameless and slim (y 3..17) so the flyby cats stay visible behind it. One outlined line,
-   * HITS 07/40, over one pip per cat grouped by squadron (each group a 1px ink-rimmed strip, no fill behind).
+   * Live hit counter docked at the top of the playfield on a slim chamfered ink plate: the count in the display
+   * face (07), a small HITS / of-40 stack, then one pip per cat grouped by squadron. A squadron completed flashes
+   * its whole strip white and drops a +8 tick under the plate.
    */
   private drawCounter(ctx: CanvasRenderingContext2D, T: number) {
-    const total = this.total(); const hits = this.liveHits(); const groups = Math.max(1, Math.ceil(total / 8));
-    const cw = 4, ch = 3, gap = 5, gw = 8 * (cw + 1) - 1; const cellsW = groups * gw + (groups - 1) * gap;
-    const cx = PF_X + PF_W / 2; const y = 4; const hot = this.pop > 6;
-    const num = `${String(hits).padStart(2, '0')}/${total}`; const s = `HITS ${num}`;
-    const tx = Math.round(cx - textWidth(s) / 2), lw = textWidth('HITS ');
-    const ol = (str: string, x: number, yy: number, c: string) => {
-      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1]]) text(ctx, str, x + dx, yy + dy, C.ink);
-      text(ctx, str, x, yy, c);
-    };
-    ol('HITS', tx, y, C.ice);
-    ol(num, tx + lw, y - (this.pop > 7 ? 1 : 0), hot ? C.text : C.gold);
-    const ly = y + 2; rect(ctx, tx - 7, ly - 1, 5, 5, C.ink); rect(ctx, tx - 6, ly, 3, 3, (T >> 4) & 1 ? C.lime : darkOf(C.lime));   // live LED
-    const cx0 = Math.round(cx - cellsW / 2), py = y + 11;
+    const total = this.total(); const hits = this.liveHits(); const have = this.groupHave(); const groups = have.length;
+    const cw = 4, ch = 4, gap = 6, gw = 8 * (cw + 1) - 1; const cellsW = groups * gw + (groups - 1) * gap;
+    const num = String(hits).padStart(2, '0'); const nw = displayWidth(num); const lw = Math.max(textWidth('HITS'), textWidth(`/${total}`));
+    const inner = nw + 5 + lw + 9 + cellsW; const W = inner + 16, H = 21;
+    const cx = PF_X + PF_W / 2; const x = Math.round(cx - W / 2), y = 2;
+    chamferFill(ctx, x, y, W, H, C.ink, 4); chamferLine(ctx, x, y, W, H, C.indigo, 4);
+    rect(ctx, x + 4, y, 8, 1, C.line2); rect(ctx, x + W - 12, y, 8, 1, C.line2);     // accent ticks on the top rail
+    let ux = x + 8;
+    display(ctx, num, ux, y + 4, this.pop > 6 ? 'flash' : 'gold');
+    ux += nw + 5;
+    text(ctx, 'HITS', ux, y + 3, C.ice); text(ctx, `/${total}`, ux, y + 11, C.peri);
+    ux += lw + 9;
+    rect(ctx, ux - 5, y + 4, 1, H - 8, C.indigo);                                    // divider
+    const py = y + Math.round((H - ch) / 2);
     for (let gi = 0; gi < groups; gi++) {
-      const gx = cx0 + gi * (gw + gap); const have = Math.max(0, Math.min(8, hits - gi * 8)); const full = have === 8;
-      rect(ctx, gx - 1, py - 1, gw + 2, ch + 2, C.ink);
+      const gx = ux + gi * (gw + gap); const n = have[gi]; const full = n >= 8; const fl = this.gFlash[gi] ?? 0;
+      const white = fl > 30 || (fl > 24 && (T & 2) === 0);
+      rect(ctx, gx - 1, py - 1, gw + 2, ch + 2, white ? C.text : full ? darkOf(C.lime) : C.night);
       for (let i = 0; i < 8; i++) {
         const px = gx + i * (cw + 1);
-        if (i < have) { const c = full ? C.lime : C.gold; rect(ctx, px, py, cw, ch, c); rect(ctx, px, py, cw, 1, lighter(c)); }
-        else rect(ctx, px, py, cw, ch, C.deep);
+        if (white) { rect(ctx, px, py, cw, ch, C.text); continue; }
+        if (i < n) { const c = full ? C.lime : C.gold; rect(ctx, px, py, cw, ch, c); rect(ctx, px, py, cw, 1, lighter(c)); rect(ctx, px, py + ch - 1, cw, 1, darkOf(c)); }
+        else { rect(ctx, px, py, cw, ch, C.indigo); rect(ctx, px, py, cw, 1, C.peri); }
+      }
+      if (fl > 0) {   // +8 tick drifting down under the plate
+        const ty = y + H + 2 + Math.floor((36 - fl) / 6); const tx = gx + Math.floor(gw / 2);
+        if (fl > 6 || (T & 2)) { for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) text(ctx, '+8', tx + dx, ty + dy, C.ink, { align: 'center' }); text(ctx, '+8', tx, ty, C.lime, { align: 'center' }); }
       }
     }
-    if (this.pop > 0 && hits > 0) {   // the newest pip sparkles
-      const i = hits - 1; const px = cx0 + Math.floor(i / 8) * (gw + gap) + (i % 8) * (cw + 1);
-      rect(ctx, px - 2, py + 1, 1, 1, C.text); rect(ctx, px + cw + 1, py + 1, 1, 1, C.text); rect(ctx, px + 1, py + ch + 1, 2, 1, C.text);
+    if (this.pop > 0 && hits > 0 && !this.byGroup) {   // the newest pip sparkles
+      const i = hits - 1; const px = ux + Math.floor(i / 8) * (gw + gap) + (i % 8) * (cw + 1);
+      rect(ctx, px + 1, py - 3, 2, 1, C.text); rect(ctx, px + 1, py + ch + 2, 2, 1, C.text);
     }
+  }
+
+  /** Stage title in the display face (2x when it fits, shaded at native res), revealed by a masked wipe. */
+  private title(ctx: CanvasRenderingContext2D, s: string, cx: number, y: number, reveal: number) {
+    if (!displayCovers(s)) { this.outlined(ctx, s, cx, y + 4, C.gold, C.burnt, 2, C.ink); return; }
+    const sc = displayWidth(s, 2) <= PF_W - 48 ? 2 : 1; const w = displayWidth(s, sc); const left = Math.round(cx - w / 2);
+    const yy = sc === 2 ? y : y + 6;
+    if (reveal >= 1) { display(ctx, s, left, yy, 'gold', { scale: sc }); return; }
+    const edge = left - 2 + Math.round((w + 4) * reveal);
+    display(ctx, s, left, yy, 'gold', { scale: sc, clip: edge });
+    if (reveal > 0) { const hh = DISPLAY_H * sc + 6; rect(ctx, edge, yy - 3, 2, hh, C.text); rect(ctx, edge + 2, yy - 3, 1, hh, C.line); rect(ctx, edge - 1, yy - 3, 1, hh, C.cream); }
+  }
+
+  /** Device for prompts: ui's own resolver (the visible touch deck wins), else the last input device. */
+  private dev(): Device {
+    try { const d = this.g.mods.ui?.dev?.(); if (d) return d; } catch { /* fall through */ }
+    if (this.g.state.settings?.touch === 'on') return 'touch';
+    return (this.g.input.lastDevice ?? 'keyboard') as Device;
+  }
+
+  /** Chase-light marquee on the board rim: 2x2 lamps every 6px, palette-cycled rainbow running clockwise. */
+  private marquee(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, T: number) {
+    const pts: [number, number][] = [];
+    for (let xx = x + 9; xx <= x + w - 11; xx += 6) pts.push([xx, y + 2]);
+    for (let yy = y + 9; yy <= y + h - 11; yy += 6) pts.push([x + w - 4, yy]);
+    for (let xx = x + w - 11; xx >= x + 9; xx -= 6) pts.push([xx, y + h - 4]);
+    for (let yy = y + h - 11; yy >= y + 9; yy -= 6) pts.push([x + 2, yy]);
+    const ph = T >> 2;
+    pts.forEach(([px, py], i) => { const c = RAINBOW[((i - ph) % 6 + 6) % 6]; rect(ctx, px, py, 2, 2, c); if ((i - ph) % 6 === 0) rect(ctx, px, py, 1, 1, C.text); });
   }
 
   /** Mugshot: the breed at 1x (same pixel density as everything else) in a 36x36 chip, bobbing inside it. */
@@ -484,35 +534,24 @@ class Minigames implements Module {
     const W0 = 304, H0 = b.H;
     const h = Math.max(4, Math.round(H0 * open) & ~1); const x = cx - W0 / 2, y = 64 + (H0 - h) / 2;
     const acc = b.perfect ? [C.gold, C.hot, C.line, C.lime][(T >> 3) & 3] : C.line;
-    // the board lifts off the scenery with a local falloff only (never a full-field screen door): a 16px band
-    // remapped to the palette's dark neighbours, a 4px ink checker, then the solid ink apron. Perfect: no dim.
-    if (!b.perfect) {
-      // ring(r0, r1): the frame-shaped strip between insets r0 and r1 outside the board, as 4 rects
-      const ring = (r0: number, r1: number, fn: (rx: number, ry: number, rw: number, rh: number) => void) => {
-        const X0 = Math.max(PF_X + 1, x - r1), X1 = Math.min(PF_X + PF_W - 1, x + W0 + r1), Y0 = Math.max(0, y - r1), Y1 = y + h + r1;
-        fn(X0, Y0, X1 - X0, y - r0 - Y0); fn(X0, y + h + r0, X1 - X0, Y1 - (y + h + r0));
-        fn(X0, y - r0, x - r0 - X0, h + 2 * r0); fn(x + W0 + r0, y - r0, X1 - (x + W0 + r0), h + 2 * r0);
-      };
-      ring(3, 15, (a, c, w, hh) => dimRect(ctx, a, c, w, hh));                       // remapped dark neighbours
-      ring(15, 19, (a, c, w, hh) => dither(ctx, a, c, w, hh, C.ink, 'sparse'));     // dithered fringe: no hard edge
-    }
-    rect(ctx, x - 3, y - 3, W0 + 6, h + 6, C.ink);
-    dither(ctx, x - 7, y - 7, W0 + 14, 4, C.ink, 'check'); dither(ctx, x - 7, y + h + 3, W0 + 14, 4, C.ink, 'check');
-    dither(ctx, x - 7, y - 3, 4, h + 6, C.ink, 'check'); dither(ctx, x + W0 + 3, y - 3, 4, h + 6, C.ink, 'check');
-    const keep = { x: x - 7, y: y - 7, w: W0 + 14, h: h + 14 };   // confetti never lands on the board
+    // one solid 2px ink drop shadow lifts the board off the scenery (no dim ring, no dither fringe)
+    chamferFill(ctx, x + 2, y + 2, W0, h, C.ink, 6);
+    const keep = { x: x - 2, y: y - 2, w: W0 + 6, h: h + 6 };   // confetti never lands on the board
     frame(ctx, x, y, W0, h, acc, C.night, 6);
     if (open < 1) { this.drawBits(ctx, T, keep); return; }
     scanlines(ctx, x + 2, y + 2, W0 - 4, h - 4);
+    if (b.perfect && t >= b.bonusAt) this.marquee(ctx, x, y, W0, h, T);
     // header strip: the stage's name, a marching chevron run centred between the labels, RESULTS
     chamferFill(ctx, x + 10, y + 8, W0 - 20, 15, C.deep, 4);
     const nm = (this.def?.name ?? 'Treat Bonanza').toUpperCase();
     text(ctx, nm, x + 18, y + 12, C.ice);
     text(ctx, 'RESULTS', x + W0 - 18, y + 12, C.text, { align: 'right' });
     const a0 = x + 18 + textWidth(nm) + 10, a1 = x + W0 - 18 - textWidth('RESULTS') - 10;
-    const nC = Math.max(0, Math.floor((a1 - a0 + 3) / 6)); const c0 = Math.round((a0 + a1) / 2 - (nC * 6 - 3) / 2);
-    for (let i = 0; i < nC; i++) {
-      const xx = c0 + i * 6; const lit = ((i - (T >> 2)) % 10 + 10) % 10 < 2; const cc = lit ? C.ice : C.line2;
-      rect(ctx, xx, y + 12, 1, 1, cc); rect(ctx, xx + 1, y + 13, 1, 1, cc); rect(ctx, xx + 2, y + 14, 1, 1, cc); rect(ctx, xx + 1, y + 15, 1, 1, cc); rect(ctx, xx, y + 16, 1, 1, cc);
+    // thin scan rule between the labels: a dim 1px line with a bright segment sweeping along it
+    if (a1 - a0 > 12) {
+      const L = a1 - a0; rect(ctx, a0, y + 15, L, 1, C.line2); rect(ctx, a0, y + 14, 1, 3, C.line); rect(ctx, a1 - 1, y + 14, 1, 3, C.line);
+      const sp = (T % (L + 24)) - 12; const s0 = Math.max(0, sp), s1 = Math.min(L, sp + 12);
+      if (s1 > s0) { rect(ctx, a0 + s0, y + 15, s1 - s0, 1, C.ice); }
     }
     this.mugshot(ctx, x + 14, y + 29, b.perfect ? C.gold : C.line, T);
     const LX = x + 60, RX = x + W0 - 18;
@@ -523,19 +562,21 @@ class Minigames implements Module {
     };
     if (t >= b.hitsAt) {
       row('NUMBER OF HITS', `${this.shown.hits}/${b.total}`, y + 32, C.gold, t <= b.hitsAt + b.roll);
-      // one pip per cat while counting; on a perfect the bar leaves once full (40/40 already says it)
-      if (!b.perfect || t < b.bonusAt) {
+      // one pip per cat; on a perfect the full bar turns lime and pulses (a highlight wave runs along it)
+      {
         const total = Math.max(1, b.total); const cw = Math.max(2, Math.min(4, Math.floor((RX - LX) / total) - 1));
-        const sw = total * (cw + 1) - 1; const sx = RX - sw;
+        const sw = total * (cw + 1) - 1; const sx = RX - sw; const lit = b.perfect && t >= b.bonusAt;
+        rect(ctx, sx - 1, y + 43, sw + 2, 5, C.ink);
         for (let i = 0; i < total; i++) {
-          const on = i < this.shown.hits; const c = on ? (b.perfect ? C.lime : C.gold) : C.deep;
-          rect(ctx, sx + i * (cw + 1), y + 44, cw, 3, c); rect(ctx, sx + i * (cw + 1), y + 44, cw, 1, on ? lighter(c) : C.line2);
+          const on = i < this.shown.hits; const wave = lit && Math.abs(i - ((T >> 1) % (total + 12) - 6)) < 3;
+          const c = on ? (lit ? (wave ? C.cream : C.lime) : C.gold) : C.indigo;
+          rect(ctx, sx + i * (cw + 1), y + 44, cw, 3, c); rect(ctx, sx + i * (cw + 1), y + 44, cw, 1, on ? lighter(c) : C.peri);
         }
       }
     }
     const prompt = (yy: number) => {
       if (t <= b.doneAt || (T >> 4) % 4 === 3) return;
-      hintRow(ctx, [[keys(this.g.input.lastDevice ?? 'keyboard').fire, 'CONTINUE']], cx, yy, b.perfect ? C.gold : C.line);
+      hintRow(ctx, [[keys(this.dev()).fire, 'CONTINUE']], cx, yy, b.perfect ? C.gold : C.line);
     };
     if (t >= b.bonusAt && !b.perfect) {
       row('BONUS', `${this.shown.bonus} PTS`, y + 58, C.pink, t < b.bonusAt + b.bonusRoll);
@@ -550,27 +591,15 @@ class Minigames implements Module {
     }
     if (t >= b.bonusAt && b.perfect) {
       const pt = t - b.bonusAt;
-      const word = 'PERFECT!'; const sc = 4; const full = textWidth(word, sc);
-      const wy = y + 54; const dy = pt < 8 ? -(8 - pt) * 4 : pt < 12 ? (12 - pt) - 2 : 0;
-      const left = Math.round(cx - full / 2);
-      // sparkles orbit the word BEHIND it, and never inside a text box (word, HITS row, mugshot, bonus chip)
-      const clear = [
-        { x: left - 4, y: wy - 4, w: full + 8, h: 7 * sc + 10 },
-        { x: LX - 4, y: y + 28, w: RX - LX + 8, h: 16 },
-        { x: x + 10, y: y + 25, w: 44, h: 44 },
-        { x: cx - 114, y: y + 94, w: 228, h: 23 },
-      ];
-      for (let i = 0; i < 6; i++) {
-        const a = (T / 20) + i * Math.PI / 3; const sx = Math.round(cx + Math.cos(a) * 124), sy = Math.round(wy + 15 + Math.sin(a) * 32);
-        if (clear.some(r => sx + 3 > r.x && sx - 3 < r.x + r.w && sy + 3 > r.y && sy - 3 < r.y + r.h)) continue;
-        const s = ((T >> 2) + i) & 1 ? 2 : 1; const c = i & 1 ? C.gold : C.text;
-        rect(ctx, sx - s, sy, s * 2 + 1, 1, c); rect(ctx, sx, sy - s, 1, s * 2 + 1, c);
-      }
-      // PERFECT! drops in with a bounce: solid gold, a single white sweep running across the letters
-      const sweep = ((pt >> 1) % 30) - 8;
-      for (let i = 0; i < word.length; i++) {
-        const dd = Math.abs(i - sweep); const c = pt < 3 || dd === 0 ? C.text : dd === 1 ? C.cream : C.gold;
-        this.outlined(ctx, word[i], left + i * 6 * sc + 10, wy + dy, c, C.burnt, sc, C.ink);
+      // PERFECT! in the display face: a 2-frame white impact at 3x, then it settles at 2x with a bounce;
+      // a 2-tick white glint every 90 ticks keeps it alive
+      const sc = pt < 2 ? 3 : 2; const wy = y + 56 - (pt < 2 ? 7 : 0) + (pt >= 2 && pt < 6 ? -(6 - pt) : 0);
+      const sch: Scheme = pt < 4 || (pt > 30 && pt % 90 < 2) ? 'flash' : 'gold';
+      display(ctx, 'PERFECT!', cx, wy, sch, { scale: sc, align: 'center' });
+      if (pt >= 2) {   // twinkling stars flanking the word (clear of every text box)
+        const half = displayWidth('PERFECT!', 2) / 2;
+        const sp: [number, number, string][] = [[-half - 16, 6, 'f'], [-half - 28, 20, 'l'], [half + 16, 8, 'c'], [half + 28, 22, 'f']];
+        sp.forEach(([dx, dy, tint], i) => { if (((T >> 3) + i) % 4 !== 3) star(ctx, cx + dx, wy + dy, ((T >> 2) + i) & 1, tint); });
       }
       if (pt > 20) {
         const sw = 220; chamferFill(ctx, cx - sw / 2, y + 98, sw, 15, C.burnt, 4); chamferLine(ctx, cx - sw / 2, y + 98, sw, 15, C.gold, 4);
