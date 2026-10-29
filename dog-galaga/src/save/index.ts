@@ -54,7 +54,7 @@ const NOTICE_SCENES = new Set(['play', 'bonus', 'title', 'map']);
 /**
  * Where the autosave floppy sits, on the HUD's inner grid. In play the right panel's text column runs
  * x = PF_X+PF_W+10 .. +118; the floppy is right-aligned to that column's edge.
- * - keyboard / gamepad: beside the FLIGHT TIME clock, bottom 6px above the panel's inner frame
+ * - keyboard / gamepad: right of the HUD footer row (DAY + flight clock end at x RX+98), bottom 6px above the panel's inner frame
  * - touch deck visible: docked on the ACTION header's rule, at its right end (where the rule's end tick is),
  *   with a tiny SAVED / IN RAM caption on the rule, so it reads as part of that panel and not a stray icon
  *   (the clock block is hidden there, and the bottom-right corner belongs to the TOOT button)

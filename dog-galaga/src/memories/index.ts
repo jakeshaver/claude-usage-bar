@@ -41,7 +41,7 @@ const PANEL_L = 515, PANEL_R = 637;
  * them all), so even the 17-photo final-sector backlog stays on the panel for under 8 s.
  */
 const PAGE0 = 120, PAGE = 110, SUMMARY = 76, SHOW_ALL = 4, SHOW_MAX = 3;
-/** after the card leaves, the newly lit MEMORIES boxes in SECTOR GOALS pulse for this long */
+/** after the card leaves, the newly lit boxes on the memory strip (y 239..256) pulse for this long */
 const GOAL_PULSE = 40;
 /** hit-stop on the carrier boop (ticks) and the white flash inside it */
 const STOP = 4;
@@ -49,17 +49,41 @@ const STOP = 4;
 const DEV = 34, DEV_PAGE = 16;
 /** the polaroid pops up out of the cat, hangs for a beat, then drifts */
 const POP = 40;
-/** right HUD panel: the card is 120 wide at x RX+4; tall layout y 119..289, compact (touch deck below) y 119..230 */
+/**
+ * right HUD panel: the card is 120 wide at x RX+4. Keyboard layout: ui's card slot (ui.hudSlots().card, the panel foot
+ * y 245..356, the compact 111px card) so QUEST, the threat slot and the album chip stay in view; touch keeps its spot
+ * y 119..230 (compact). The fallbacks below are used when ui has no hudSlots().
+ */
 const RX = PF_X + PF_W;
-const CARD_X = RX + 4, CARD_W = 120, CARD_Y = 119, CARD_H = 170, CARD_H_TOUCH = 111;
+const CARD_X = RX + 4, CARD_W = 120, CARD_Y_TOUCH = 119, CARD_H = 170, CARD_H_TOUCH = 111;
+let CARD_Y = 245, CARD_SLOT_H = 111;
 /** polaroid slot inside the card (64x62) */
 const SLOT_DX = 28, SLOT_DY = 19;
-/** where the album counter's polaroid icon sits in the panel (the RESCUED row): the photo files into it */
-const ALBUM_X = RX + 75, ALBUM_Y = 107;
+/** where the album counter's polaroid icon sits in the panel (the RESCUED row, just above the card): the photo files into it */
+let ALBUM_X = RX + 75, ALBUM_Y = 232;
 /** ui's album counter text (RESCUED row) and the clear box behind it, which memories repaints with the shown count */
-const ALBUM_TX = RX + 86, ALBUM_TY = 103;
-/** ui's SECTOR GOALS block (x1, y 230, w 108): its MEMORIES row of polaroid boxes */
-const GOALS_X = RX + 10, GOALS_W = 108, GOALS_ROW = 246;
+let ALBUM_TX = RX + 86, ALBUM_TY = 228;
+/** ui's memory strip (y 239..256, ui.hudSlots().strip): label at x+15, polaroid boxes right-aligned at row-1 */
+let GOALS_X = RX + 10, GOALS_W = 108, GOALS_ROW = 259;
+/** the filing route's top row and waypoints (rebuilt by useSlots) */
+let FLY_TOP = CARD_Y - 2;
+let ROUTE: [number, number, number][] = [];
+/** Read ui's right-panel anchors (falls back to the constants above) and lay the card out for keyboard or touch. */
+function useSlots(g: Game): { compact: boolean; touch: boolean; h: number } {
+  const touch = !!g.mods.ui?.touch?.visible?.(g);
+  let sl: any = null; try { sl = g.mods.ui?.hudSlots?.() ?? null; } catch { sl = null; }
+  const card = sl?.card, album = sl?.album, strip = sl?.strip;
+  CARD_SLOT_H = typeof card?.h === 'number' ? card.h : 111;
+  CARD_Y = touch ? CARD_Y_TOUCH : typeof card?.y === 'number' ? card.y : 245;
+  if (album) { ALBUM_X = album.x; ALBUM_Y = album.y; ALBUM_TX = album.tx; ALBUM_TY = album.ty; }
+  else { ALBUM_X = RX + 75; ALBUM_Y = 232; ALBUM_TX = RX + 86; ALBUM_TY = 228; }
+  // touch: the deck hides the RESCUED dock, so the photo just hops out over the card's top-right corner
+  if (touch) ALBUM_Y = CARD_Y_TOUCH - 12;
+  if (strip) { GOALS_X = strip.x; GOALS_W = strip.w; GOALS_ROW = strip.row; }
+  buildRoute();
+  const compact = touch || CARD_SLOT_H < CARD_H;
+  return { compact, touch, h: touch ? CARD_H_TOUCH : compact ? CARD_SLOT_H : CARD_H };
+}
 /** the playfield cue at the catch point */
 const CUE_LIFE = 48;
 /** kept for the calm() API (other modules may still ask whether this is a fair moment for an interruption) */
@@ -95,7 +119,7 @@ class Memories implements Module {
   overlayZ = 50;
   /** Always false now: memories never holds g.paused (the old cozy freeze is gone). Kept for old readers. */
   holding = false;
-  /** SECTOR GOALS pulse on the MEMORIES boxes this card just filled (drawn once the card has slid away) */
+  /** memory strip pulse on the boxes this card just filled (drawn once the card has slid away) */
   goalPulse: { t: number; ids: string[] } | null = null;
   /** a showcase stage froze the scene on its key frame */
   private stageFrozen = false;
@@ -436,13 +460,15 @@ class Memories implements Module {
     if (sc !== 'play' && sc !== 'bonus') return;
     if ((g.mods.ui?.menuOpen ?? 'none') !== 'none') return;
     if (!r && !this.goalPulse) return;
+    const lay = useSlots(g);
     ctx.save(); ctx.beginPath(); ctx.rect(RX, 0, W - RX, H); ctx.clip();   // never draws into the playfield
     try {
-      // the RESCUED counter reads the count that has landed so far (photos still on the card are not in yet)
+      // the RESCUED counter reads the count that has landed so far (photos still on the card are not in yet); the
+      // touch deck hides the RESCUED dock, so there is no album chip to repaint then
       const shown = this.albumShown(g);
-      if (shown !== g.state.memories.length) this.albumCount(g, ctx, shown, col('6'));
-      if (r && r.t > 0) this.panelIn(g, ctx, r);
-      if (this.goalPulse && !g.mods.ui?.touch?.visible?.(g)) this.goalsPulse(g, ctx, this.goalPulse);
+      if (shown !== g.state.memories.length && !lay.touch) this.albumCount(g, ctx, shown, col('6'));
+      if (r && r.t > 0) this.panelIn(g, ctx, r, lay);
+      if (this.goalPulse && !lay.touch) this.goalsPulse(g, ctx, this.goalPulse);
     } finally { ctx.restore(); }
   }
 
@@ -452,11 +478,10 @@ class Memories implements Module {
     text(ctx, `${n}/${g.content.memories.length}`, ALBUM_TX, ALBUM_TY, k);
   }
 
-  private panelIn(g: Game, ctx: Ctx, r: Reveal) {
+  private panelIn(g: Game, ctx: Ctx, r: Reveal, lay: { compact: boolean; touch: boolean; h: number }) {
     const reduce = !!g.state.settings.reduceMotion;
     const end = IN + r.hold, fileEnd = end + FILE + READ;   // READ: 'INTO THE ALBUM!' gets its moment before the card goes
-    const compact = !!g.mods.ui?.touch?.visible?.(g);
-    const h = compact ? CARD_H_TOUCH : CARD_H;
+    const { compact, h } = lay;
     // slide out from behind the panel's right frame (clipped to the panel's inner columns, so it never runs past
     // the frame or the canvas edge), settle, file the photo, slide back in behind the frame
     const HIDE = PANEL_R + 1;   // x at which even the card's 1px ink outline is behind the frame
@@ -473,7 +498,7 @@ class Memories implements Module {
       ctx.save(); ctx.beginPath(); ctx.rect(PANEL_L, 0, PANEL_R - PANEL_L, H); ctx.clip();
       try { this.card(g, ctx, r, m, page, x, CARD_Y, h, compact, filing); } finally { ctx.restore(); }
     }
-    if (filing) this.fileFlight(g, ctx, r, m.id, reduce);
+    if (filing) this.fileFlight(g, ctx, r, m.id, reduce, compact, lay.touch);
   }
 
   /**
@@ -588,11 +613,11 @@ class Memories implements Module {
    * exact sizes (64x62 polaroid, 32x31, then the 9x10 thumbnail) along a little arc; when it lands the counter
    * ticks up (it held the old count until now), its number flashes and the box sparkles.
    */
-  private fileFlight(g: Game, ctx: Ctx, r: Reveal, id: string, reduce: boolean) {
+  private fileFlight(g: Game, ctx: Ctx, r: Reveal, id: string, reduce: boolean, compact: boolean, touch: boolean) {
     const end = IN + r.hold; const k = r.t - end; const f = k / FILE;
     const lost = r.lost;
     if (!reduce && f < 1) {
-      const m = g.content.memories.find(q => q.id === id); const compact = !!g.mods.ui?.touch?.visible?.(g);
+      const m = g.content.memories.find(q => q.id === id);
       const tight = !!m && isTight(r, m, compact, false);
       const sp = flightSprite(f, tight);
       // a '+N MORE' page's slot held a fan of half polaroids: its photo lifts out at that size (no full-size pop)
@@ -606,9 +631,9 @@ class Memories implements Module {
       return;
     }
     // landed: the count ticks up now, the number flashes white then gold, the box outline flashes, four sparks pop
-    const a = reduce ? k : k - FILE; if (a < 0 || a > 16) return;
+    const a = reduce ? k : k - FILE; if (a < 0 || a > 16 || touch) return;
     if (a < 12) this.albumCount(g, ctx, this.albumShown(g), col(a < 4 ? '6' : lost ? 'l' : 'f'));
-    const bx = RX + 65, byy = 97, bw = 54, bh = 20;
+    const bx = ALBUM_X - 10, byy = ALBUM_Y - 10, bw = 54, bh = 20;
     ctx.fillStyle = col(a < 4 ? '6' : a < 10 ? (lost ? 'l' : 'f') : (lost ? 'm' : 'g'));
     if (a < 14 || (a & 1)) { ctx.fillRect(bx, byy, bw, 1); ctx.fillRect(bx, byy + bh - 1, bw, 1); ctx.fillRect(bx, byy, 1, bh); ctx.fillRect(bx + bw - 1, byy, 1, bh); }
     const d = 7 + (a >> 1);
@@ -616,7 +641,7 @@ class Memories implements Module {
   }
 
   /**
-   * After the card has gone, the SECTOR GOALS row it was hiding gets its moment: the MEMORIES label blinks gold and
+   * After the card has gone, the memory strip row (y 239..256) it was hiding gets its moment: the MEMORIES label blinks gold and
    * each box this card just lit gets a blinking 1px frame and a spark (ui's layout: box x = right edge - 5 - (n - i) * 9 + 1).
    */
   private goalsPulse(g: Game, ctx: Ctx, p: { t: number; ids: string[] }) {
@@ -644,8 +669,12 @@ function bundleHold(n: number) { const { shown, pages } = bundlePages(n); return
  * there, rises past the header to the RIGHT of the kicker, tucks along the gap between the card top and the counter
  * row, and pops up into the album icon. Waypoints after the slot centre, with the eased fraction each one is reached.
  */
-const FLY_X = CARD_X + 96, FLY_TOP = CARD_Y - 2;   // thumbnail rows 111..122: clear of the counter text (..109) and the kicker (124..)
-const ROUTE: [number, number, number][] = [[FLY_X, CARD_Y + 31, 0.36], [FLY_X, FLY_TOP, 0.62], [ALBUM_X + 7, FLY_TOP, 0.8], [ALBUM_X, ALBUM_Y, 1]];
+const FLY_X = CARD_X + 96;   // FLY_TOP = card top - 2: clear of the counter text above and the kicker below
+function buildRoute() {
+  FLY_TOP = CARD_Y - 2;
+  ROUTE = [[FLY_X, CARD_Y + 31, 0.36], [FLY_X, FLY_TOP, 0.62], [ALBUM_X + 7, FLY_TOP, 0.8], [ALBUM_X, ALBUM_Y, 1]];
+}
+buildRoute();
 /** the photo stays its full (or tight: half) slot size and only lifts while f < LIFT_F; half until HALF_F; then the thumbnail */
 const LIFT_F = 0.2, HALF_F = 0.42;
 /** where the filing photo is at flight fraction f (its centre; the slot photo's lift while it is still in the slot) */
