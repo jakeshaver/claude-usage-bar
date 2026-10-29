@@ -4,7 +4,7 @@ import { flame } from '../player/draw';
 import { POM_NOZZLES } from '../player/pom-art';
 import { W, H, PF_X, PF_W } from '../core/game';
 import { text, wrap, textWidth } from '../art/font';
-import { drawSprite, spriteCanvas, frameCount, SHEETS } from '../art/sprite';
+import { drawSprite, spriteCanvas, spriteRows, frameCount, SHEETS } from '../art/sprite';
 import { KEY, col } from '../core/palette';
 import { C, frame, bar, segBar, menu, scanlines, header, icon, rect, line, ring, disc, dither, lightSpans, arrow, keycap, hintRow, hintWidth, chamferFill, chamferLine, darkOf, lighter, keys, ticks, dimRect, type Device, type Row } from './draw';
 import { logoWord, drawLogo, PINK, CYAN, GOLD } from './logo';
@@ -138,7 +138,11 @@ const SND_ON = ['...#...w.', '..##.w..w', '####..w.w', '####..w.w', '####..w.w',
 const SND_X = 613, SND_Y = 7;
 const SND_OFF = ['...#.....', '..##.....', '####.x.x.', '####..x..', '####.x.x.', '..##.....', '...#.....'];
 /** Ending timeline: Pom's flight takes END_FLY ticks, each pup trails END_LAG ticks behind the previous one. */
-const END_FLY = 360, END_LAG = 26, END_MAX_PUPS = 16, END_WIN = 204, END_WIN_TOP = 4, END_LINE = 24, END_FADE = 27;
+const END_ROWS = 6;
+/** credits window bottom (y): 8px above a sky band seam (true sunset 158, good night 150), so the roll slides up out
+ *  from behind the seam's stepped lines, well above the skyline (never a cut through buildings) */
+const END_WIN_BOT = { true: 150, good: 142 };
+const END_FLY = 360, END_LAG = 26, END_MAX_PUPS = 16, END_WIN_TOP = 4, END_LINE = 24, END_FADE = 27;
 /** Ending diorama: Pom's spot on the lawn (2x sitting pose centre). */
 const END_POM_X = 320, END_POM_Y = 292;
 /** Good ending: the two tall lamps on poles along the lawn edge (their glow is drawn behind the fence). */
@@ -209,22 +213,26 @@ const TOAST_CAP = 2, TOAST_COLS = Math.floor((PF_W - 8 - 30 + 1) / 6);
 /** Ticks a NEW QUEST / PUPPY RESCUED pill waits off screen for its counter (quest toast gap is 36). */
 const TOAST_PARTNER_WAIT = 42;
 /**
- * Right HUD rows (y): five evenly spaced blocks and a footer. SECTOR (10), WAVE, QUEST and the threat slot (HUD_TY,
- * 72px: boss armor / bonus / HOSTILES / NEXT WAVE) are the essentials; RESCUED (header, pup + album chips, this
- * sector's photo strip) and the stage flags make the lower dock; the DAY + flight clock footer sits on the last row.
+ * Right HUD rows (y): SECTOR (10), WAVE, QUEST and the threat slot (HUD_TY, 72px: boss armor / bonus / HOSTILES /
+ * NEXT WAVE) are the essentials. Under them one compact RESCUED line (pup count, album count, this sector's photo
+ * boxes: icons only, no header). The panel foot (y 245..356) is the memory card's own slot: the stage flags and the
+ * DAY + flight clock footer live there only while no card is up (nothing else is ever drawn in the slot).
  */
-const HUD_Y = { wave: 54, quest: 88, rescued: 212, strip: 252, flags: 296, foot: 336 };
+const HUD_Y = { wave: 54, quest: 88, rescued: 210, flags: 292, foot: 336 };
 const HUD_TY = 128;
+/** compact RESCUED line chips (x offsets from the panel's text column): pup | album | this sector's photos */
+const RES_PUP = 0, RES_ALB = 35, RES_ALB_W = 50, RES_BOX = 88, RES_BOX_R = 112, RES_H = 16;
 /**
  * Anchors other modules draw against (ui.hudSlots()): the memory card's own slot is the panel foot (y 245..356, the
- * compact 111px card) under the RESCUED chips, so QUEST and the threat slot (..200) and the album chip the photo files
- * into (just above the card) stay in view; the photo strip row memories pulses after a reveal (label x+15, boxes
- * right-aligned at row-1). The strip, the stage flags and the clock footer are what the card covers while it is up.
+ * compact 111px card), so QUEST, the threat slot (..200) and the RESCUED line (210..226, with the album chip the
+ * photo files into) stay in view. `strip` describes the photo boxes on the RESCUED line (boxes right-aligned at
+ * x + w - 5, row - 1); its x sits past the panel's right edge so memories' 'MEMORIES' label repaint (x + 15) lands
+ * outside its own clip: the compact line has no label, only the boxes pulse.
  */
 const HUD_SLOTS = {
   card: { x: PF_X + PF_W + 4, y: 245, w: 120, h: 111 },
-  album: { x: PF_X + PF_W + 75, y: HUD_Y.rescued + 20, tx: PF_X + PF_W + 86, ty: HUD_Y.rescued + 16 },
-  strip: { x: PF_X + PF_W + 10, w: 108, row: HUD_Y.strip + 7 },
+  album: { x: PF_X + PF_W + 10 + RES_ALB + 8, y: HUD_Y.rescued + 8, tx: PF_X + PF_W + 10 + RES_ALB + 17, ty: HUD_Y.rescued + 5 },
+  strip: { x: W + 20, w: PF_X + PF_W + 10 + RES_BOX_R - (W + 20), row: HUD_Y.rescued + 5 },
 };
 /** News that costs the player something: drawn with a peri frame and a pink cross, never the gold star. */
 const BAD_NEWS = /MISSED|EXPIRED|CLOSED|CLOSES|FORFEIT|SEALED|LOCKED|BLOCKED|CONTENT ISSUE|CHEWED/;
@@ -714,7 +722,7 @@ class UI implements Module {
     const sc = g.state.scene; this.rows = []; this.bossBarOn = false;
     // the journal paints a full-bleed backdrop: skip the scene underneath (saves ~5 ms a frame)
     if (this.menuOpen === 'journal' && g.mods.journal?.draw) { g.mods.journal.draw(g, ctx); this.touch.draw(g, ctx, this.t); return; }
-    if (sc === 'play' || sc === 'bonus' || sc === 'dialogue') { this.hud(g, ctx); if (sc === 'dialogue') this.dialogueBox(g, ctx); if (this.demo) this.demoOverlay(ctx); }
+    if (sc === 'play' || sc === 'bonus' || sc === 'dialogue') { if (sc === 'play') this.waveBanner(g, ctx); this.hud(g, ctx); if (sc === 'dialogue') this.dialogueBox(g, ctx); if (this.demo) this.demoOverlay(ctx); }
     else if (sc === 'title') this.title(g, ctx);
     else if (sc === 'map') this.map(g, ctx);
     else if (sc === 'ending') this.ending(g, ctx);
@@ -772,6 +780,25 @@ class UI implements Module {
     });
   }
 
+  /**
+   * The between-waves banner (world prints 'WAVE n / N' with a 1px shadow only, so turds and pickups read through its
+   * strokes): ui redraws the same words on a solid ink plate over it, the same frame and timing, above every sprite.
+   */
+  waveBanner(g: Game, ctx: CanvasRenderingContext2D) {
+    const W0 = g.mods.world as any; if (!W0 || W0.phase !== 'between' || W0.trans || !(W0.timer > 20)) return;
+    if (this.menuOpen !== 'none' || g.state.waveIndex <= 0) return;
+    const a = W0.area?.(); if (!a) return;
+    const left = a.waves.length - g.state.waveIndex;
+    const s = left > 0 ? `WAVE ${g.state.waveIndex + 1} / ${a.waves.length}` : (a.boss ? 'WARNING: BIG CAT INBOUND' : 'SECTOR CLEAR');
+    const cx = PF_X + PF_W / 2, tw = Math.min(PF_W - 16, textWidth(s, 2)), pw = tw + 24, ph = 26;
+    const px = Math.round(cx - pw / 2), py = 160 - 6;
+    const edge = left > 0 ? C.line : C.hot;
+    chamferFill(ctx, px - 1, py - 1, pw + 2, ph + 2, C.ink, 5);
+    chamferFill(ctx, px, py, pw, ph, C.night, 4); chamferLine(ctx, px, py, pw, ph, edge, 4);
+    rect(ctx, px + 6, py, 12, 1, lighter(edge)); rect(ctx, px + pw - 18, py + ph - 1, 12, 1, lighter(edge));
+    text(ctx, s, cx, 160, left > 0 ? '#4ef2e6' : '#ff5a4f', { align: 'center', scale: 2, shadow: '#0b0a14' });
+  }
+
   // ---------------- HUD ----------------
   panel(ctx: CanvasRenderingContext2D, x: number, accent: string) {
     rect(ctx, x, 0, PW, H, C.panel);
@@ -802,8 +829,8 @@ class UI implements Module {
     header(ctx, 'SCORE', x0, 50, w0, accL, t);
     num(ctx, String(Math.min(this.shownScore, 99999999)).padStart(8, '0'), x0 + 1, 61, C.text, { hi: C.ice, shadow: C.ink });
     icon(ctx, 'star', x0, 78, C.gold); text(ctx, 'HI', x0 + 10, 78, C.dim);
-    // the attract demo shows the player's real best (its own run never counts toward it)
-    text(ctx, String(this.demo ? this.demo.real.hiScore ?? 0 : s.hiScore).padStart(8, '0'), x0 + w0, 78, C.gold, { align: 'right' });
+    // the attract demo: the player's real best, or the demo's own score once it passes it (HI never reads below SCORE)
+    text(ctx, String(this.demo ? Math.max(this.demo.real.hiScore ?? 0, Math.min(this.shownScore, 99999999)) : s.hiScore).padStart(8, '0'), x0 + w0, 78, C.gold, { align: 'right' });
     // power-up bay: four fixed slots (lit when active, silhouettes when empty); labels stay readable
     const PY = 100;
     header(ctx, 'POWER-UPS', x0, PY, w0, C.line, t);
@@ -921,7 +948,11 @@ class UI implements Module {
     } else { text(ctx, 'NO ACTIVE QUEST', x1, QY + 11, C.dim); icon(ctx, 'flag', x1, QY + 22, C.peri); text(ctx, 'FLY ON, CAPTAIN', x1 + 10, QY + 22, C.peri); }
     // threat slot TY..TY+72 (boss armor, bonus tally, live breed roster, or the next formation preview)
     const TY = HUD_TY;
-    if (B0) this.bossBlock(g, ctx, B0, x1, TY, w0);
+    const KO = !!A?.boss && g.mods.interaction?.bossDown === A.boss;
+    // the Big Cat was knocked out: its panel stays up (TAMED) through the KO stagger, the finale and the outro, never
+    // a stale 0% armor or a NEXT: BIG CAT preview mid-KO
+    if (KO) this.tamedBlock(g, ctx, B0, A!.boss!, x1, TY, w0);
+    else if (B0) this.bossBlock(g, ctx, B0, x1, TY, w0);
     else if (g.state.scene === 'bonus') {
       // static stage info: the live HITS counter lives in the playfield (minigames), never a second tally here
       header(ctx, 'BONUS STAGE', x1, TY, w0, C.gold, t, true);
@@ -932,31 +963,31 @@ class UI implements Module {
         text(ctx, 'BOOP THEM', x1 + 42, TY + 38, C.gold); text(ctx, 'ALL!', x1 + 42, TY + 47, C.gold);
       }
     } else this.roster(g, ctx, x1, TY, w0);
-    // the lower dock (hidden while the touch deck owns the panel below y 236; the pause card still lists all of it):
-    // RESCUED header, the pup + album chips (memories files each new photo into the album chip), this sector's photos
+    // the compact RESCUED line (hidden while the touch deck owns the panel below y 236; the pause card still lists
+    // all of it): pup count, album count (memories files each new photo into this chip), this sector's photo boxes
     if (!touch) {
-      const RY = HUD_Y.rescued;
-      header(ctx, 'RESCUED', x1, RY, w0, C.gold, t);
-      const cy = RY + 11, ch = 18;
-      chamferFill(ctx, x1, cy, 52, ch, C.night, 2); drawSprite(ctx, 'pup', x1 + 9, cy + 9);
-      text(ctx, `X${s.inventory.pups ?? 0}`, x1 + 20, cy + 5, C.gold);
-      chamferFill(ctx, x1 + 56, cy, w0 - 56, ch, C.night, 2); drawSprite(ctx, 'pk_memory', x1 + 65, cy + 9);
-      text(ctx, `${g.mods.memories?.albumShown?.() ?? s.memories.length}/${g.content.memories.length}`, x1 + 76, cy + 5, C.text);
+      const RY = HUD_Y.rescued, ty = RY + 5;
+      dither(ctx, x1, RY - 6, w0, 1, C.indigo, 'sparse');
+      chamferFill(ctx, x1 + RES_PUP, RY, 32, RES_H, C.night, 2); chamferLine(ctx, x1 + RES_PUP, RY, 32, RES_H, darkOf(C.gold), 2); drawSprite(ctx, 'pup', x1 + RES_PUP + 9, RY + 8);
+      text(ctx, `X${s.inventory.pups ?? 0}`, x1 + RES_PUP + 18, ty, C.gold);
+      chamferFill(ctx, x1 + RES_ALB, RY, RES_ALB_W, RES_H, C.night, 2); chamferLine(ctx, x1 + RES_ALB, RY, RES_ALB_W, RES_H, C.indigo, 2); drawSprite(ctx, 'pk_memory', x1 + RES_ALB + 8, RY + 8);
+      text(ctx, `${g.mods.memories?.albumShown?.() ?? s.memories.length}/${g.content.memories.length}`, x1 + RES_ALB + 17, ty, C.text);
       if (A) this.memoryStrip(g, ctx, A, x1, w0, accS);
-      // compact footer: Galaga's stage flags, then local time + flight time on one row (the full clock and the
-      // sector goals live in the pause menu's sector card)
-      const tod = s.tod; const tc = tod === 'night' ? C.violet : tod === 'dusk' ? C.pink : tod === 'dawn' ? C.orange : C.gold;
-      this.sectorFlags(g, ctx, x1, HUD_Y.flags, w0);
-      dither(ctx, x1, HUD_Y.foot - 9, w0, 1, C.indigo, 'sparse');
-      const fy = HUD_Y.foot;
-      icon(ctx, tod === 'night' ? 'moon' : tod === 'dusk' ? 'dusk' : tod === 'dawn' ? 'dawn' : 'sun', x1, fy, tc); text(ctx, tod.toUpperCase(), x1 + 10, fy, tc);
-      const mm = Math.floor(s.stats.playTicks / 3600), ss = Math.floor(s.stats.playTicks / 60) % 60;
-      this.clock(ctx, x1 + 50, fy, C.line, g.paused ? 0 : (s.stats.playTicks >> 4) % 8);
-      text(ctx, `${String(Math.min(99, mm)).padStart(2, '0')}:${String(ss).padStart(2, '0')}`, x1 + 60, fy, C.pale);
+      // the card slot: stage flags + DAY / flight clock footer only while no memory card is up (the slot is the card's)
+      if (!g.mods.memories?.panelCard?.()) {
+        const tod = s.tod; const tc = tod === 'night' ? C.violet : tod === 'dusk' ? C.pink : tod === 'dawn' ? C.orange : C.gold;
+        this.sectorFlags(g, ctx, x1, HUD_Y.flags, w0);
+        dither(ctx, x1, HUD_Y.foot - 9, w0, 1, C.indigo, 'sparse');
+        const fy = HUD_Y.foot;
+        icon(ctx, tod === 'night' ? 'moon' : tod === 'dusk' ? 'dusk' : tod === 'dawn' ? 'dawn' : 'sun', x1, fy, tc); text(ctx, tod.toUpperCase(), x1 + 10, fy, tc);
+        const mm = Math.floor(s.stats.playTicks / 3600), ss = Math.floor(s.stats.playTicks / 60) % 60;
+        this.clock(ctx, x1 + 50, fy, C.line, g.paused ? 0 : (s.stats.playTicks >> 4) % 8);
+        text(ctx, `${String(Math.min(99, mm)).padStart(2, '0')}:${String(ss).padStart(2, '0')}`, x1 + 60, fy, C.pale);
+      }
     }
     // boss armor bar docked along the top edge of the playfield, where the player's eyes are
     this.bossBarOn = !!B0 && typeof B0.hp === 'number';
-    if (this.bossBarOn) this.bossTopBar(ctx, B0);
+    if (this.bossBarOn) this.bossTopBar(ctx, B0, KO);
     // playfield frame edges: bright inner line, dark outer glow, tick marks
     rect(ctx, PF_X - 1, 0, 1, H, C.deep); rect(ctx, PF_X, 0, 1, H, C.line);
     rect(ctx, RX - 1, 0, 1, H, C.line); rect(ctx, RX, 0, 1, H, C.deep);
@@ -982,8 +1013,23 @@ class UI implements Module {
     for (let i = 0; i < 3; i++) chamferFill(ctx, x1 + 30 + i * 9, y + 47, 7, 5, i < (p > 0.6 ? 1 : p > 0.3 ? 2 : 3) ? mc : C.indigo, 1);
     text(ctx, mood, x1 + w0, y + 46, mc, { align: 'right' });
   }
+  /** Threat slot after the Big Cat's KO: its name, a lime TAMED plate and a sleepy mood row (same rows as bossBlock). */
+  tamedBlock(g: Game, ctx: CanvasRenderingContext2D, B0: any, bossId: string, x1: number, y: number, w0: number) {
+    const t = this.t;
+    header(ctx, 'BIG CAT', x1, y, w0, C.lime, t);
+    const nm = String(B0?.def?.name ?? g.content.enemies.find(e => e.id === bossId)?.name ?? 'BIG CAT').toUpperCase();
+    const nl = textWidth(nm) <= w0 ? [nm] : (balancePx(nm, w0, textWidth) ?? wrapPx(nm, w0, textWidth).slice(0, 2));
+    nl.forEach((l, i) => text(ctx, l, x1, y + 11 + i * 9, C.text, { shadow: C.ink }));
+    y += (nl.length - 1) * 9;
+    chamferFill(ctx, x1, y + 21, w0, 13, C.ink, 3); chamferFill(ctx, x1 + 1, y + 21, w0 - 2, 12, C.lime, 3);
+    icon(ctx, 'tick', x1 + 6, y + 24, C.ink); text(ctx, 'TAMED', x1 + w0 / 2 + 5, y + 24, C.ink, { align: 'center' });
+    text(ctx, 'MOOD', x1, y + 40, C.dim);
+    const z = (t >> 4) % 4;
+    for (let i = 0; i < 3; i++) text(ctx, 'Z', x1 + 32 + i * 8, y + 40 - (i === z ? 1 : 0), i < z ? C.violet : C.peri);
+    text(ctx, 'SLEEPY', x1 + w0, y + 40, C.violet, { align: 'right' });
+  }
   /** Thin chamfered boss bar along the top edge of the playfield (Galaga-style readability). */
-  bossTopBar(ctx: CanvasRenderingContext2D, B0: any) {
+  bossTopBar(ctx: CanvasRenderingContext2D, B0: any, ko = false) {
     const t = this.t; const x = PF_X + 40, w = PF_W - 80, y = 3, h = 15;
     const p = Math.max(0, B0.hp / Math.max(1, B0.maxHp));
     chamferFill(ctx, x - 1, y - 1, w + 2, h + 2, C.ink, 5);
@@ -992,6 +1038,12 @@ class UI implements Module {
     icon(ctx, 'cat', x + 7, y + 4, C.hot);
     const nm = (B0.def?.name ?? 'BIG CAT').toUpperCase(); text(ctx, nm, x + 17, y + 4, C.text, { shadow: C.ink });
     const bx = x + 17 + textWidth(nm) + 8, bw = x + w - 8 - bx;
+    if (ko) {
+      // knocked out: the empty armor bar becomes a lime TAMED plate (same as the side panel), never a dead 0% bar
+      chamferFill(ctx, bx - 1, y + 3, bw + 2, 9, C.ink, 2); chamferFill(ctx, bx, y + 3, bw, 8, C.lime, 2);
+      icon(ctx, 'tick', bx + 4, y + 4, C.ink); text(ctx, 'TAMED', bx + bw / 2 + 4, y + 4, C.ink, { align: 'center' });
+      return;
+    }
     rect(ctx, bx - 1, y + 4, bw + 2, 7, C.ink);
     bar(ctx, bx, y + 5, bw, 5, p, p < 0.3 && (t >> 3) % 2 ? C.pink : C.hot, C.plum);
     for (let i = 1; i < 10; i++) rect(ctx, bx + Math.round(i * bw / 10), y + 5, 1, 5, C.ink);
@@ -1143,20 +1195,17 @@ class UI implements Module {
     this.pupHere.set(areaId, v); return v;
   }
   /**
-   * This sector's photos on one slim strip in the RESCUED dock (y 254..271): a polaroid box per memory placed here,
-   * lit once it is in the album. Its row (label x+15, boxes right-aligned, HUD_SLOTS.strip) is the one memories pulses after a
-   * reveal card. The lost pup and the Big Cat status live in the pause menu's sector card.
+   * This sector's photos as boxes in the last chip of the RESCUED line: one polaroid box per memory placed here, lit
+   * once it is in the album (right-aligned at HUD_SLOTS.strip, the boxes memories pulses after a reveal card). The
+   * lost pup and the Big Cat status live in the pause menu's sector card.
    */
-  memoryStrip(g: Game, ctx: CanvasRenderingContext2D, A: { id: string }, x: number, w: number, glow: string) {
-    const s = g.state; const y = HUD_Y.strip, h = 18, ty = y + 7;
+  memoryStrip(g: Game, ctx: CanvasRenderingContext2D, A: { id: string }, x: number, _w: number, glow: string) {
+    const s = g.state; const y = HUD_Y.rescued, ty = HUD_SLOTS.strip.row, R = HUD_SLOTS.strip.x + HUD_SLOTS.strip.w;
     const mems = (g.mods.memories?.placed?.(A.id) ?? g.content.memories.filter(m => m.area === A.id)) as { id: string }[];
-    const got = mems.filter(m => s.memories.includes(m.id)).length;
-    chamferFill(ctx, x, y, w, h, C.ink, 3); chamferLine(ctx, x, y, w, h, darkOf(glow), 3);
-    icon(ctx, 'photo', x + 5, ty, got && got === mems.length ? C.gold : C.violet);
-    text(ctx, 'MEMORIES', x + 15, ty, mems.length ? C.pale : C.dim);
-    if (!mems.length) text(ctx, '--', x + w - 5, ty, C.peri, { align: 'right' });
+    chamferFill(ctx, x + RES_BOX, y, RES_BOX_R - 4 - RES_BOX, RES_H, C.ink, 2); chamferLine(ctx, x + RES_BOX, y, RES_BOX_R - 4 - RES_BOX, RES_H, darkOf(glow), 2);
+    if (!mems.length) { text(ctx, '--', x + RES_BOX + 4, ty, C.peri); return; }
     mems.forEach((m, i) => {
-      const on = s.memories.includes(m.id); const px = x + w - 5 - (mems.length - i) * 9 + 1;
+      const on = s.memories.includes(m.id); const px = R - 5 - (mems.length - i) * 9 + 1;
       chamferFill(ctx, px, ty - 1, 8, 9, on ? C.gold : C.night, 1); chamferLine(ctx, px, ty - 1, 8, 9, on ? C.cream : C.peri, 1);
       if (on) rect(ctx, px + 2, ty + 1, 4, 3, C.burnt);
     });
@@ -1371,9 +1420,14 @@ class UI implements Module {
     const idleK = smooth((this.titleT - TITLE_IN) / 40); const ph = (this.titleT - TITLE_IN) / 46;
     const sway = Math.round(Math.sin(ph) * 6 * idleK); const vel = Math.cos(ph) * idleK; const lean = vel > 0.6 ? 1 : vel < -0.6 ? -1 : 0;
     const px = W / 2 + sway;
-    if (rise > 0) for (let k = 0; k < 6; k++) { const ly2 = 171 + hov + rise + 30 + k * 9; const len = 4 + Math.min(40, rise >> 2) - k * 4; if (len > 0 && ly2 < H) { rect(ctx, px - 23, ly2, 2, len, k % 2 ? C.gold : C.cream); rect(ctx, px + 21, ly2, 2, len, k % 2 ? C.gold : C.cream); } }
     if (rise < 40) { const shw = 22 - hov - (rise >> 2); dither(ctx, px - shw, 221, shw * 2, 4, C.ink, 'check'); rect(ctx, px - shw + 5, 222, shw * 2 - 10, 2, C.ink); }
-    this.heroPom(ctx, px, 171 + hov + rise, t, lean);
+    const hero = () => {
+      if (rise > 0) for (let k = 0; k < 6; k++) { const ly2 = 171 + hov + rise + 30 + k * 9; const len = 4 + Math.min(40, rise >> 2) - k * 4; if (len > 0 && ly2 < H) { rect(ctx, px - 23, ly2, 2, len, k % 2 ? C.gold : C.cream); rect(ctx, px + 21, ly2, 2, len, k % 2 ? C.gold : C.cream); } }
+      this.heroPom(ctx, px, 171 + hov + rise, t, lean);
+    };
+    // while she zooms in from below she flies in front of the menu (never cut in half by its frame); settled, the
+    // menu sits in front of her lower jets as before
+    if (rise <= 0) hero();
     // menu: chamfered neon frame with targeting ticks, like the HUD
     const items = this.titleItems(); const off = this.titleDisabled();
     const mh = items.length * 15 + 14; const my = 230; const mw = 176, mx = W / 2 - mw / 2;
@@ -1399,6 +1453,7 @@ class UI implements Module {
     const k = keys(this.dev()); const hp: [string, string][] = [[k.move, 'CHOOSE'], [k.ok, 'SELECT']]; const hw = hintWidth(hp) + 20;
     chamferFill(ctx, W / 2 - hw / 2, 333, hw, 17, C.ink, 4); chamferLine(ctx, W / 2 - hw / 2, 333, hw, 17, C.indigo, 4);
     hintRow(ctx, hp, W / 2, 338, C.line);
+    if (rise > 0) hero();
   }
 
   // ---------------- sector map ----------------
@@ -1720,7 +1775,7 @@ class UI implements Module {
     if (this.plan && this.plan.key === key) return this.plan;
     const fly = END_FLY + Math.max(0, shown - 1) * END_LAG + 90;
     const credits = this.creditItems(g, shown);
-    const travel = credits.reduce((a, c) => a + c.h, 0) + END_WIN;
+    const travel = credits.reduce((a, c) => a + c.h, 0) + END_WIN_BOT[kind] - END_WIN_TOP;
     // the roll is paced so the whole ending (flight, roll, typed story) lands on the card by tick ~1990
     const lines = e ? e.text.flatMap(t => [...wrap(t, 58), '']).slice(0, -1) : [];
     const reveal = (lines.length + 1) * END_LINE;
@@ -2004,7 +2059,7 @@ class UI implements Module {
         if (u < 1) { const [px, py] = this.homePath(u); draws.push({ y: py + 1, f: () => draw2x(ctx, 'end_pup_sit', px + 18, py - 26 + (((T >> 3) % 2)), { recolor: coat, flipX: true }) }); continue; }
         const k = Math.min(1, (T - END_FLY) / 24); const x = Math.round(END_POM_X + 18 + (slot.x - END_POM_X - 18) * k), y = Math.round((END_POM_Y - 26) + (slot.base - 16 - (END_POM_Y - 26)) * k - Math.sin(k * Math.PI) * 22);
         if (k >= 1) home++;
-        draws.push({ y: slot.base, f: () => draw2x(ctx, 'end_pup_sit', x, y, { recolor: coat, flipX: slot.flip, frame: k >= 1 && ((T >> 4) + i) % 4 === 0 ? 1 : 0 }) });
+        draws.push({ y: slot.base, f: () => this.behindPom(ctx, x, y, 20, 20, c => draw2x(c, 'end_pup_sit', x, y, { recolor: coat, flipX: slot.flip, frame: k >= 1 && ((T >> 4) + i) % 4 === 0 ? 1 : 0 })) });
         continue;
       }
       const lagI = rider ? i : i + 1;
@@ -2027,7 +2082,7 @@ class UI implements Module {
         const ox = L.cx + Math.sin(a) * L.rx, oy = L.cy - Math.cos(a) * L.ry; const k = smooth(run / 30);
         const px = Math.round(slot.x + (ox - slot.x) * k), base = Math.round(slot.base + (oy - slot.base) * k);
         const hop = -Math.abs(Math.round(Math.sin(run * 0.3) * 3)); const left = k < 1 ? ox < slot.x : Math.cos(a) < 0;
-        draws.push({ y: base, f: () => draw2x(ctx, 'end_pup_stand', px, base - 14 + hop, { recolor: coat, flipX: left, frame: (T >> 2) % 2 }) }); continue;
+        draws.push({ y: base, f: () => this.behindPom(ctx, px, base - 14 + hop, 20, 16, c => draw2x(c, 'end_pup_stand', px, base - 14 + hop, { recolor: coat, flipX: left, frame: (T >> 2) % 2 })) }); continue;
       }
       if (pose === 'back') { draws.push({ y: slot.base, f: () => draw2x(ctx, 'end_pup_back', slot.x + 2, slot.base - 13, { recolor: coat, frame: (T >> 3) % 2 }) }); continue; }
       if (pose === 'bow') {
@@ -2081,6 +2136,36 @@ class UI implements Module {
       chamferFill(ctx, W / 2 - pw / 2, 340, pw, 17, C.ink, 4); chamferLine(ctx, W / 2 - pw / 2, 340, pw, 17, C.peri, 4);
       hintRow(ctx, pairs, W / 2, 345, C.text);
     } else this.endingCard(g, ctx, P, T - P.card);
+  }
+  /** Pom's sitting silhouette as one solid span per sprite row (union of every frame; tail-to-body gaps filled). */
+  private pomHull: [number, number][] | null = null;
+  private occCv: HTMLCanvasElement | null = null;
+  /**
+   * Draw a pup that is behind the seated Pom (lap runners, the rider hopping down): composed offscreen, then every
+   * pixel inside her row spans is cut out, so a pup never shows through the gaps of her silhouette (between tail and
+   * body, under her raised arm). (cx, cy) +- (hw, hh) bounds the pup.
+   */
+  behindPom(ctx: CanvasRenderingContext2D, cx: number, cy: number, hw: number, hh: number, f: (c: CanvasRenderingContext2D) => void) {
+    const sc = spriteCanvas('end_pom_sit', 0);
+    const x0 = Math.round(cx - hw), y0 = Math.round(cy - hh), w = hw * 2, h = hh * 2;
+    if (!sc || typeof document === 'undefined' || x0 + w < END_POM_X - sc.width || x0 > END_POM_X + sc.width) { f(ctx); return; }
+    if (!this.pomHull) {
+      const hull: [number, number][] = [];
+      for (let fr = 0; fr < frameCount('end_pom_sit'); fr++) (spriteRows('end_pom_sit', fr) ?? []).forEach((r, y) => {
+        const a = r.search(/[^.]/), b = r.length - 1 - [...r].reverse().join('').search(/[^.]/);
+        if (a < 0) return; const o = hull[y]; hull[y] = o ? [Math.min(o[0], a), Math.max(o[1], b)] : [a, b];
+      });
+      this.pomHull = hull;
+    }
+    if (!this.occCv) { this.occCv = document.createElement('canvas'); this.occCv.width = W; this.occCv.height = H; }
+    const c = this.occCv.getContext('2d'); if (!c) { f(ctx); return; }
+    c.imageSmoothingEnabled = false; c.globalCompositeOperation = 'source-over'; c.clearRect(x0, y0, w, h);
+    f(c);
+    c.globalCompositeOperation = 'destination-out'; c.fillStyle = '#000';
+    const px = Math.round(END_POM_X - sc.width), py = Math.round(END_POM_Y - sc.height);
+    this.pomHull.forEach((sp, r) => { if (sp) c.fillRect(px + sp[0] * 2, py + r * 2, (sp[1] - sp[0] + 1) * 2, 2); });
+    c.globalCompositeOperation = 'source-over';
+    ctx.drawImage(this.occCv, x0, y0, w, h, x0, y0, w, h);
   }
   /** Party set dressing (true ending): bunting from the roof to the tree, balloons on the fence, and the Empress at the
    *  picnic table with a cake and her hedgehog in a party hat. Table + Empress join the y-sorted draw list. */
@@ -2162,19 +2247,19 @@ class UI implements Module {
       rect(ctx, x, Math.round(y), (i + (T >> 3)) % 2 ? 2 : 1, (i + (T >> 3)) % 2 ? 1 : 2, cs[i % cs.length]);
     }
   }
-  /** Credits roll in the sky window (y 4..208, its lower edge down over the dark skyline, below where the portraits
-   *  pass): drawn to an offscreen, then faded at both edges in solid palette steps (stepFade). */
+  /** Credits roll in the sky window (y 4 down to END_WIN_BOT: the bottom edge is a clean cut tucked under a sky band
+   *  seam, far above the skyline): drawn to an offscreen, the top edge faded in solid palette steps (stepFade). */
   private credCv: HTMLCanvasElement | null = null;
   creditsWindow(ctx: CanvasRenderingContext2D, P: NonNullable<UI['plan']>, off: number, t: number) {
-    const top = END_WIN_TOP, h = END_WIN; const FADE = END_FADE;
+    const top = END_WIN_TOP, h = END_WIN_BOT[P.kind] - END_WIN_TOP; const FADE = END_FADE;
     if (typeof document === 'undefined') return;
-    if (!this.credCv) { this.credCv = document.createElement('canvas'); this.credCv.width = W; this.credCv.height = h; }
+    if (!this.credCv || this.credCv.height !== h) { this.credCv = document.createElement('canvas'); this.credCv.width = W; this.credCv.height = h; }
     const c = this.credCv.getContext('2d'); if (!c) return;
     c.globalCompositeOperation = 'source-over'; c.imageSmoothingEnabled = false; c.clearRect(0, 0, W, h);
     let y = h - off;
     for (const it of P.credits) { if (y + it.h > -80 && y < h + 10) it.draw(c, y, t); y += it.h; }
-    // the top edge (open sky) fades in solid steps; the bottom edge is a clean cut along the window's lower rule, so
-    // plates and sprites slide up out of it whole instead of dissolving over the busy skyline
+    // the top edge (open sky) fades in solid steps; the bottom is a clean cut just above a band seam, so plates and
+    // sprites rise out from behind the seam whole
     stepFade(c, W, h, FADE, false);
     ctx.drawImage(this.credCv, 0, top);
   }
@@ -2191,22 +2276,29 @@ class UI implements Module {
     chamferFill(ctx, W / 2 - tw / 2, 6, tw, 26, C.ink, 6); chamferLine(ctx, W / 2 - tw / 2, 6, tw, 26, C.burnt, 6);
     headline(ctx, title, W / 2, 13, C.gold, C.cream, C.burnt);
     const lines = P.lines;
-    const py = 38, ph = Math.min(150, lines.length * 11 + 14);
+    // a compact window (END_ROWS lines, the sky stays open under it) that scrolls whole lines as the story types on:
+    // never a half-cut glyph row at its top edge
+    const rows = Math.min(END_ROWS, lines.length);
+    const py = 38, ph = rows * 11 + 14;
     const shown = Math.floor(T / END_LINE);
+    const last = Math.min(lines.length - 1, shown);
+    let first = Math.max(0, last + 1 - rows); if (first > 0 && first < last && lines[first] === '') first++;
     const fo = Math.max(0, Math.min(1, (T - P.reveal - END_HOLD) / END_OUT));
-    const wx = PF_X - 20, ww = PF_W + 40;
-    if (!this.cardCv && typeof document !== 'undefined') { this.cardCv = document.createElement('canvas'); this.cardCv.width = ww; this.cardCv.height = 152; }
+    const ww = Math.min(PF_W + 40, Math.max(...lines.map(l => textWidth(l)), 0) + 36), wx = Math.round(W / 2 - ww / 2);
+    if (!this.cardCv && typeof document !== 'undefined') { this.cardCv = document.createElement('canvas'); this.cardCv.width = PF_W + 40; this.cardCv.height = 152; }
     const c = fo < 1 ? this.cardCv?.getContext('2d') : null;
     if (c && this.cardCv) {
       // the story window is composed offscreen so it can close as one piece
-      c.globalCompositeOperation = 'source-over'; c.imageSmoothingEnabled = false; c.clearRect(0, 0, ww, 152);
+      c.globalCompositeOperation = 'source-over'; c.imageSmoothingEnabled = false; c.clearRect(0, 0, PF_W + 40, 152);
       frame(c, 0, 0, ww, ph, C.gold, C.night, 6);
       ticks(c, 0, 0, ww, ph, C.burnt, 7, 3);
-      lines.slice(0, shown + 1).forEach((l, i) => { if (8 + i * 11 < ph - 8) text(c, l, ww / 2, 8 + i * 11, C.text, { align: 'center', shadow: C.ink }); });
+      for (let i = first; i <= last; i++) text(c, lines[i], ww / 2, 8 + (i - first) * 11, C.text, { align: 'center', shadow: C.ink });
+      // more story above: three gold pips on the top rail
+      if (first > 0) for (let k = 0; k < 3; k++) rect(c, ww / 2 - 5 + k * 4, 3, 2, 1, C.gold);
       // closing: a solid shutter wipe, the window's top and bottom close in on its middle line (no dither)
       const cut = Math.round(ph / 2 * fo);
       if (cut > 0) { c.clearRect(0, 0, ww, cut); c.clearRect(0, ph - cut, ww, 152 - ph + cut); }
-      ctx.drawImage(this.cardCv, wx, py);
+      ctx.drawImage(this.cardCv, 0, 0, ww, 152, wx, py, ww, 152);
     }
     const s = g.state;
     // stats only once the story window is completely gone: chips drop in one by one, then the quest rewards, then the

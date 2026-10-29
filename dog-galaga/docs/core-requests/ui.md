@@ -326,3 +326,24 @@
 - Also from interaction (polish 5 round 2): the wave plate reads `BIG CAT BOOPED` (lime plate, new `tick` icon in
   `ui/draw.ts`) and the sector card's BIG CAT row reads `BOOPED` while `interaction.bossDown === area.boss`. Restyle
   freely.
+
+## Polish 6
+
+1. **memories (RESCUED line is now one compact row):** the right HUD's lower dock is a single line at y 210..226
+   (pup chip | album chip | this sector's photo boxes, no header, no MEMORIES label). `hudSlots()` changed values
+   (same shape, read every frame as before):
+   `album: { x: RX+53, y: 218, tx: RX+62, ty: 215 }` (the album chip spans RX+45..RX+95, plain deep night behind the
+   count, so the 32x10 repaint and the 54x20 landing flash box fit it), `strip: { x: W+20, w: RX+122-(W+20), row: 215 }`.
+   The strip x deliberately sits past the panel's right edge so `goalsPulse`'s `text('MEMORIES', GOALS_X + 15, ...)`
+   is clipped away by memories' own `ctx.rect(RX, 0, W - RX, H)` clip; the box math (`GOALS_X + GOALS_W - 5 - (n - i) * 9 + 1`,
+   row - 1) lands exactly on ui's boxes. Cleaner: please skip the label repaint when `strip.label === false` (ui will
+   add that field once memories honours it) or simply drop the label from the pulse.
+   The card slot is unchanged (`card: { x: RX+4, y: 245, w: 120, h: 111 }`) and is now real: ui draws nothing in
+   y 245..356 (stage flags, DAY + flight clock) while `memories.panelCard()` is true. Please make sure every keyboard
+   card (also the bundle and the memories showcase) uses `card.y` / the compact height: the critic saw a full 170px card
+   at y 119..289 covering HOSTILES and the album count repainted over the QUEST name ('DOCKING CLEAR1/18NCE'), which is
+   the touch spot + the pre-hudSlots album constants.
+2. **world (FYI):** ui now redraws the between-waves banner ('WAVE n / N', 'WARNING: BIG CAT INBOUND', 'SECTOR CLEAR')
+   on a solid ink plate (same words, colours, y 160, same phase/timer test, skipped while `trans` or a menu is up), so
+   turds and pickups no longer read through its strokes. world can drop its own `text(...)` call for the banner, or
+   keep it (ui's plate covers it exactly).
