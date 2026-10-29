@@ -3,9 +3,9 @@ import { WORLD_W, PF_W } from '../core/game';
 import type { EnemyDef } from '../core/types';
 import { frameCount } from '../art/sprite';
 import { col } from '../core/palette';
-import { pxDash, pxRing, pxSpark } from '../core/pixel';
+import { pxDash, pxSpark } from '../core/pixel';
 import { text } from '../art/font';
-import { BOSS_BULLET, bossRig, bossBruises, ditherShadow, ditherRect, bossGlow, drawCombat } from './art';
+import { BOSS_BULLET, bossRig, bossBruises, ditherShadow, ditherRect, bossGlow, drawCombat, ringC, annulus } from './art';
 
 /** Phase-change palette cycle: flushed red, white-hot gold, flushed red, its own colours (a 16-tick loop). */
 const HOT: Record<string, string> = { '6': 'c', '7': 'c', '8': 'c', '9': 'd', 'a': 'e', 'b': 'e', 'o': 'c', 'p': 'd', 'q': 'e', '5': 'c', '4': 'd', '3': 'e', 'g': 'r', 'f': 'c' };
@@ -16,15 +16,34 @@ const BOSS_LIMIT = 150 * 60; // a boss that isn't beaten in 150s dozes off (coun
 const HOME_Y = 76;
 /** Entrance: the WARNING bands sweep across first, then the Big Cat descends with its escort wings forming up around
  *  it. A re-entrance after a nap is a short swoop without the bands. */
-const ENTER_T = 176, DESCEND_AT = 56, REENTER_T = 110, WARN_T = 104;
+const ENTER_T = 176, DESCEND_AT = 8, REENTER_T = 110, WARN_T = 168;
 /** Phase change: the bands sweep across again (shorter), labelled with the new phase. */
 const PHASE_T = 60;
 /** Knock-out beat before the finale: the Big Cat staggers, palette-cycling, little booms popping on it. */
 const KO_T = 44;
 const WARN_Y0 = 108, WARN_Y1 = 160;
-/** Curtain emitters sit between the escort wing's two rows (never on top of an escort). */
+/** Curtain row: shed below the escort wings (bullets that would cross an escort are left out). */
 const CURTAIN_DY = 54;
+/** Curtain bullets: 14px apart across the whole lane (a solid-looking wall), with 2-3 marked gaps (38px doors). */
+const CURTAIN_STEP = 14, GAP_HW = 19;
 const TAU = Math.PI * 2;
+
+/** Dark drop plate behind a small Big Cat: a deep-night disc, dithered ink core, ink edge and a magenta rim (cached). */
+const plateCache = new Map<number, HTMLCanvasElement | null>();
+function plate(ctx: CanvasRenderingContext2D, x: number, y: number, R: number) {
+  let cv = plateCache.get(R);
+  if (cv === undefined) {
+    cv = null;
+    if (typeof document !== 'undefined') {
+      cv = document.createElement('canvas'); cv.width = cv.height = R * 2 + 5; const c = cv.getContext('2d')!; const o = R + 2;
+      annulus(c, o, o, 0, R + 2, '0'); annulus(c, o, o, 0, R + 1, 'e'); annulus(c, o, o, 0, R, '0'); annulus(c, o, o, 0, R - 1, '1');
+      const ri = R - 6;   // a plum dither core inside the deep-night disc
+      for (let dy = -ri; dy <= ri; dy++) { const w = Math.floor(Math.sqrt(ri * ri - dy * dy)); ditherRect(c, o - w, o + dy, w * 2 + 1, 1, 'v', 0); }
+    }
+    plateCache.set(R, cv);
+  }
+  if (cv) ctx.drawImage(cv, Math.round(x) - R - 2, Math.round(y) - R - 2);
+}
 
 type BState = 'enter' | 'idle' | 'tell' | 'attack' | 'recover' | 'phase' | 'ko';
 type Atk = 'fan' | 'charge' | 'spiral' | 'summon' | 'volley' | 'ring' | 'curtain';
@@ -43,6 +62,10 @@ export class Boss {
   pattern: string; art: string;
   /** 0 none, 1 hover jets, 2 saucer, 3 the Empress's throne: later Big Cats are bigger, wider silhouettes. */
   tier: number; hitT = 0;
+  /** home altitude (the Empress's throne rides higher, so her escort V has air under the saucer) */
+  hy = HOME_Y;
+  /** background emitters (phase 2+): their own clock, the paired-fan sweep, and the curtain's gap centres */
+  bgT = 0; fanT = 0; curG: number[] = [];
   constructor(public g: Game, public ix: any, public def: EnemyDef) {
     const areas = g.content.areas; const ai = areas.findIndex(a => a.boss === def.id);
     // early Big Cats get a floor under their hp (content gives 50-90): every fight lasts long enough to feel like a
@@ -52,6 +75,7 @@ export class Boss {
     this.enterFrom = g.rng.chance(0.5) ? -1 : 1;
     this.tier = ai < 0 ? 0 : ai >= areas.length - 1 ? 3 : ai >= 8 ? 2 : ai >= 3 ? 1 : 0;
     this.r = [26, 28, 32, 36][this.tier];
+    this.hy = this.tier === 3 ? 66 : HOME_Y; this.ty = this.hy;
   }
   /** Bullets are born at the sprite's edge, not on top of the boss: push the muzzle out along the shot to ~28px. */
   private spit(x: number, y: number, vx: number, vy: number) {
@@ -59,13 +83,36 @@ export class Boss {
     this.ix.bossSpit(x + (vx / m) * push, y + (vy / m) * push, vx, vy, this.art, this.capBoost());
   }
   /** Later phases fill the screen with readable choreography (rings, crossing curtains): the bullet cap grows with them. */
-  private capBoost() { return this.phase * 9 + (this.atk === 'curtain' ? 6 : 0); }
+  private capBoost() { return this.phase * 14 + (this.tier >= 1 && this.phase === 0 ? 6 : 0) + (this.atk === 'curtain' && this.st === 'attack' ? 40 : 0); }
   /** Telegraphs and presence scale up for the small early Big Cats (no craft to make them look big). */
-  private big() { return this.tier <= 1 ? 1.35 : 1; }
-  /** Curtain emitters: evenly spaced across the lane, inside its walls. */
-  private curtainXs(): number[] {
-    const [l, r] = this.ix.lane?.() ?? [64, 384]; const a = l + 30, b = r - 30;
-    const n = Math.max(3, Math.floor((b - a) / 60) + 1); return Array.from({ length: n }, (_, i) => Math.round(a + ((b - a) * i) / (n - 1)));
+  private big() { return this.tier <= 1 ? 1.7 : 1; }
+  /** True while a hit has just crossed a phase threshold (or knocked it out): the beat is about to play, so the hit
+   *  that caused it pops no damage number over the Big Cat's face. */
+  beatPending() { const want = this.hp > this.maxHp * 0.66 ? 0 : this.hp > this.maxHp * 0.33 ? 1 : 2; return this.hp <= 0 || want > this.phase; }
+  /** Curtain row: every bullet slot across the lane (wall to wall), minus the marked gaps (and any slot an escort is
+   *  parked on). `gaps` are the gap centres. */
+  curtainRow(): { xs: number[]; gaps: number[] } {
+    const [l, r] = this.ix.lane?.() ?? [64, 384]; const a = l + 10, b = r - 10;
+    const n = Math.floor((b - a) / CURTAIN_STEP); const x0 = Math.round((a + b - n * CURTAIN_STEP) / 2);
+    // (a bullet is never born on top of an escort parked across the row itself)
+    const esc: number[] = this.ix.escortXs?.(this.y + CURTAIN_DY) ?? [];
+    const xs: number[] = [];
+    for (let i = 0; i <= n; i++) {
+      const x = x0 + i * CURTAIN_STEP;
+      if (this.curG.some(g => Math.abs(x - g) < GAP_HW) || esc.some(e => Math.abs(x - e) < 16)) continue;
+      xs.push(x);
+    }
+    return { xs, gaps: this.curG };
+  }
+  /** Pick the curtain's gaps: 2 in a narrow hall, 3 in an open lane, evenly spread (never two doors side by side),
+   *  the whole set slid so one door opens right where Pom is now (always fair). */
+  private pickGaps(px: number) {
+    const [l, r] = this.ix.lane?.() ?? [64, 384]; const w = r - l; const n = w > 250 ? 3 : 2;
+    const lo = l + 10 + GAP_HW, hi = r - 10 - GAP_HW; const span = (hi - lo) / n;
+    const cs = Array.from({ length: n }, (_, k) => lo + (k + 0.5) * span);
+    let best = cs[0]; for (const c of cs) if (Math.abs(c - px) < Math.abs(best - px)) best = c;
+    const sh = Math.max(lo - cs[0], Math.min(hi - cs[n - 1], px - best));
+    this.curG = cs.map(c => Math.round(c + sh));
   }
   /** 1 while the escorts are still forming up during the descent, easing to 0 as the Big Cat arrives. */
   formK() { return this.entering ? 1 - this.enterK : 0; }
@@ -90,7 +137,7 @@ export class Boss {
 
   /** Showcase staging: skip the entrance and start winding up the signature attack (optionally at a later phase). */
   stageTell(phase = 0, atk?: string) {
-    this.entering = false; this.intro = false; this.enterK = 1; this.x = WORLD_W / 2; this.y = HOME_Y; this.phase = Math.max(0, Math.min(2, phase));
+    this.entering = false; this.intro = false; this.enterK = 1; this.x = WORLD_W / 2; this.y = this.hy; this.phase = Math.max(0, Math.min(2, phase));
     if (this.phase) this.hp = Math.ceil(this.maxHp * (this.phase === 1 ? 0.5 : 0.2));
     this.atk = this.nextAttack(); if (atk) this.atk = atk as Atk; this.beginTell(WORLD_W / 2);
   }
@@ -133,7 +180,9 @@ export class Boss {
       const bounty = 250 * this.phase * (1 + this.tier); g.ops.addScore(bounty); fx?.floatText(this.x, this.y - 44, String(bounty));
       this.y -= 10; this.flash = 0;
       this.ix.bossPhase?.(this.x, this.y);
-      g.mods.ui?.toast(`${this.def.name.toUpperCase()} GETS GRUMPY!`);
+      // (the PHASE band says it: no toast repeating it, and no damage number left over the flashing face)
+      this.ix.clearNumbers?.(this.x, this.y);
+      this.bgT = 0; this.fanT = 0;
       g.bus.emit('boss:phase', { bossId: this.def.id, phase: this.phase });
     }
 
@@ -145,7 +194,7 @@ export class Boss {
         this.enterK = e;
         const [lo, hi] = this.range(); const mid = (lo + hi) / 2;
         this.x = this.intro ? mid + Math.round(Math.sin(this.stT / 20) * 6 * (1 - e)) : mid + this.enterFrom * Math.sin((1 - e) * Math.PI) * Math.min(90, (hi - lo) / 2 + 40);
-        this.y = -70 + (HOME_Y + 70) * e;
+        this.y = -70 + (this.hy + 70) * e;
         if (this.intro && k >= 1 && this.stT === len) { g.mods.effects?.shake(3, 12); g.mods.audio?.sfx('thud'); }
         if (this.stT >= len) { this.entering = false; this.intro = false; this.go('idle'); }
         break;
@@ -168,7 +217,7 @@ export class Boss {
         const [lo, hi] = this.range();
         const amp = Math.min(96 + this.phase * 12, (hi - lo) / 2);
         const hx = (lo + hi) / 2 + Math.sin(this.t / (95 - this.phase * 15)) * amp;
-        this.x += (hx - this.x) * 0.05; this.y += (HOME_Y + Math.sin(this.t / 37) * 10 - this.y) * 0.08;
+        this.x += (hx - this.x) * 0.05; this.y += (this.hy + Math.sin(this.t / 37) * 10 - this.y) * 0.08;
         if (this.stT > [96, 74, 56][this.phase] * (1 - this.ix.T.d * 0.25)) { this.atk = this.nextAttack(); this.beginTell(px); }
         break;
       }
@@ -176,25 +225,80 @@ export class Boss {
         // wind-up: shake, flash, and (for a charge) lock onto a lane and crouch back
         this.jit = (this.stT >> 1) & 1 ? 1 : -1;
         if (this.stT > this.tellLen() * 0.6 && this.stT % 6 === 0) this.flash = 2; // flashes just before it strikes
-        if (this.atk === 'charge') this.y += (HOME_Y - 14 - this.y) * 0.15;
-        else this.y += (HOME_Y - this.y) * 0.1;
+        if (this.atk === 'charge') this.y += (this.hy - 14 - this.y) * 0.15;
+        else this.y += (this.hy - this.y) * 0.1;
         if (this.atk === 'volley' || this.atk === 'fan' || this.atk === 'ring') this.aim = Math.atan2(py - this.y, px - this.x);
         if (this.stT >= this.tellLen()) { this.go('attack'); this.ty = this.y; }
         break;
       }
       case 'attack': this.attack(px, py); break;
       case 'recover':
-        this.x += (this.tx - this.x) * 0.06; this.y += (HOME_Y - this.y) * 0.08;
+        this.x += (this.tx - this.x) * 0.06; this.y += (this.hy - this.y) * 0.08;
         if (this.stT > 40) this.go('idle');
         break;
     }
+    this.layer(px, py);
     this.ox = this.x - lastX; this.oy = this.y - lastY;
+  }
+
+  /** Ticks between background volleys (0: none). Phase 1 and 2 ("PHASE 2" / "FINAL PHASE" on the band) run a second
+   *  and third emitter under the main attack: a slow ring with a gap facing Pom, and paired fans from the Big Cat's
+   *  flanks crossing down the middle. The small first Big Cats stay gentle; the mid sector cats get a light ring even
+   *  before they are grumpy. */
+  private bgEvery(): number {
+    const ph = this.phase, tier = this.tier;
+    if (ph === 0) return tier >= 1 ? 170 - tier * 10 : 0;
+    return ph === 1 ? 128 - tier * 12 : 104 - tier * 10;
+  }
+  /** Where the paired fans come from: the Big Cat's flanks (its jets / saucer rim / throne wings). */
+  fanXs(): number[] { const w = [30, 36, 46, 52][this.tier]; return [this.x - w, this.x + w]; }
+  private layer(px: number, py: number) {
+    const busy = this.st === 'enter' || this.st === 'phase' || this.st === 'ko' || (this.st === 'attack' && (this.atk === 'charge' || this.atk === 'curtain'));
+    if (busy) { if (this.fanT > 0) this.fanT = 0; return; }
+    const ev = this.bgEvery(); if (!ev) return;
+    this.bgT++;
+    const k = this.bgT % ev;
+    if (k === (ev >> 1)) { this.slowRing(px, py, 0); this.g.mods.audio?.sfx('hack'); }
+    if (this.phase >= 2 && this.tier >= 1 && k === (ev >> 1) + 22) this.slowRing(px, py, 0.5);   // final phase: a second ring, offset
+    if (this.phase >= 1 && k === 0) this.fanT = 20;
+    if (this.fanT > 0) { // paired fans: both flanks sweep a 5-shot fan inward at once, so the two fans cross mid-field
+      this.fanT--;
+      if (this.fanT % 4 === 0) {
+        const i = 4 - this.fanT / 4; const sp = this.speed() * (this.tier === 0 ? 0.55 : 0.62);
+        const [lx, rx] = this.fanXs();
+        for (const [x, s] of [[lx, -1], [rx, 1]] as const) {
+          const a = Math.PI / 2 + s * (0.55 - i * 0.22);   // left flank sweeps from down-right toward straight down...
+          const esc: number[] = this.ix.escortAngles?.(x, this.y + 24) ?? [];   // ...and never through an escort
+          if (esc.some(e => Math.abs(((a - e) % TAU + TAU + Math.PI) % TAU - Math.PI) < 0.3)) continue;
+          this.ix.bossSpit(x, this.y + 24, Math.cos(a) * sp, Math.sin(a) * sp, this.art, this.capBoost());
+        }
+      }
+    }
+  }
+  /** Slow ring with a gap facing Pom; never fired through the Big Cat's own escorts (the ring parts around them). */
+  private slowRing(px: number, py: number, off: number) {
+    const n = 12 + 2 * Math.min(2, this.tier) + (this.phase >= 2 ? 2 : 0); const v = this.speed() * (this.tier === 0 ? 0.42 : 0.48);
+    const aim = Math.atan2(py - this.y, px - this.x); const step = TAU / n;
+    const esc: number[] = this.ix.escortAngles?.(this.x, this.y) ?? [];
+    const near = (a: number, b: number) => { const d = Math.abs(((a - b) % TAU + TAU + Math.PI) % TAU - Math.PI); return d; };
+    for (let i = 0; i < n; i++) {
+      const a = aim + step / 2 + off * step + i * step;
+      if (Math.sin(a) < -0.3 || near(a, aim) < step * 0.9 || esc.some(e => near(a, e) < 0.26)) continue;
+      this.spit(this.x + Math.cos(a) * 20, this.y + 8 + Math.sin(a) * 16, Math.cos(a) * v, Math.sin(a) * v);
+    }
+  }
+  /** Ticks until the next background volley (for its telegraph), or -1. */
+  bgTell(): { ring: number; fan: number } {
+    const ev = this.bgEvery(); if (!ev || this.st === 'enter' || this.st === 'phase' || this.st === 'ko') return { ring: -1, fan: -1 };
+    const k = this.bgT % ev; const r = (ev >> 1) - k, f = (ev - k) % ev;
+    return { ring: r > 0 && r <= 18 ? r : -1, fan: this.phase >= 1 && f > 0 && f <= 18 ? f : -1 };
   }
 
   private beginTell(px: number) {
     this.go('tell');
     const [lo, hi] = this.range();   // charge lanes stay where the escorts can make room (the squad rides along)
     this.tx = Math.max(Math.max(60, lo), Math.min(Math.min(WORLD_W - 60, hi), px));
+    if (this.atk === 'curtain') this.pickGaps(px);
     this.g.mods.audio?.sfx('tell');
   }
 
@@ -231,7 +335,7 @@ export class Boss {
             this.g.mods.effects?.shake(4, 14);
             if (ph >= 1) for (const s of [-1, 1]) for (let k = 0; k < ph; k++) this.spit(this.x + s * 20, this.y - 10, s * (1.1 + k * 0.5) * sp * 0.6, -0.7 - k * 0.3);
           }
-        } else if (T <= down + hold + back) { const k = (T - down - hold) / back; this.y = 300 + (HOME_Y - 300) * (1 - (1 - k) * (1 - k)); }
+        } else if (T <= down + hold + back) { const k = (T - down - hold) / back; this.y = 300 + (this.hy - 300) * (1 - (1 - k) * (1 - k)); }
         else if (ph === 2 && this.seq % 2 === 1 && T < 200) { this.seq++; this.beginTell(px); } // double pounce when grumpiest
         else this.go('recover');
         break;
@@ -249,11 +353,12 @@ export class Boss {
         break;
       }
       case 'ring': { // a slow ring bursting out of the Big Cat, a gap facing Pom (grumpiest: a second ring, offset)
-        const n = 12 + 2 * ph + (this.tier >= 2 ? 2 : 0); const rings = ph >= 2 ? 2 : 1; const v = sp * (this.tier === 0 ? 0.55 : 0.62);
+        const n = 14 + 2 * ph + (this.tier >= 2 ? 4 : 0); const rings = ph >= 2 ? 2 : 1; const v = sp * (this.tier === 0 ? 0.55 : 0.62);
+        const esc: number[] = ix.escortAngles?.(this.x, this.y) ?? [];
         for (let w = 0; w < rings; w++) if (T === 1 + w * 28) {
           const a0 = this.aim + Math.PI / n + (w * Math.PI) / n;
           for (let i = 0; i < n; i++) {
-            const a = a0 + (i * TAU) / n; if (Math.sin(a) < -0.2) continue;
+            const a = a0 + (i * TAU) / n; if (Math.sin(a) < -0.2 || esc.some(e => Math.abs(((a - e) % TAU + TAU + Math.PI) % TAU - Math.PI) < 0.26)) continue;
             this.spit(this.x + Math.cos(a) * 18, this.y + 8 + Math.sin(a) * 14, Math.cos(a) * v, Math.sin(a) * v);
           }
           g8(this.g);
@@ -261,12 +366,13 @@ export class Boss {
         if (T > 1 + (rings - 1) * 28 + 34) this.go('recover');
         break;
       }
-      case 'curtain': { // crossing curtains: volleys shed across the lane, drifting alternately left and right, so the
-        // field fills with a diamond lattice that always has gaps a poodle can weave through
-        const vol = this.tier === 0 ? 3 : 4, gap = 28;
+      case 'curtain': { // crossing curtains: walls of bullets spanning the whole lane, wall to wall, each with the 2-3
+        // marked gaps, shed one after another and drifting alternately left and right, so the rows cross into a
+        // lattice while every gap stays a clear 38px door a poodle can slip through
+        const vol = this.tier === 0 ? 3 : this.tier === 1 ? 4 : 5, gap = 30;
         if ((T - 1) % gap === 0 && (T - 1) / gap < vol) {
-          const v = (T - 1) / gap; const dir = v % 2 ? 1 : -1;
-          for (const x of this.curtainXs()) ix.bossSpit(x, this.y + CURTAIN_DY, dir * sp * 0.32, sp * 0.7, this.art, this.capBoost());
+          const v = (T - 1) / gap; const dir = v % 2 ? 1 : -1; const vx = dir * sp * 0.16, vy = sp * (this.tier === 0 ? 0.5 : 0.6);
+          for (const x of this.curtainRow().xs) ix.bossSpit(x, this.y + CURTAIN_DY, vx, vy, this.art, this.capBoost());
           this.puffT = 8; this.g.mods.audio?.sfx('hack');
         }
         if (T > vol * gap + 16) this.go('recover');
@@ -297,11 +403,12 @@ export class Boss {
         for (let sx = -o; sx < bw; sx += 12) { const a = Math.max(0, sx), b = Math.min(bw, sx + 6); if (b > a) ctx.fillRect(bx + a, by + j, b - a, 1); }
       }
     }
-    if (open < 1) return;
+    if (open < 0.6) return;
+    // the headline stays up for as long as the bands are on screen (it pulses red / white, never blinks off)
     const cx = camX + PF_W / 2; const on = t < 18 || ((t >> 3) & 1) === 0;
     const lw = label.length * 12 + 10;
     ctx.fillStyle = col('0'); ctx.fillRect(Math.round(cx - lw / 2), WARN_Y0 + 16, lw, 34);
-    if (on) text(ctx, label, cx, WARN_Y0 + 19, col('r'), { align: 'center', scale: 2, shadow: col('e') });
+    text(ctx, label, cx, WARN_Y0 + 19, col(on ? 'r' : '6'), { align: 'center', scale: 2, shadow: col('e') });
     text(ctx, sub, cx, WARN_Y0 + 38, col('f'), { align: 'center' });
   }
 
@@ -337,30 +444,41 @@ export class Boss {
             pxDash(ctx, x, y + 20, x + Math.cos(this.aim) * 120 * big * k, y + 20 + Math.sin(this.aim) * 120 * big * k, c, 4, 3, -this.stT, 2);
             break;
           case 'spiral': // a ring contracting onto the boss
-            pxRing(ctx, x, y + 6, Math.round((60 + tier * 4) * big - 26 * k), '0', 6, this.stT / 10);
-            pxRing(ctx, x, y + 6, Math.round((60 + tier * 4) * big - 1 - 26 * k), c, 6, this.stT / 10);
+            ringC(ctx, x, y + 6, Math.round((60 + tier * 4) * big - 26 * k), '0', 6, this.stT / 10);
+            ringC(ctx, x, y + 6, Math.round((60 + tier * 4) * big - 1 - 26 * k), c, 6, this.stT / 10);
             break;
           case 'ring': { // a ring swelling out of the Big Cat, a bright notch marking the gap that will face Pom
             const rad = Math.round(22 + 70 * big * k);
-            pxRing(ctx, x, y + 8, rad + 1, '0', 10, -this.stT / 12); pxRing(ctx, x, y + 8, rad, blink ? 'f' : 'd', 10, -this.stT / 12);
-            if (rad > 30) pxRing(ctx, x, y + 8, rad - 12, blink ? 'd' : 'f', 6, this.stT / 12);
+            ringC(ctx, x, y + 8, rad + 1, '0', 10, -this.stT / 12); ringC(ctx, x, y + 8, rad, blink ? 'f' : 'd', 10, -this.stT / 12);
+            if (rad > 30) ringC(ctx, x, y + 8, rad - 12, blink ? 'd' : 'f', 6, this.stT / 12);
             const gx = Math.round(x + Math.cos(this.aim) * (rad + 6)), gy = Math.round(y + 8 + Math.sin(this.aim) * (rad + 6));
             ctx.fillStyle = col('0'); ctx.fillRect(gx - 3, gy - 3, 7, 7); ctx.fillStyle = col('i'); ctx.fillRect(gx - 2, gy - 2, 5, 5); ctx.fillStyle = col('6'); ctx.fillRect(gx - 1, gy - 1, 2, 2);
             break;
           }
-          case 'curtain': { // every emitter across the lane lights up, its two drift lanes sketched as short dashes
-            const L = Math.round(10 + 26 * k);
-            for (const ex of this.curtainXs()) {
-              for (const s of [-1, 1]) pxDash(ctx, ex, y + CURTAIN_DY, ex + s * L * 0.45, y + CURTAIN_DY + L, c, 3, 3, -this.stT, 1);
-              const ey = y + CURTAIN_DY - 3;
-              ctx.fillStyle = col('0'); ctx.fillRect(ex - 3, ey, 7, 7);
-              ctx.fillStyle = col(blink ? 'd' : 'f'); ctx.fillRect(ex - 2, ey + 1, 5, 5); ctx.fillStyle = col('6'); ctx.fillRect(ex - 1, ey + 2, 2, 2);
+          case 'curtain': { // the whole row lights up wall to wall, slot by slot from the middle out, and each gap is
+            // marked with lime door posts and a down arrow: the player sees exactly where the doors in the wall will be
+            const row = this.curtainRow(); const ey = Math.round(y + CURTAIN_DY);
+            const mid = (this.ix.lane?.() ?? [64, 384]).reduce((a: number, b: number) => a + b, 0) / 2; const reach = 30 + 200 * k;
+            for (const ex of row.xs) {
+              if (Math.abs(ex - mid) > reach) continue;
+              ctx.fillStyle = col('0'); ctx.fillRect(ex - 3, ey - 3, 7, 7);
+              ctx.fillStyle = col(blink ? 'd' : 'f'); ctx.fillRect(ex - 2, ey - 2, 5, 5); ctx.fillStyle = col('6'); ctx.fillRect(ex - 1, ey - 1, 2, 2);
+            }
+            for (const gx of row.gaps) {
+              const g0 = Math.round(gx);
+              for (const s of [-1, 1]) { // door posts at the gap's edges
+                const px2 = g0 + s * (GAP_HW - 4);
+                ctx.fillStyle = col('0'); ctx.fillRect(px2 - 2, ey - 9, 5, 19); ctx.fillStyle = col(blink ? 'i' : '6'); ctx.fillRect(px2 - 1, ey - 8, 3, 17);
+              }
+              const ay = ey + 6 + ((this.stT >> 2) & 3); // a little lime arrow marching down through the door
+              ctx.fillStyle = col('0'); ctx.fillRect(g0 - 5, ay - 1, 11, 4); ctx.fillRect(g0 - 3, ay + 3, 7, 2); ctx.fillRect(g0 - 1, ay + 5, 3, 2);
+              ctx.fillStyle = col('i'); ctx.fillRect(g0 - 4, ay, 9, 2); ctx.fillRect(g0 - 2, ay + 2, 5, 2); ctx.fillRect(g0, ay + 4, 1, 2);
             }
             break;
           }
           case 'summon': { // sparkles where the kittens will pop out
             const sx = 38 + tier * 6; const rr = Math.round(18 * big);
-            for (const s of [-1, 1]) { pxRing(ctx, x + s * sx, y + 6, Math.round(rr - 12 * k), blink ? 'd' : '6', 4, this.stT / 8); pxRing(ctx, x + s * sx, y + 6, Math.round(rr + 1 - 12 * k), '0', 4, this.stT / 8); pxSpark(ctx, x + s * sx, y + 6, blink ? '6' : 'f', 2); pxSpark(ctx, x + s * (sx + 8 + 6 * k), y - 10, 'f', 1); }
+            for (const s of [-1, 1]) { ringC(ctx, x + s * sx, y + 6, Math.round(rr - 12 * k), blink ? 'd' : '6', 4, this.stT / 8); ringC(ctx, x + s * sx, y + 6, Math.round(rr + 1 - 12 * k), '0', 4, this.stT / 8); pxSpark(ctx, x + s * sx, y + 6, blink ? '6' : 'f', 2); pxSpark(ctx, x + s * (sx + 8 + 6 * k), y - 10, 'f', 1); }
             break;
           }
         }
@@ -368,19 +486,40 @@ export class Boss {
     }
     // presence: the small early Big Cats (no craft under them) stand in a slowly turning double halo, a boss-sized
     // footprint on the field that reads from across the screen (thin dashed lines: never mistaken for a bullet)
+    // presence for the small Big Cats: a dark drop plate (deep night disc with an ink edge and a magenta rim) backs the
+    // sprite, so a cream cat never melts into cream roof tiles, and a slow dashed ring turns around it
     if (tier <= 1 && this.st !== 'ko' && y > -40) r.push(1, y - 2, (ctx: CanvasRenderingContext2D) => {
       const R = 46 + tier * 4, hot = this.st === 'tell' && ((this.stT >> 2) & 1) === 1;
-      pxRing(ctx, x, y + 4, R + 1, '0', 12, t / 90); pxRing(ctx, x, y + 4, R, hot ? 'f' : 'e', 12, t / 90);
-      pxRing(ctx, x, y + 4, R - 5, '0', 18, -t / 70); pxRing(ctx, x, y + 4, R - 6, hot ? 'g' : 'u', 18, -t / 70);
+      plate(ctx, x, y + 4, R - 8);
+      ringC(ctx, x, y + 4, R + 1, '0', 12, t / 90); ringC(ctx, x, y + 4, R, hot ? 'f' : 'e', 12, t / 90);
     });
     // crossing curtains: each emitter flashes as its volley is shed
     if (this.puffT > 0) r.push(4, y + 30, (ctx: CanvasRenderingContext2D) => {
-      for (const ex of this.curtainXs()) { pxSpark(ctx, ex, y + CURTAIN_DY, '0', 3); pxSpark(ctx, ex, y + CURTAIN_DY, this.puffT > 4 ? '6' : 'f', 2); }
+      const yy = Math.round(this.y + CURTAIN_DY - (this.puffT > 4 ? 0 : 2));   // a bright seam flashes along the row as it is shed
+      for (const ex of this.curtainRow().xs) { ctx.fillStyle = col('0'); ctx.fillRect(ex - 6, yy - 1, 13, 3); ctx.fillStyle = col(this.puffT > 4 ? '6' : 'f'); ctx.fillRect(ex - 5, yy, 11, 1); }
+    });
+    // background emitters' tells: a quick swelling ring before the slow ring, lit flank pips before the paired fans
+    const bt = this.bgTell();
+    if (bt.ring > 0 || bt.fan > 0) r.push(1, y + 2, (ctx: CanvasRenderingContext2D) => {
+      if (bt.ring > 0) { const rad = Math.round(20 + (18 - bt.ring) * 2.2); ringC(ctx, x, y + 8, rad + 1, '0', 10, t / 14); ringC(ctx, x, y + 8, rad, (t >> 2) & 1 ? 'f' : 'd', 10, t / 14); }
+      if (bt.fan > 0) for (const fx of this.fanXs()) {
+        const fy = Math.round(y + 24), on = (bt.fan >> 2) & 1;
+        ctx.fillStyle = col('0'); ctx.fillRect(Math.round(fx) - 4, fy - 4, 9, 9); ctx.fillStyle = col(on ? 'r' : 'f'); ctx.fillRect(Math.round(fx) - 3, fy - 3, 7, 7); ctx.fillStyle = col('6'); ctx.fillRect(Math.round(fx) - 1, fy - 1, 3, 3);
+      }
     });
     // WARNING bands: across the whole playfield as the Big Cat arrives, and again (shorter) at each phase change
     const live = this.g.state.scene === 'play';   // (never frozen half-open behind the taunt dialogue)
     if (live && this.st === 'enter' && this.intro && this.stT < WARN_T) r.push(4, 9999, (ctx: CanvasRenderingContext2D) => this.warn(ctx, this.stT, WARN_T, 'WARNING', this.def.name));
     if (live && this.st === 'phase' && this.stT < PHASE_T) r.push(4, 9999, (ctx: CanvasRenderingContext2D) => this.warn(ctx, this.stT, PHASE_T, ph >= 2 ? 'FINAL PHASE' : 'PHASE 2', ph >= 2 ? 'MAXIMUM GRUMPY' : 'GETTING GRUMPY'));
+    // knock-out: 3 frames of a solid radial wipe bursting off the Big Cat (white disc, then a white-and-gold band
+    // racing out past the screen edges), palette-exact: a flash, never a screen-door dither
+    if (this.st === 'ko' && this.stT <= 3 && this.g.state.settings?.flash !== false && !this.g.state.settings?.reduceMotion) {
+      const k = this.stT; r.push(4, 9990, (ctx: CanvasRenderingContext2D) => {
+        if (k <= 1) { annulus(ctx, x, y, 0, 84, '6'); annulus(ctx, x, y, 84, 88, 'f'); }
+        else if (k === 2) { annulus(ctx, x, y, 44, 200, '6'); annulus(ctx, x, y, 44, 52, 'f'); annulus(ctx, x, y, 200, 206, 'f'); }
+        else { annulus(ctx, x, y, 190, 340, '6'); annulus(ctx, x, y, 182, 190, 'f'); }
+      });
+    }
     r.push(2, y, (ctx: CanvasRenderingContext2D) => {
       // phase change: 3 frames of white (inked outline kept), then the boss palette-cycles red-hot / gold while it
       // shakes it off; an ordinary hit flashes white for a few frames, also inside its dark outline (knocked out: the
@@ -396,7 +535,8 @@ export class Boss {
       if (!flash) bossGlow(ctx, this.def.sprite, frame, x, y + bob, (this.st === 'tell' && ((this.stT >> 2) & 1) === 1) || !!cyc);
       // the flash is a white-hot palette swap, not a flat silhouette: the sprite's own ink outline stays, the shadows
       // turn pale lavender and everything else white, so the Big Cat keeps its face and shape while it flashes
-      drawCombat(ctx, this.def.sprite, x, y + bob, { frame, rim: flash ? '0' : this.ix.rimKey(), recolor: flash ? FLASH : cyc?.map, tintKey: flash ? 'flash' : cyc?.key });
+      // small Big Cats wear a crisp 1px white outline outside their ink line (a sticker edge that reads on any floor)
+      drawCombat(ctx, this.def.sprite, x, y + bob, { frame, rim: flash ? '0' : tier <= 1 ? '6' : this.ix.rimKey(), recolor: flash ? FLASH : cyc?.map, tintKey: flash ? 'flash' : cyc?.key });
       if (!flash) bossBruises(ctx, x, y + bob, t, ph);
       bossRig(ctx, tier, x, y, t, ph, false);
       if (this.st === 'ko') { // dizzy stars circling its head

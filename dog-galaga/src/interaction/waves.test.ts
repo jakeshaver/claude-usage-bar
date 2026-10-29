@@ -91,7 +91,7 @@ describe('interaction waves', () => {
     }));
   });
 
-  it('Big Cat escorts keep a cat of air from the boss hitbox and from each other, inside the lane', () => {
+  it('Big Cat escorts keep 40px of air from the boss hitbox, fly in wing slots that never overlap, inside the lane', () => {
     const g = createGame({ headless: true });
     g.mods.world.newGame();
     const I = g.mods.interaction;
@@ -109,9 +109,9 @@ describe('interaction waves', () => {
           expect(q[0] - 14, `${a.id} wall`).toBeGreaterThanOrEqual(l + WALL_GAP);
           expect(q[0] + 14, `${a.id} wall`).toBeLessThanOrEqual(r - WALL_GAP);
           const cheb = Math.max(Math.abs(q[0] - bx) - b.r, Math.abs(q[1] - b.y) - b.r) - 14;
-          expect(cheb, `${a.id} escort vs boss`).toBeGreaterThanOrEqual(a.id === 'mothership' ? 16 : 28);
+          expect(cheb, `${a.id} escort vs boss`).toBeGreaterThanOrEqual(a.id === 'mothership' ? 30 : 40);
         }
-        for (const p of qs) for (const q of qs) if (p !== q) expect(Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1])), `${a.id} escorts`).toBeGreaterThanOrEqual(a.id === 'mothership' ? 34 : 56);
+        for (const p of qs) for (const q of qs) if (p !== q) expect(Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1])), `${a.id} escorts`).toBeGreaterThanOrEqual(34);   // stepped wing slots: 34px across (6px of air between two 28px cats) or more
       }
       expect(ps.length, a.id).toBeGreaterThanOrEqual(4);
     }
