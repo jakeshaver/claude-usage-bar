@@ -45,18 +45,19 @@ function breedColor(sprite: string): string {
   breedColors.set(sprite, c); return c;
 }
 
-/** HUD hostiles icon tones per breed, read off each sprite: [coat, points (ears + muzzle), eyes] palette keys. The
- *  Russian Blue gets its blue-grey cast (lavender coat, periwinkle points); the Fold its own folded-ear head. */
-const BREED_TONES: Record<string, [string, string, string]> = {
+/** HUD hostiles icon tones per breed, read off each sprite: [coat, points (ears + muzzle), eyes, inner ear?] palette
+ *  keys. The Russian Blue matches its sprite: light grey coat, grey ear rims and muzzle, pink inner ears, lime eyes; the
+ *  Fold its own folded-ear head. */
+const BREED_TONES: Record<string, [string, string, string, string?]> = {
   tabby: ['g', 'h', 'i'], tuxedo: ['q', '6', 'f'], siamese: ['7', 'b', 'l'], calico: ['6', 'g', 'f'],
   persian: ['6', '8', 'g'], bengal: ['f', 'b', 'i'], sphynx: ['c', 'd', 'i'], mainecoon: ['9', 'b', 'i'],
-  russianblue: ['4', '3', 'i'], scottishfold: ['o', 'q', 'g'], kitten: ['g', 'h', 'f'],
+  russianblue: ['o', 'p', 'i', 'c'], scottishfold: ['o', 'q', 'g'], kitten: ['g', 'h', 'f'],
 };
 /** 7x7 cat head in a breed's own colours (coat, darker ear / muzzle points, eye colour) with an ink drop shadow. */
 function breedIcon(ctx: CanvasRenderingContext2D, id: string, sprite: string, x: number, y: number) {
   const tn = BREED_TONES[id];
   if (!tn) { icon(ctx, 'cat', x, y, breedColor(sprite), C.ink); return; }
-  const [coat, pt, eye] = tn.map(k => col(k));
+  const [coat, pt, eye] = tn.map(k => col(k!)); const inner = tn[3] ? col(tn[3]) : null;
   if (id === 'scottishfold') {
     // the Fold: a round head with its ears folded flat (dark caps, no points), and its ball of teal yarn at the chin
     const F = ['.......', '.##.##.', '#######', '#.#.#.#', '#######', '.#####.', '..#.#..'];
@@ -70,6 +71,8 @@ function breedIcon(ctx: CanvasRenderingContext2D, id: string, sprite: string, x:
   }
   icon(ctx, 'cat', x, y, coat, C.ink);
   ctx.fillStyle = pt; for (const [dx, dy] of [[0, 0], [6, 0], [0, 1], [1, 1], [5, 1], [6, 1], [2, 5], [3, 5], [4, 5]]) ctx.fillRect(x + dx, y + dy, 1, 1);
+  // a pink inner ear (the Russian Blue): the inside pixel of each ear, rims stay in the points tone
+  if (inner) { ctx.fillStyle = inner; ctx.fillRect(x + 1, y + 1, 1, 1); ctx.fillRect(x + 5, y + 1, 1, 1); }
   ctx.fillStyle = eye; ctx.fillRect(x + 1, y + 3, 1, 1); ctx.fillRect(x + 5, y + 3, 1, 1);
   ctx.fillStyle = C.ink; ctx.fillRect(x + 3, y + 3, 1, 1);
 }
@@ -129,7 +132,7 @@ function lampGlow(ctx: CanvasRenderingContext2D, cx: number, cy: number) {
 }
 /** True ending: a few landed pups play instead of sitting (by pup index; the rest sit and wag). The one on its back
  *  takes the outer right spot (room for its 44px sprawl, head toward the table). */
-const PARTY_POSE: Record<number, 'bow' | 'chase' | 'back'> = { 4: 'back', 3: 'bow', 5: 'chase' };
+const PARTY_POSE: Record<number, 'bow' | 'chase' | 'back' | 'loop'> = { 4: 'back', 3: 'bow', 5: 'chase', 1: 'loop', 2: 'loop' };
 /**
  * Concentric solid glow rings: every pixel inside ring k is lifted one palette step per ring that contains it
  * (radii outermost first; `sy` squashes the rings into ellipses). Solid shapes, never a dither.
@@ -174,8 +177,10 @@ type Toast = { text: string; t: number; age: number; y: number; kind?: ToastKind
 const TOAST_CAP = 2, TOAST_COLS = Math.floor((PF_W - 8 - 30 + 1) / 6);
 /** Ticks a NEW QUEST / PUPPY RESCUED pill waits off screen for its counter (quest toast gap is 36). */
 const TOAST_PARTNER_WAIT = 42;
-/** HOSTILES slot: height under its header that the breed rows + CATS LEFT are centred in (slot 158..230, 4px air). */
-const ROSTER_BODY = 72 - 11 - 4;
+/** Right HUD threat slot top (boss armor / bonus / HOSTILES / NEXT WAVE), down to y 236 (the memory strip below). */
+const HUD_TY = 162;
+/** HOSTILES slot: height under its header that the breed rows + CATS LEFT are centred in (slot 162..236, 4px air). */
+const ROSTER_BODY = 74 - 11 - 4;
 /** News that costs the player something: drawn with a peri frame and a pink cross, never the gold star. */
 const BAD_NEWS = /MISSED|EXPIRED|CLOSED|CLOSES|FORFEIT|SEALED|LOCKED|BLOCKED|CONTENT ISSUE|CHEWED/;
 /** Settings rows: label, icon, settings key ('' = BACK). */
@@ -209,7 +214,7 @@ let DOWN: Map<number, number> | null = null;
  * Fade an offscreen layer out at its top and bottom edges in solid bands (no dither): the outer third of the fade is
  * cut away, the middle third drops two palette steps, the inner third one step (ink drops out in both).
  */
-function stepFade(c: CanvasRenderingContext2D, w: number, h: number, fade: number) {
+function stepFade(c: CanvasRenderingContext2D, w: number, h: number, fade: number, bottom = true) {
   if (!DOWN) { DOWN = new Map(); for (const k of KEY) DOWN.set(u32of(col(k)), u32of(col(DOWN_SRC[k] ?? '0'))); }
   const dn = DOWN;
   const band = (y0: number, n: number, f: (v: number) => number) => {
@@ -224,9 +229,9 @@ function stepFade(c: CanvasRenderingContext2D, w: number, h: number, fade: numbe
   const ink = u32of(col('0'));
   const two = (v: number) => { const a = dn.get(v) ?? v; const r = dn.get(a) ?? a; return r === ink ? 0 : r; };
   const one = (v: number) => { const r = dn.get(v) ?? v; return r === ink ? 0 : r; };
-  c.clearRect(0, 0, w, cut); c.clearRect(0, h - cut, w, cut);
-  band(cut, mid - cut, two); band(h - mid, mid - cut, two);
-  band(mid, fade - mid, one); band(h - fade, fade - mid, one);
+  c.clearRect(0, 0, w, cut); band(cut, mid - cut, two); band(mid, fade - mid, one);
+  if (!bottom) return;
+  c.clearRect(0, h - cut, w, cut); band(h - mid, mid - cut, two); band(h - fade, fade - mid, one);
 }
 /** Centred credits text with a full 1px ink outline on a solid ink plate (reads over any sky band). */
 function inked(ctx: CanvasRenderingContext2D, s: string, cx: number, y: number, c: string) {
@@ -237,6 +242,10 @@ function inked(ctx: CanvasRenderingContext2D, s: string, cx: number, y: number, 
 const smooth = (v: number) => { const e = v < 0 ? 0 : v > 1 ? 1 : v; return e * e * (3 - 2 * e); };
 
 /** HUD roster short names (one 9px line each in the 108px HOSTILES slot); the journal keeps the full names. */
+/** Attract mode: after DEMO_IDLE idle ticks on the title a short self-playing demo runs for DEMO_LEN ticks. */
+const DEMO_IDLE = 600, DEMO_LEN = 1500;
+/** Title: Pom's fly-in from below the horizon takes TITLE_IN ticks; cats peek over the menu frame every PEEK ticks. */
+const TITLE_IN = 70, PEEK = 260;
 /** Ticks after a Big Cat's entrance that toasts keep waiting (covers its taunt and the first telegraphed tell). */
 const BOSS_INTRO_GRACE = 150;
 /** Sector short names: one display name for the HUD sector header and the map's sector log whenever the full name
@@ -267,12 +276,20 @@ class UI implements Module {
   /** Hit rects of the menu rows drawn this frame (touch tap-to-select). */
   rows: Row[] = [];
   touch = new Touch();
+  /** Title clock (restarts each time the title comes up: Pom's fly-in) and idle ticks toward the attract demo. */
+  titleT = 0; idle = 0; demoRuns = 0;
+  /**
+   * Attract demo in progress: the real state object is parked here and the demo flies a JSON copy, save's writes are
+   * stubbed out, toasts muted; endDemo puts everything back exactly as it was (the save is never touched).
+   */
+  demo: { t: number; real: any; live: boolean; best: number; pow: Record<string, number> | null; buddy: boolean; log: number } | null = null;
 
   init(g: Game) {
     this.g = g;
     g.toastFn = (s, o) => this.toast(s, o);
     g.bus.on('scene:change', (p: any) => {
       this.sel = p.to === 'title' && !this.g.mods.save?.hasSave() ? 1 : 0; this.mapSel = 0;
+      if (p.to === 'title') { this.titleT = 0; this.idle = 0; }
       // the ending owns the screen: quest / reward news still in flight is flushed, not stamped on the title card
       if (p.to === 'ending') { this.endingT = 0; this.plan = null; this.toasts = []; this.toastPend = []; }
       if (p.to !== 'play' && p.to !== 'bonus') this.menuOpen = this.menuOpen === 'journal' ? 'journal' : 'none';
@@ -363,7 +380,9 @@ class UI implements Module {
       if (p.startsWith('PUPPY RESCUED!')) {
         const pq = this.g?.content?.quests?.find(k => k.complete?.on === 'pup:rescue');
         const nm = pq?.name.toUpperCase(); const c = nm ? cnt(q, nm) : null;
-        if (nm && c) return `PUPPY RESCUED! ${nm} ${c}`;
+        // keep the rescue's own news (WINGMAN ONLINE) in front of the counter: never dropped by the merge
+        const rest = p.slice('PUPPY RESCUED!'.length).trim();
+        if (nm && c) return rest ? `PUPPY RESCUED! ${rest}. ${nm} ${c}` : `PUPPY RESCUED! ${nm} ${c}`;
       }
     }
     return null;
@@ -409,6 +428,7 @@ class UI implements Module {
 
   update(g: Game) {
     this.t++;
+    if (this.demo && this.demoTick(g)) return;
     // boss intro clock: 0 while the Big Cat swoops in, then counts up (a boss staged mid-fight starts settled)
     const B1 = g.mods.interaction?.boss;
     this.bossCalm = !B1 ? -1 : B1.entering ? 0 : this.bossCalm < 0 ? BOSS_INTRO_GRACE : this.bossCalm + (g.paused || this.bossCalm >= BOSS_INTRO_GRACE ? 0 : 1);
@@ -474,7 +494,13 @@ class UI implements Module {
     }
     if (sc === 'dialogue' && I.pressed('back')) { this.skipDialogue(g); return; }
     if (pauseable && I.pressed('pause')) { this.openPause(); return; }
-    if (sc === 'title') this.titleNav(g);
+    if (sc === 'title') {
+      this.titleT++;
+      // attract mode: ~10 s with no input on the bare title starts the demo (never headless, never over a menu)
+      if (I.down.size || g.mods.world?.trans) this.idle = 0;
+      else if (++this.idle >= DEMO_IDLE && !g.headless) { this.startDemo(g); return; }
+      this.titleNav(g);
+    }
     else if (sc === 'map') this.mapNav(g);
     else if (sc === 'ending') {
       // confirm during the flight or the credits skips to the fully typed card; on the card it returns to the title
@@ -498,6 +524,62 @@ class UI implements Module {
     } }
   }
 
+  /**
+   * Attract demo: the autopilot flies a real sector (the start sector or one already cleared, a mid wave so no briefing
+   * opens) on a throwaway copy of the state. save.save / save.flush are stubbed for the run and restored after, and the
+   * real state object is put back untouched, so the demo never writes or changes the player's save.
+   */
+  startDemo(g: Game) {
+    const Wd = g.mods.world; if (!Wd?.enterArea || this.demo) return;
+    const st = g.state; const S = g.mods.save; const P = g.mods.player;
+    const ok = (id: string) => (Wd.area(id)?.waves?.length ?? 0) >= 4;
+    const pool = [...new Set([g.content.start, ...st.areasCleared])].filter(ok); if (!pool.length) return;
+    const id = pool[this.demoRuns % pool.length]; const a = Wd.area(id);
+    const wave = 1 + (this.demoRuns % Math.max(1, a.waves.length - 3)); this.demoRuns++;
+    const copy = JSON.parse(JSON.stringify(st)); copy.hearts = copy.maxHearts; copy.score = 0;
+    this.demo = { t: 0, real: st, live: !!S?.live, best: this.bestChain, pow: P?.powers ? { ...P.powers } : null, buddy: !!P?.buddy, log: g.bus.log.length };
+    if (S) { S.save = () => false; S.flush = () => true; }
+    this.muteToasts(true); this.idle = 0;
+    g.replaceState(copy); g.autopilot = true;
+    Wd.transition('fade', () => { if (this.demo) Wd.enterArea(id, wave); });
+  }
+  /** One demo tick; true when the demo just ended (the rest of ui's update is skipped that tick). */
+  demoTick(g: Game): boolean {
+    const d = this.demo!; d.t++;
+    // any key, button or tap returns to the title at once
+    if (d.t > 2 && g.input.down.size) { this.endDemo(g); return true; }
+    const sc = g.state.scene;
+    if (d.t > 90 && sc !== 'play' && sc !== 'dialogue' && sc !== 'bonus' && !g.mods.world?.trans) { this.endDemo(g); return true; }
+    if (d.t === DEMO_LEN) g.mods.world?.transition('fade', () => this.endDemo(g));
+    return false;
+  }
+  endDemo(g: Game) {
+    const d = this.demo; if (!d) return; this.demo = null;
+    g.autopilot = false; g.paused = false; this.menuOpen = 'none';
+    g.mods.interaction?.clearAll?.();
+    const Q = g.mods.quest; if (Q) Q.dlg = null;
+    const P = g.mods.player; if (P) { if (d.pow) P.powers = d.pow; P.buddy = d.buddy; }
+    // leave for the title while the demo copy is still live: scene:change listeners (memories collects photos still
+    // in the air, save flushes) land on the copy, then memories' leftover cards and drops are dropped with it
+    g.setScene('title');
+    const M = g.mods.memories as any; if (M) { M.reveals = []; M.drops = []; M.pending = null; M.cues = []; }
+    d.real.scene = 'title'; g.replaceState(d.real);
+    const S = g.mods.save; if (S) { delete S.save; delete S.flush; S.live = d.live; S.pending = false; }
+    if (g.bus.log.length >= d.log) g.bus.log.length = d.log;
+    this.bestChain = d.best; this.chain = 0;
+    this.muteToasts(false); this.toastPend = [];
+  }
+  /** Demo overlay on the playfield: a DEMO plate and a blinking PRESS prompt in the bottom strip. */
+  demoOverlay(ctx: CanvasRenderingContext2D) {
+    const t = this.t; const cx = PF_X + PF_W / 2;
+    // the Galaga attract beat: a DEMO tag in the playfield's top-left corner and a blinking PRESS prompt in the bottom
+    // strip (under Pom's lowest flight row, where toasts would sit; they are muted during the demo)
+    const dw = textWidth('DEMO') + 20; chamferFill(ctx, PF_X + 6, 6, dw, 15, C.ink, 4); chamferLine(ctx, PF_X + 6, 6, dw, 15, C.hot, 4);
+    rect(ctx, PF_X + 11, 12, 3, 3, (t >> 4) % 2 ? C.red : C.mag); text(ctx, 'DEMO', PF_X + 17, 10, C.pink);
+    const k = keys(this.dev()); const msg = `PRESS ${k.ok} TO PLAY`; const mw = textWidth(msg) + 24;
+    chamferFill(ctx, cx - mw / 2, H - 19, mw, 15, C.ink, 4); chamferLine(ctx, cx - mw / 2, H - 19, mw, 15, (t >> 4) % 2 ? C.gold : C.burnt, 4);
+    text(ctx, msg, cx, H - 15, (t >> 4) % 2 ? C.gold : C.orange, { align: 'center' });
+  }
   titleItems() { return ['CONTINUE', 'NEW GAME', 'JOURNAL', 'SETTINGS']; }
   titleDisabled() { return [!this.g.mods.save?.hasSave(), false, false, false]; }
   pauseItems() { return this.heldDlg ? ['RESUME', 'SKIP BRIEFING', 'JOURNAL', 'SETTINGS', 'COPY SAVE CODE', 'SAVE & QUIT'] : ['RESUME', 'JOURNAL', 'SETTINGS', 'COPY SAVE CODE', 'SAVE & QUIT']; }
@@ -572,7 +654,7 @@ class UI implements Module {
     const sc = g.state.scene; this.rows = []; this.bossBarOn = false;
     // the journal paints a full-bleed backdrop: skip the scene underneath (saves ~5 ms a frame)
     if (this.menuOpen === 'journal' && g.mods.journal?.draw) { g.mods.journal.draw(g, ctx); this.touch.draw(g, ctx, this.t); return; }
-    if (sc === 'play' || sc === 'bonus' || sc === 'dialogue') { this.hud(g, ctx); if (sc === 'dialogue') this.dialogueBox(g, ctx); }
+    if (sc === 'play' || sc === 'bonus' || sc === 'dialogue') { this.hud(g, ctx); if (sc === 'dialogue') this.dialogueBox(g, ctx); if (this.demo) this.demoOverlay(ctx); }
     else if (sc === 'title') this.title(g, ctx);
     else if (sc === 'map') this.map(g, ctx);
     else if (sc === 'ending') this.ending(g, ctx);
@@ -726,13 +808,14 @@ class UI implements Module {
       const idx = g.content.areas.indexOf(A);
       // the header stops short of the sound chip that lives in the panel's top-right corner
       header(ctx, `SECTOR ${String(idx + 1).padStart(2, '0')}`, x1, 10, w0 - 26, accR, t, true);
-      this.areaTitle(ctx, A, x1, 23, w0);
+      // the name only (the sector card and the pause menu carry the subtitle): one or two lines, then air
+      this.areaTitle(ctx, { id: A.id, name: A.name }, x1, 23, w0);
       // one source of truth with world's 'WAVE n / N' banner: N counts regular waves only; the Big Cat gets its own
       // strip cell (with a pip) and the BIG CAT WAVE plate, never a number
       const nw = A.waves.length; const tot = nw + (A.boss ? 1 : 0); const cur = Math.min(nw, s.waveIndex + 1);
       const MB = g.state.scene === 'bonus' && !B0 ? g.mods.minigames?.def : null;
-      header(ctx, MB ? `BONUS STAGE ${String(g.content.bonus.indexOf(MB) + 1).padStart(2, '0')}` : 'WAVE', x1, 60, w0, MB ? C.gold : C.hot, t);
-      const wy = 71;
+      header(ctx, MB ? `BONUS STAGE ${String(g.content.bonus.indexOf(MB) + 1).padStart(2, '0')}` : 'WAVE', x1, 50, w0, MB ? C.gold : C.hot, t);
+      const wy = 62;
       if (MB) this.fitText(ctx, String(MB.name), x1, wy + 2, w0, C.gold, C.ink);
       else if (B0) {
         chamferFill(ctx, x1, wy - 1, w0, 13, C.mag, 3); chamferFill(ctx, x1 + 1, wy - 1, w0 - 2, 12, (t >> 4) % 2 ? C.hot : C.mag, 3);
@@ -753,52 +836,54 @@ class UI implements Module {
         }
       }
     }
+    // RESCUED row: fixed at y 88..116 (memories files each new photo into the album chip at RX+75, 107)
     header(ctx, 'RESCUED', x1, 88, w0, C.gold, t);
     chamferFill(ctx, x1, 98, 52, 18, C.night, 2); drawSprite(ctx, 'pup', x1 + 9, 107);
     text(ctx, `X${s.inventory.pups ?? 0}`, x1 + 20, 103, C.gold);
     chamferFill(ctx, x1 + 56, 98, w0 - 56, 18, C.night, 2); drawSprite(ctx, 'pk_memory', x1 + 65, 107);
     text(ctx, `${g.mods.memories?.albumShown?.() ?? s.memories.length}/${g.content.memories.length}`, x1 + 76, 103, C.text);
-    header(ctx, 'QUEST', x1, 122, w0, C.violet, t);
+    header(ctx, 'QUEST', x1, 124, w0, C.violet, t);
     // quest.tracked() returns null while a NEW QUEST toast is still held: no find() fallback then
     const Q = g.mods.quest;
     const q = Q?.tracked ? Q.tracked() : g.content.quests.find(q => s.quests[q.id] === 'active');
     if (q) {
-      this.fitText(ctx, q.name, x1, 133, w0, C.violet, C.ink);
-      icon(ctx, 'flag', x1, 144, C.violet);
+      this.fitText(ctx, q.name, x1, 135, w0, C.violet, C.ink);
+      icon(ctx, 'flag', x1, 146, C.violet);
       const pr = g.mods.quest?.progress?.(q);
       if (pr && pr.need > 1) {
         // the counter keeps its width; the bar takes what is left with a 4px gap (never runs into the numbers)
         // counters use thousands commas, the way quest toasts print them (0/1,500)
         const cm = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); const lbl = `${cm(Math.min(pr.have, pr.need))}/${cm(pr.need)}`; const cells = Math.max(3, Math.min(10, Math.floor((w0 - 10 - textWidth(lbl) - 5) / 6)));
-        segBar(ctx, x1 + 10, 145, cells, 5, 4, pr.have / pr.need, C.violet); text(ctx, lbl, x1 + w0, 144, C.text, { align: 'right' });
+        segBar(ctx, x1 + 10, 147, cells, 5, 4, pr.have / pr.need, C.violet); text(ctx, lbl, x1 + w0, 146, C.text, { align: 'right' });
       }
-      else { text(ctx, Q?.goal?.(q) || 'IN PROGRESS', x1 + 10, 144, C.dim); if (!Q?.goal) for (let i = 0; i < 3; i++) rect(ctx, x1 + 78 + i * 4, 149, 2, 2, ((t >> 4) % 4) > i ? C.violet : C.peri); }
-    } else { text(ctx, 'NO ACTIVE QUEST', x1, 133, C.dim); icon(ctx, 'flag', x1, 144, C.peri); text(ctx, 'FLY ON, CAPTAIN', x1 + 10, 144, C.peri); }
-    // threat slot: fixed 64px (boss armor, bonus tally, live breed roster, or the next formation preview)
-    const TY = 158;
+      else { text(ctx, Q?.goal?.(q) || 'IN PROGRESS', x1 + 10, 146, C.dim); if (!Q?.goal) for (let i = 0; i < 3; i++) rect(ctx, x1 + 78 + i * 4, 151, 2, 2, ((t >> 4) % 4) > i ? C.violet : C.peri); }
+    } else { text(ctx, 'NO ACTIVE QUEST', x1, 135, C.dim); icon(ctx, 'flag', x1, 146, C.peri); text(ctx, 'FLY ON, CAPTAIN', x1 + 10, 146, C.peri); }
+    // threat slot TY..236 (boss armor, bonus tally, live breed roster, or the next formation preview)
+    const TY = HUD_TY;
     if (B0) this.bossBlock(g, ctx, B0, x1, TY, w0);
     else if (g.state.scene === 'bonus') {
       // static stage info: the live HITS counter lives in the playfield (minigames), never a second tally here
       header(ctx, 'BONUS STAGE', x1, TY, w0, C.gold, t, true);
       const MD = g.mods.minigames?.def; const en = MD ? g.content.enemies.find(e => e.id === MD.breed) : null;
       if (en) {
-        chamferFill(ctx, x1, TY + 12, 36, 36, C.night, 3); drawSprite(ctx, en.sprite, x1 + 18, TY + 30);
-        text(ctx, 'NO RETURN', x1 + 42, TY + 16, C.text); text(ctx, 'FIRE', x1 + 42, TY + 25, C.text);
-        text(ctx, 'BOOP THEM', x1 + 42, TY + 36, C.gold); text(ctx, 'ALL!', x1 + 42, TY + 45, C.gold);
+        chamferFill(ctx, x1, TY + 14, 36, 36, C.night, 3); drawSprite(ctx, en.sprite, x1 + 18, TY + 32);
+        text(ctx, 'NO RETURN', x1 + 42, TY + 18, C.text); text(ctx, 'FIRE', x1 + 42, TY + 27, C.text);
+        text(ctx, 'BOOP THEM', x1 + 42, TY + 38, C.gold); text(ctx, 'ALL!', x1 + 42, TY + 47, C.gold);
       }
     } else this.roster(g, ctx, x1, TY, w0);
+    // this sector's photos: one slim strip (memories pulses its boxes at y 245 after a reveal card)
+    // (hidden while the touch deck owns the panel below y 232; the pause menu's sector card still lists the photos)
+    if (A && !touch) this.memoryStrip(g, ctx, A, x1, w0, accS);
     if (!touch) {
-      // sector checklist (what is still out there in this sector), then the clock blocks
-      if (A) this.sectorGoals(g, ctx, A, x1, 230, w0, accS);
+      // compact footer: local time + flight time on one row (sector goals and the full clock live in the pause menu)
       const tod = s.tod; const tc = tod === 'night' ? C.violet : tod === 'dusk' ? C.pink : tod === 'dawn' ? C.orange : C.gold;
-      header(ctx, 'LOCAL TIME', x1, 296, w0, tc, t);
-      icon(ctx, tod === 'night' ? 'moon' : tod === 'dusk' ? 'dusk' : tod === 'dawn' ? 'dawn' : 'sun', x1, 307, tc); text(ctx, tod.toUpperCase(), x1 + 10, 307, tc);
-      // day-cycle strip: four phases, current one lit
-      (['dawn', 'day', 'dusk', 'night'] as const).forEach((p, i) => rect(ctx, x1 + 60 + i * 12, 309, 10, 3, p === tod ? tc : C.indigo));
+      // Galaga's stage flags: one pennant per sector along the panel foot (cleared gold, this one blinking pink)
+      this.sectorFlags(g, ctx, x1, 311, w0);
+      dither(ctx, x1, 327, w0, 1, C.indigo, 'sparse');
+      icon(ctx, tod === 'night' ? 'moon' : tod === 'dusk' ? 'dusk' : tod === 'dawn' ? 'dawn' : 'sun', x1, 336, tc); text(ctx, tod.toUpperCase(), x1 + 10, 336, tc);
       const mm = Math.floor(s.stats.playTicks / 3600), ss = Math.floor(s.stats.playTicks / 60) % 60;
-      header(ctx, 'FLIGHT TIME', x1, 321, w0, C.line, t);
-      this.clock(ctx, x1, 332, C.line, g.paused ? 0 : (s.stats.playTicks >> 4) % 8);
-      text(ctx, `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`, x1 + 10, 332, C.text);
+      this.clock(ctx, x1 + 50, 336, C.line, g.paused ? 0 : (s.stats.playTicks >> 4) % 8);
+      text(ctx, `${String(Math.min(99, mm)).padStart(2, '0')}:${String(ss).padStart(2, '0')}`, x1 + 60, 336, C.pale);
     }
     // boss armor bar docked along the top edge of the playfield, where the player's eyes are
     this.bossBarOn = !!B0 && typeof B0.hp === 'number';
@@ -851,21 +936,23 @@ class UI implements Module {
   /** Threat slot (64px): live breed roster with a cats-left bar, or the next formation preview when the sky is empty. */
   roster(g: Game, ctx: CanvasRenderingContext2D, x: number, y: number, w: number) {
     const cats = (g.mods.interaction?.cats ?? []) as { def?: { id: string; name: string; sprite: string } }[];
-    header(ctx, 'HOSTILES', x, y, w, C.hot, this.t, cats.length > 0);
     const by: Record<string, { id: string; n: number; name: string; sprite: string }> = {};
     for (const c of cats) { const d = c.def; if (!d) continue; (by[d.id] ??= { id: d.id, n: 0, name: d.name, sprite: d.sprite }).n++; }
     const list = Object.values(by).sort((a, b) => b.n - a.n);
-    y += 11;
     if (!list.length) {
-      // before the first cats arrive the wave is INCOMING; once a wave is wiped out the skies are clear
-      const incoming = this.waveCats === 0;
-      chamferFill(ctx, x, y, w, 14, C.ink, 3); chamferLine(ctx, x, y, w, 14, incoming ? C.mag : C.peri, 3);
-      const lbl = incoming ? 'INCOMING' : 'SKIES CLEAR';
-      if (incoming) { const o = (this.t >> 3) % 2; arrow(ctx, x + 10, y + 6 + o, 'd', 3, C.hot); arrow(ctx, x + w - 11, y + 6 + o, 'd', 3, C.hot); }
-      text(ctx, lbl, x + w / 2, y + 4, incoming ? ((this.t >> 4) % 2 ? C.hot : C.pink) : C.dim, { align: 'center' });
-      this.formationPreview(g, ctx, x, y + 17, w, 35, incoming);
+      // the sky is empty: this slot previews what comes next (NEXT WAVE / NEXT: BIG CAT), the pill says INCOMING
+      const A = g.mods.world?.area(); const wid = A?.waves?.[g.state.waveIndex];
+      const bossNext = !wid && !!A?.boss && !g.state.areasCleared.includes(A.id);
+      header(ctx, bossNext ? 'NEXT: BIG CAT' : 'NEXT WAVE', x, y, w, C.hot, this.t, true);
+      y += 11;
+      chamferFill(ctx, x, y, w, 14, C.ink, 3); chamferLine(ctx, x, y, w, 14, C.mag, 3);
+      const o = (this.t >> 3) % 2; arrow(ctx, x + 10, y + 6 + o, 'd', 3, C.hot); arrow(ctx, x + w - 11, y + 6 + o, 'd', 3, C.hot);
+      text(ctx, 'INCOMING', x + w / 2, y + 4, (this.t >> 4) % 2 ? C.hot : C.pink, { align: 'center' });
+      this.formationPreview(g, ctx, x, y + 17, w, this.touch.visible(g) ? 38 : 44, true, bossNext ? A?.boss : undefined);
       return;
     }
+    header(ctx, 'HOSTILES', x, y, w, C.hot, this.t, true);
+    y += 11;
     const rows = list.length > 3 ? 2 : list.length;
     // the slot keeps its height (SECTOR GOALS sits at a fixed y): breed rows + CATS LEFT are centred in the space
     // under the header, so a one-breed wave does not leave an empty band above SECTOR GOALS
@@ -895,9 +982,22 @@ class UI implements Module {
    * interaction.wavePreview (the formation it will really spawn); without that API the portraits show no numbers,
    * because the content roster is not what spawns (the sector's formation shape and difficulty cap trim it).
    */
-  formationPreview(g: Game, ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, live: boolean) {
+  formationPreview(g: Game, ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, live: boolean, boss?: string) {
     const A = g.mods.world?.area();
     chamferFill(ctx, x, y, w, h, C.ink, 3); chamferLine(ctx, x, y, w, h, live ? C.plum : C.indigo, 3);
+    if (boss) {
+      // the Big Cat waits at the end of the sector: its own sprite, cropped to the face, with its name under it
+      const e = g.content.enemies.find(en => en.id === boss); const cx = x + (w >> 1);
+      chamferFill(ctx, cx - 20, y + 3, 40, h - 15, C.night, 3);
+      if (e && SHEETS[e.sprite]) {
+        ctx.save(); ctx.beginPath(); ctx.rect(cx - 20, y + 3, 40, h - 15); ctx.clip();
+        drawSprite(ctx, e.sprite, cx, y + 3 + ((h - 15) >> 1) + 6 + ((this.t >> 4) % 2), { frame: frameCount(e.sprite) > 1 ? (this.t >> 4) % 2 : 0 });
+        ctx.restore();
+      }
+      const nm = String(e?.name ?? 'BIG CAT').split(',')[0].toUpperCase();
+      if (textWidth(nm) <= w - 6) text(ctx, nm, cx, y + h - 10, C.pink, { align: 'center' }); else if (tinyWidth(nm) <= w - 6) tiny(ctx, nm, cx, y + h - 9, C.pink, { align: 'center' });
+      return;
+    }
     const wid = A?.waves?.[g.state.waveIndex]; const wave = g.content.waves.find(v => v.id === wid);
     if (!wave) { text(ctx, 'ALL CLEAR', x + w / 2, y + h / 2 - 3, C.peri, { align: 'center' }); return; }
     let real: { breed: string; n: number }[] | null = null;
@@ -911,7 +1011,7 @@ class UI implements Module {
       const e = g.content.enemies.find(en => en.id === breed); const cx = ox + i * cw + (cw >> 1);
       // portrait well, then the breed's own sprite cropped to its face (a hop on the live INCOMING beat)
       // without real counts the portrait well grows to fill the box (no number row)
-      const wy = real ? y + 3 : y + 4, wh = real ? 21 : h - 8;
+      const wy = real ? y + 3 : y + 4, wh = real ? h - 15 : h - 8;
       chamferFill(ctx, cx - 13, wy, 26, wh, C.night, 2);
       if (e && SHEETS[e.sprite]) {
         const hop = live && ((this.t >> 3) + i) % 6 === 0 ? -1 : 0;
@@ -974,36 +1074,51 @@ class UI implements Module {
     v = !!a?.waves.some(w => ct.waves.find(x => x.id === w)?.cats.some(c => ct.enemies.find(e => e.id === c.breed)?.behavior === 'capturer'));
     this.pupHere.set(areaId, v); return v;
   }
-  /** Sector checklist: this sector's memories (one polaroid per photo), its lost pup and its Big Cat. */
-  sectorGoals(g: Game, ctx: CanvasRenderingContext2D, A: { id: string; boss?: string }, x: number, y: number, w: number, glow: string) {
-    const t = this.t; const s = g.state;
-    header(ctx, 'SECTOR GOALS', x, y, w, glow, t);
-    const by = y + 11, bh = 45;
-    chamferFill(ctx, x, by, w, bh, C.ink, 3); chamferLine(ctx, x, by, w, bh, darkOf(glow), 3);
-    // memories placed here: lit polaroids for the ones in the album
+  /**
+   * This sector's photos on one slim strip under the threat slot (y 239..256): a polaroid box per memory placed here,
+   * lit once it is in the album. Its row (label x+15, boxes right-aligned, y 245) is the one memories pulses after a
+   * reveal card. The lost pup and the Big Cat status live in the pause menu's sector card.
+   */
+  memoryStrip(g: Game, ctx: CanvasRenderingContext2D, A: { id: string }, x: number, w: number, glow: string) {
+    const s = g.state; const y = 239, h = 18;
+    const mems = (g.mods.memories?.placed?.(A.id) ?? g.content.memories.filter(m => m.area === A.id)) as { id: string }[];
+    const got = mems.filter(m => s.memories.includes(m.id)).length;
+    chamferFill(ctx, x, y, w, h, C.ink, 3); chamferLine(ctx, x, y, w, h, darkOf(glow), 3);
+    icon(ctx, 'photo', x + 5, 246, got && got === mems.length ? C.gold : C.violet);
+    text(ctx, 'MEMORIES', x + 15, 246, mems.length ? C.pale : C.dim);
+    if (!mems.length) text(ctx, '--', x + w - 5, 246, C.peri, { align: 'right' });
+    mems.forEach((m, i) => {
+      const on = s.memories.includes(m.id); const px = x + w - 5 - (mems.length - i) * 9 + 1;
+      chamferFill(ctx, px, 245, 8, 9, on ? C.gold : C.night, 1); chamferLine(ctx, px, 245, 8, 9, on ? C.cream : C.peri, 1);
+      if (on) rect(ctx, px + 2, 247, 4, 3, C.burnt);
+    });
+  }
+  /** Stage pennants (Galaga's level badges): 5x9 per sector, 8px pitch, centred in w; cleared = gold, here = pink. */
+  sectorFlags(g: Game, ctx: CanvasRenderingContext2D, x: number, y: number, w: number) {
+    const areas = g.content.areas; const n = areas.length; const pitch = Math.min(8, Math.floor(w / Math.max(1, n)));
+    const ox = Math.round(x + (w - (n * pitch - (pitch - 5))) / 2);
+    const F = ['#....', '###..', '####.', '#####', '###..', '#....', '#....', '#....', '#....'];
+    areas.forEach((a, i) => {
+      const done = g.state.areasCleared.includes(a.id), here = a.id === g.state.areaId;
+      const c = here ? ((this.t >> 4) % 2 ? C.hot : C.pink) : done ? C.gold : C.indigo; const pole = here ? C.text : done ? C.cream : C.indigo;
+      const fx = ox + i * pitch;
+      F.forEach((r, yy) => { for (let xx = 0; xx < 5; xx++) if (r[xx] === '#') rect(ctx, fx + xx, y + yy, 1, 1, xx === 0 ? pole : c); });
+      if (done && !here) rect(ctx, fx + 1, y + 1, 1, 1, C.cream);
+    });
+  }
+  /** Sector card rows for the pause menu: [icon, label, value, value colour, icon colour] (memories, lost pup, Big Cat). */
+  sectorRows(g: Game, A: { id: string; boss?: string }): [string, string, string, string, string][] {
+    const s = g.state; const t = this.t;
     const mems = (g.mods.memories?.placed?.(A.id) ?? g.content.memories.filter(m => m.area === A.id)) as { id: string }[];
     const got = mems.filter(m => s.memories.includes(m.id)).length;
     const cleared = s.areasCleared.includes(A.id);
     const pup = this.hasPup(g, A.id), safe = !!s.flags['pup_' + A.id];
     const B0 = g.mods.interaction?.boss;
-    const yy = (i: number) => by + 5 + i * 13;
-    // row 0: memories
-    icon(ctx, 'photo', x + 5, yy(0), got && got === mems.length ? C.gold : C.violet);
-    text(ctx, 'MEMORIES', x + 15, yy(0), C.pale);
-    if (!mems.length) text(ctx, '--', x + w - 5, yy(0), C.peri, { align: 'right' });
-    mems.forEach((m, i) => {
-      const on = s.memories.includes(m.id); const px = x + w - 5 - (mems.length - i) * 9 + 1;
-      chamferFill(ctx, px, yy(0) - 1, 8, 9, on ? C.gold : C.night, 1); chamferLine(ctx, px, yy(0) - 1, 8, 9, on ? C.cream : C.peri, 1);
-      if (on) rect(ctx, px + 2, yy(0) + 1, 4, 3, C.burnt);
-    });
-    // row 1: the sector's lost pup
-    icon(ctx, 'paw', x + 5, yy(1), pup ? (safe ? C.lime : C.pink) : C.peri);
-    text(ctx, 'LOST PUP', x + 15, yy(1), C.pale);
-    text(ctx, !pup ? 'NONE' : safe ? 'SAVED' : 'CAGED', x + w - 5, yy(1), !pup ? C.peri : safe ? C.lime : (t >> 4) % 2 ? C.hot : C.pink, { align: 'right' });
-    // row 2: the Big Cat
-    icon(ctx, 'cat', x + 5, yy(2), A.boss ? (cleared ? C.line : C.hot) : C.peri);
-    text(ctx, 'BIG CAT', x + 15, yy(2), C.pale);
-    text(ctx, !A.boss ? 'NONE' : cleared ? 'NAPPING' : B0 ? 'AWAKE' : 'AHEAD', x + w - 5, yy(2), !A.boss ? C.peri : cleared ? C.line : B0 ? C.hot : C.orange, { align: 'right' });
+    return [
+      ['photo', 'MEMORIES', mems.length ? `${got}/${mems.length}` : 'NONE', mems.length ? (got === mems.length ? C.gold : C.text) : C.peri, got && got === mems.length ? C.gold : C.violet],
+      ['paw', 'LOST PUP', !pup ? 'NONE' : safe ? 'SAVED' : 'CAGED', !pup ? C.peri : safe ? C.lime : (t >> 4) % 2 ? C.hot : C.pink, pup ? (safe ? C.lime : C.pink) : C.peri],
+      ['cat', 'BIG CAT', !A.boss ? 'NONE' : cleared ? 'NAPPING' : B0 ? 'AWAKE' : 'AHEAD', !A.boss ? C.peri : cleared ? C.line : B0 ? C.hot : C.orange, A.boss ? (cleared ? C.line : C.hot) : C.peri],
+    ];
   }
   /**
    * Sound status chip, always in the same top-right corner (inside the right HUD panel in play): a speaker with
@@ -1173,13 +1288,27 @@ class UI implements Module {
       }
       drawSprite(ctx, TITLE_CATS[i % TITLE_CATS.length], Math.round(x), Math.round(y), { frame: ((t >> 4) + i) % 2 });
     }
-    // hero: chase-cam view of Pom flying toward the sun at an exact 2x of her in-game sprite, her shadow on the grid
+    // hero: chase-cam view of Pom flying toward the sun at an exact 2x of her in-game sprite, her shadow on the grid.
+    // Each time the title comes up she zooms in from below the screen (eased), a jet streak under her
     const hov = Math.round(Math.sin(t / 12) * 2);
-    const shw = 22 - hov; dither(ctx, W / 2 - shw, 221, shw * 2, 4, C.ink, 'check'); rect(ctx, W / 2 - shw + 5, 222, shw * 2 - 10, 2, C.ink);
-    this.heroPom(ctx, W / 2, 171 + hov, t);
+    const tin = Math.min(1, this.titleT / TITLE_IN); const rise = Math.round((1 - tin) * (1 - tin) * (1 - tin) * 230);
+    if (rise > 0) for (let k = 0; k < 6; k++) { const ly2 = 171 + hov + rise + 30 + k * 9; const len = 4 + Math.min(40, rise >> 2) - k * 4; if (len > 0 && ly2 < H) { rect(ctx, W / 2 - 23, ly2, 2, len, k % 2 ? C.gold : C.cream); rect(ctx, W / 2 + 21, ly2, 2, len, k % 2 ? C.gold : C.cream); } }
+    if (rise < 40) { const shw = 22 - hov - (rise >> 2); dither(ctx, W / 2 - shw, 221, shw * 2, 4, C.ink, 'check'); rect(ctx, W / 2 - shw + 5, 222, shw * 2 - 10, 2, C.ink); }
+    this.heroPom(ctx, W / 2, 171 + hov + rise, t);
     // menu: chamfered neon frame with targeting ticks, like the HUD
     const items = this.titleItems(); const off = this.titleDisabled();
     const mh = items.length * 15 + 14; const my = 230; const mw = 176, mx = W / 2 - mw / 2;
+    // two cats take turns peeking over the menu frame's top edge (drawn first, so the frame hides the rest of them)
+    if (this.titleT > TITLE_IN + 40) {
+      const pt = (this.titleT - TITLE_IN - 40) % PEEK, who = Math.floor((this.titleT - TITLE_IN - 40) / PEEK) % 2;
+      const k = pt < 14 ? pt / 14 : pt < 110 ? 1 : pt < 124 ? 1 - (pt - 110) / 14 : 0;
+      if (k > 0) {
+        const px = who ? mx + mw - 38 : mx + 38; const spr = who ? 'cat_calico' : 'cat_tabby';
+        // a look left, a look right, then a blink while it is up
+        const peek = Math.round(smooth(k) * 21); const look = pt > 40 && pt < 75 ? (who ? -2 : 2) : 0;
+        drawSprite(ctx, spr, px + look, my + 16 - peek, { frame: pt > 80 && pt < 90 ? 1 : 0 });
+      }
+    }
     frame(ctx, mx, my, mw, mh, C.line, C.night, 6);
     scanlines(ctx, mx + 2, my + 2, mw - 4, mh - 4);
     ticks(ctx, mx, my, mw, mh, (t >> 4) % 2 ? C.line : C.deep, 7, 3);
@@ -1396,19 +1525,33 @@ class UI implements Module {
   }
   pause(g: Game, ctx: CanvasRenderingContext2D) {
     this.dim(ctx);
-    const items = this.pauseItems(); const n = items.length; const w = 196, h = 102 + n * 20; const x = Math.round(W / 2 - w / 2), y = Math.round(H / 2 - h / 2) + 4;
+    const items = this.pauseItems(); const n = items.length; const A = g.mods.world?.area();
+    // the sector card under the menu: this sector's goals (moved off the HUD) and the clocks, then the save note
+    const card = !!A; const w = 196, h = 102 + n * 20 + (card ? 50 : 0); const x = Math.round(W / 2 - w / 2), y = Math.round(H / 2 - h / 2) + 4;
     frame(ctx, x, y, w, h, C.line, C.night, 8);
     scanlines(ctx, x + 2, y + 2, w - 4, h - 4);
     ticks(ctx, x, y, w, h, C.deep, 8, 3);
     chamferFill(ctx, x + 10, y - 8, w - 20, 26, C.ink, 5); chamferLine(ctx, x + 10, y - 8, w - 20, 26, C.deep, 5);
     headline(ctx, 'PAUSED', W / 2, y - 1, C.line, C.ice, C.deep);
-    const A = g.mods.world?.area();
-    if (A) text(ctx, A.name.toUpperCase(), W / 2, y + 26, C.dim, { align: 'center' });
+    if (A) this.fitCentered(ctx, A.name, W / 2, y + 26, w - 24, C.dim);
     rect(ctx, x + 16, y + 38, w - 32, 1, C.indigo);
     const icons = items.map(it => ({ RESUME: 'play', 'SKIP BRIEFING': 'skip', JOURNAL: 'book', SETTINGS: 'gear', 'COPY SAVE CODE': 'paw' } as Record<string, string>)[it] ?? 'disk');
     this.rows = menu(ctx, items, this.sel, W / 2, y + 52, this.t, 20, icons, w - 28);
-    const dy = y + 52 + n * 20;
+    let dy = y + 52 + n * 20;
     rect(ctx, x + 16, dy, w - 32, 1, C.indigo);
+    if (A) {
+      const lx = x + 22, rx = x + w - 22; const s = g.state;
+      this.sectorRows(g, A).forEach(([ic, l, v, vc, icc], i) => {
+        const ry = dy + 8 + i * 11; icon(ctx, ic, lx, ry, icc); text(ctx, l, lx + 11, ry, C.pale); text(ctx, v, rx, ry, vc, { align: 'right' });
+      });
+      // local time + flight time share the last row
+      const ry = dy + 41; const tod = s.tod; const tc = tod === 'night' ? C.violet : tod === 'dusk' ? C.pink : tod === 'dawn' ? C.orange : C.gold;
+      icon(ctx, tod === 'night' ? 'moon' : tod === 'dusk' ? 'dusk' : tod === 'dawn' ? 'dawn' : 'sun', lx, ry, tc); text(ctx, tod.toUpperCase(), lx + 11, ry, tc);
+      const mm = Math.floor(s.stats.playTicks / 3600), ss = Math.floor(s.stats.playTicks / 60) % 60; const ts = `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+      text(ctx, ts, rx, ry, C.text, { align: 'right' }); this.clock(ctx, rx - textWidth(ts) - 10, ry, C.line, 0);
+      text(ctx, 'FLIGHT', rx - textWidth(ts) - 14, ry, C.dim, { align: 'right' });
+      dy += 50; dither(ctx, x + 16, dy, w - 32, 1, C.indigo, 'sparse');
+    }
     text(ctx, this.heldDlg ? 'BRIEFING ON HOLD' : 'PROGRESS SAVES AUTOMATICALLY', W / 2, dy + 8, C.dim, { align: 'center' });
     const k = keys(this.dev());
     hintRow(ctx, [[k.ok, 'SELECT'], [k.back, 'RESUME']], W / 2, y + h - 18, C.line);
@@ -1515,13 +1658,16 @@ class UI implements Module {
       // her own solid ink plate (the sunset clouds share her values), wide enough for the jet trail
       chamferFill(ctx, cx - 50, y + 6, 116, 60, C.indigo, 5); chamferFill(ctx, cx - 49, y + 7, 114, 58, C.ink, 5);
       for (let k = 0; k < 4; k++) if ((k + (t >> 2)) % 4) rect(ctx, cx + 40 + k * 5, y + 30 + bob, 3, 2, k < 1 ? C.cream : k < 2 ? C.gold : k < 3 ? C.orange : C.plum);
-      draw2x(ctx, 'end_pom_fly', cx, y + 36 + bob, { frame: (t >> 3) % 2 }); text(ctx, 'CAPTAIN POM', cx, y + 80, C.gold, { align: 'center', shadow: C.burnt });
+      draw2x(ctx, 'end_pom_fly', cx, y + 36 + bob, { frame: (t >> 3) % 2 }); inked(ctx, 'CAPTAIN POM', cx, y + 77, C.gold);
     } });
     gap(10);
     if (shown > 0) {
       small(shown === 1 ? 'AND THE PUP SHE BROUGHT HOME' : `AND THE ${shown} PUPS SHE BROUGHT HOME`);
       const perRow = 8, rows = Math.ceil(shown / perRow);
-      items.push({ h: rows * 36 + 6, draw: (ctx, y, t) => {
+      items.push({ h: rows * 36 + 10, draw: (ctx, y, t) => {
+        // the row sits on its own solid ink plate (like Pom's), so it never mixes with the skyline behind it
+        const pw = Math.min(perRow, shown) * 36 + 16;
+        chamferFill(ctx, cx - pw / 2, y - 1, pw, rows * 36 + 6, C.indigo, 5); chamferFill(ctx, cx - pw / 2 + 1, y, pw - 2, rows * 36 + 4, C.ink, 5);
         for (let i = 0; i < shown; i++) {
           const r = Math.floor(i / perRow), inRow = Math.min(perRow, shown - r * perRow), c = i % perRow;
           draw2x(ctx, 'end_pup_sit', cx + (c - (inRow - 1) / 2) * 36, y + 18 + r * 36 - (((t >> 3) + i) % 9 === 0 ? 2 : 0), { frame: ((t >> 4) + i) % 3 === 0 ? 1 : 0, recolor: PUP_COATS[i % PUP_COATS.length], flipX: c >= inRow / 2 });
@@ -1627,13 +1773,59 @@ class UI implements Module {
     for (let x = 2; x < W; x += 8) { rect(ctx, x, HZ - 12, 4, 12, fc); rect(ctx, x + 1, HZ - 13, 2, 1, fc); rect(ctx, x + 3, HZ - 11, 1, 11, fs); }
     rect(ctx, 0, HZ - 9, W, 2, fc); rect(ctx, 0, HZ - 4, W, 2, fc); rect(ctx, 0, HZ - 8, W, 1, fs); rect(ctx, 0, HZ - 3, W, 1, fs);
   }
-  /** Lawn from the fence to the bottom edge: solid mown stripes fanning out in perspective, a lit edge by the fence. */
+  /**
+   * Lawn from the fence to the bottom edge: one solid ground colour under a carpet of 2px-wide grass blades whose size
+   * and spacing grow toward the viewer (perspective), never mown stripes. Sunset (true ending): green ground, dark
+   * blades with lime tips and a lit edge by the fence. Night (good ending): dark green ground, plum-shadow blades with
+   * a few moonlit green tips (the lantern pools light the rest). Painted once per kind into an offscreen.
+   */
+  private lawnCv: Record<string, HTMLCanvasElement> = {};
   endLawn(ctx: CanvasRenderingContext2D, HZ: number, kind: 'true' | 'good') {
-    // night (good ending): dark green turf with narrower moonlit mown stripes one green step up, never grey
-    const [a, b, edge] = kind === 'true' ? [C.green, P20, C.lime] : [P20, C.green, C.green]; const sw = kind === 'true' ? 24 : 30;
-    rect(ctx, 0, HZ, W, H - HZ, a);
-    for (let i = 0; i < 9; i++) { const x0 = i * 80 - 40; for (let y = HZ + 2; y < H; y++) { const sk = Math.round((y - HZ) * (i * 80 - 320) / 220); const w = 40 + Math.round((y - HZ) * 0.1); rect(ctx, x0 + sk - ((w - 40) >> 1) + ((sw - 24) >> 1), y, w - sw, 1, b); } }
-    rect(ctx, 0, HZ, W, 1, edge); rect(ctx, 0, HZ + 1, W, 1, a);
+    const tru = kind === 'true'; const h = H - HZ;
+    let cv = this.lawnCv[kind];
+    if (!cv && typeof document !== 'undefined') {
+      cv = document.createElement('canvas'); cv.width = W; cv.height = h; const c = cv.getContext('2d');
+      if (c) {
+        const [base, blade, tip, far] = tru ? [C.green, P20, C.lime, P20] : [P20, C.plum, C.green, C.plum];
+        rect(c, 0, 0, W, h, base);
+        // a darker band of far grass under the fence (depth), broken into blades along its lower edge
+        rect(c, 0, 0, W, 3, far);
+        const hash = (x: number, y: number) => { let v = (x * 374761393 + y * 668265263) | 0; v = (v ^ (v >>> 13)) * 1274126177 | 0; return ((v ^ (v >>> 16)) >>> 0) / 4294967296; };
+        for (let y = 4, row = 0; y < h + 4; row++) {
+          const d = y / h; const gap = 18 - Math.round(d * 4); const bh = 2 + Math.round(d * 4);
+          for (let x = (row * 7) % gap - gap; x < W; x += gap) {
+            const r = hash(x, row); if (r < 0.15) continue;
+            const jx = x + Math.floor(r * (gap - 6)); const hh = bh + (r > 0.6 ? 1 : 0) - (r < 0.3 ? 1 : 0);
+            // a tuft: a tall blade and a shorter one leaning off it; tips catch the light on some
+            rect(c, jx, y - hh, 2, hh, blade); if (r > 0.4) rect(c, jx + 3, y - hh + 2, 2, hh - 2, blade);
+            const lit = tru ? r > 0.35 : r > 0.8;
+            if (lit) rect(c, jx, y - hh, 2, 1, tip);
+          }
+          y += 4 + Math.round(d * 5);
+        }
+        rect(c, 0, 0, W, 1, tru ? C.lime : C.green);
+      }
+      this.lawnCv[kind] = cv;
+    }
+    if (cv) ctx.drawImage(cv, 0, HZ); else rect(ctx, 0, HZ, W, h, tru ? C.green : P20);
+  }
+  /** Fireflies over the night lawn and the hedge line (good ending): slow drifting sparks that glow up and fade out
+   *  in solid steps (a 1px lime point, then a cream core with a lime cross at full glow). Deterministic per tick. */
+  fireflies(ctx: CanvasRenderingContext2D, HZ: number, T: number) {
+    for (let i = 0; i < 22; i++) {
+      const ph = (T + i * 53) % 150; if (ph > 100) continue;
+      const x = Math.round(((i * 151 + 40) % (W - 20)) + 10 + Math.sin((T + i * 40) / 47) * 14);
+      const y = Math.round(HZ - 34 + (i * 37) % 96 + Math.sin((T + i * 17) / 31) * 5);
+      const glow = ph < 12 || ph > 88 ? 0 : ph < 22 || ph > 76 ? 1 : 2;
+      if (glow === 2) { rect(ctx, x - 1, y, 3, 1, C.lime); rect(ctx, x, y - 1, 1, 3, C.lime); rect(ctx, x, y, 1, 1, C.cream); }
+      else rect(ctx, x, y, 1, 1, glow ? C.lime : C.green);
+    }
+  }
+  /** The Empress's raised paw, waving (2x pixels, drawn over her flipped sitting sprite; frame 0 high, 1 tipped out). */
+  empressPaw(ctx: CanvasRenderingContext2D, x: number, y: number, f: number) {
+    const A = [['..000...', '.06660..', '.06766..', '.06660..', '..0660..', '..06600.', '...06670', '....0670', '.....00.'],
+      ['........', '000.....', '06600...', '067660..', '0666660.', '.0006670', '....0670', '....0670', '.....00.']][f & 1];
+    A.forEach((r, yy) => { for (let xx = 0; xx < 8; xx++) { const ch = r[xx]; if (ch !== '.') rect(ctx, x + xx * 2, y + yy * 2, 2, 2, col(ch)); } });
   }
   /** Where pup i sits on the lawn (2x sitting pose): back row beside Pom, then a front row clear of the prompt. */
   pupSlot(i: number): { x: number; base: number; flip: boolean } {
@@ -1719,6 +1911,15 @@ class UI implements Module {
       const since = T - lagI * END_LAG - END_FLY;
       const bob = since < 10 ? -Math.round(Math.sin(since / 10 * Math.PI) * 6) : tru && ((T >> 2) + i * 7) % 61 < 6 ? -Math.round(Math.sin((((T >> 2) + i * 7) % 61) / 6 * Math.PI) * 4) : 0;
       const pose = tru && since >= 10 ? PARTY_POSE[i] : undefined;
+      if (pose === 'loop') {
+        // racing laps round the open lawn in front of Pom, the pair half a lap apart; each trots over from its
+        // landing spot onto the oval first
+        const run = since - 10; const a = run * 0.035 + (i === 2 ? Math.PI / 2 : -Math.PI / 2); const rx = 84, ry = 8;
+        const ox = END_POM_X + Math.sin(a) * rx, oy = 334 - Math.cos(a) * ry; const k = smooth(run / 30);
+        const px = Math.round(slot.x + (ox - slot.x) * k), base = Math.round(slot.base + (oy - slot.base) * k);
+        const hop = -Math.abs(Math.round(Math.sin(run * 0.3) * 3)); const left = k < 1 ? ox < slot.x : Math.cos(a) < 0;
+        draws.push({ y: base, f: () => draw2x(ctx, 'end_pup_stand', px, base - 14 + hop, { recolor: coat, flipX: left, frame: (T >> 2) % 2 }) }); continue;
+      }
       if (pose === 'back') { draws.push({ y: slot.base, f: () => draw2x(ctx, 'end_pup_back', slot.x + 2, slot.base - 13, { recolor: coat, frame: (T >> 3) % 2 }) }); continue; }
       if (pose === 'bow') {
         // play-bow toward the tail-chaser, with a little bounce of the rump on the wag beat
@@ -1747,11 +1948,14 @@ class UI implements Module {
       const since = T - END_FLY;
       draws.push({ y: END_POM_Y + 28, f: () => {
         if (since < 18) for (const s of [-1, 1]) { const r = 2 + (since >> 2); disc(ctx, END_POM_X + s * (20 + since), END_POM_Y + 26 - (since >> 3), r, tru ? C.lime : C.green); }
-        draw2x(ctx, 'end_pom_sit', END_POM_X, END_POM_Y + (since < 6 ? 2 : 0), { frame: ((T >> 5) % 5 === 0) ? 1 : 0 });
+        // proud and happy: her pompom tail wags in bursts (two wag beats out of every three)
+        const wag = since > 20 && (T >> 6) % 3 !== 2;
+        draw2x(ctx, 'end_pom_sit', END_POM_X, END_POM_Y + (since < 6 ? 2 : 0), { frame: wag ? (T >> 3) % 2 : 0 });
       } });
     }
     draws.sort((a, b) => a.y - b.y).forEach(d => d.f());
     if (tru && T >= END_FLY) this.confetti(ctx, T);
+    if (!tru) this.fireflies(ctx, HZ, T);
     // ---- overlays: the homeward plate, the credits window, then the story card
     if (T < P.fly) {
       const head = tru ? 'HOMEWARD BOUND' : 'HEADING HOME'; const tw = numWidth(head) + 36;
@@ -1794,7 +1998,12 @@ class UI implements Module {
       draw2x(ctx, 'end_hedgehog', tx + 14, ty - 14 + hop, { flipX: true, frame: (T >> 4) % 3 === 0 ? 1 : 0 });
     } });
     // the Empress: sitting on the lawn at the table's end, facing the party (tail flick + slow blink)
-    draws.push({ y: 316, f: () => draw2x(ctx, 'end_empress_sit', 584, 316 - 36, { flipX: true, frame: (T >> 4) % 7 === 0 ? 1 : 0 }) });
+    // once Pom has landed she waves her paw at the party now and then
+    draws.push({ y: 316, f: () => {
+      const wv = T >= END_FLY + 20 ? (T - END_FLY - 20) % 220 : 999; const waving = wv < 72;
+      draw2x(ctx, 'end_empress_sit', 584, 316 - 36, { flipX: true, frame: !waving && (T >> 4) % 7 === 0 ? 1 : 0 });
+      if (waving) this.empressPaw(ctx, 545, 266, (wv >> 3) % 2);
+    } });
   }
   /** Search set dressing (good ending): Commander Biscuit behind the hedge with a radio and a flashlight beam, and
    *  paw-print lanterns along the path for the pups still finding their way. */
@@ -1853,7 +2062,9 @@ class UI implements Module {
     c.globalCompositeOperation = 'source-over'; c.imageSmoothingEnabled = false; c.clearRect(0, 0, W, h);
     let y = h - off;
     for (const it of P.credits) { if (y + it.h > -80 && y < h + 10) it.draw(c, y, t); y += it.h; }
-    stepFade(c, W, h, FADE);
+    // the top edge (open sky) fades in solid steps; the bottom edge is a clean cut along the window's lower rule, so
+    // plates and sprites slide up out of it whole instead of dissolving over the busy skyline
+    stepFade(c, W, h, FADE, false);
     ctx.drawImage(this.credCv, 0, top);
   }
   private cardCv: HTMLCanvasElement | null = null;

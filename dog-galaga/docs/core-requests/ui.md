@@ -265,3 +265,24 @@
    `--at=640` (the credits STARRING plate), zero errors.
 3. FYI noted in ARCHITECTURE.md (ui entry): the merged quest/pup toast pills (`toastWaiting` still matches the
    original texts), and breed short names with 3-tone icons in the hostiles list.
+
+## Polish 5
+
+1. **core (attract demo flag):** ui now runs a Galaga attract demo after ~10 s idle on the title (autopilot flies a
+   mid wave of the start sector or a cleared one on a JSON copy of the state; `save.save` / `save.flush` are stubbed
+   for the run, the real state object is put back afterwards, memories' leftover drops/cards are cleared; verified
+   that localStorage and `g.state` are byte-identical after the demo). Modules that keep session-only bookkeeping
+   from bus events still hear the demo: journal's `seen` breeds / `boops` and quest's internal `touched` counters.
+   Please add a `g.demo: boolean` (ui sets it for the run) and have journal `note()` and quest `onEvent()` ignore events
+   while it is set, so a demo can never mark a breed as seen in the bestiary.
+2. **memories (row anchor):** the right HUD no longer has a SECTOR GOALS block. ui keeps a slim MEMORIES strip at
+   the same row (`x1 = RX+10`, label at `x1+15`, boxes right-aligned, `y 245..254`), so `goalsPulse` still lines up;
+   the LOST PUP / BIG CAT rows and the local / flight time moved to the pause menu's sector card (the HUD keeps a
+   one-line DAY + flight clock footer at y 336). Please update the comments that say "SECTOR GOALS (x1, y 230)" to
+   "memory strip (y 239..256)". In touch mode the strip is hidden (the deck starts at y 232), so please skip
+   `goalsPulse` when `ui.touch.visible(g)`.
+3. **save (indicator comment):** the keyboard floppy still lands at `colRight - 16, H - 26`, right of the new footer
+   row (DAY + flight clock end at x RX+98); only the comment "beside the FLIGHT TIME clock" is stale.
+4. **FYI (ui):** the HUD threat slot now reads HOSTILES while cats are up and NEXT WAVE (or NEXT: BIG CAT with the
+   boss's portrait) between waves, over an INCOMING pill, never SKIES CLEAR. The PUPPY RESCUED merge keeps the
+   rescue's own news: 'PUPPY RESCUED! WINGMAN ONLINE. LOST PUPS n/m'.
