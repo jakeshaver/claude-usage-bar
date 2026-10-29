@@ -39,13 +39,14 @@ const SKIP_AT = IN + 20;
 const DEV = 34;
 /** the polaroid pops up out of the cat, hangs for a beat, then drifts */
 const POP = 40;
-const CARD_W = 340, CARD_H = 64;
+const CARD_W = 340, CARD_H = 48;
 /**
- * Docked to the top edge of the playfield (bottom at y 68), so the lower 4/5 where Pom fights stays in plain
- * view during the beat: every cat and shot near her is still readable when play resumes. Toasts are held while
- * the card is up, so the top strip is free; in a boss fight it sits just under the boss armor bar (y 3..19).
+ * A slim band docked to the top edge of the playfield (y 6..54, plus a 2px ink-dither shadow; only the polaroid
+ * overhangs it, to y 69), so the lower 4/5 where Pom fights stays in plain view during the beat. Toasts are held
+ * while the card is up and the ones already on screen are hidden until it leaves (see hookToasts), so nothing
+ * draws over it; in a boss fight it sits just under the boss armor bar (y 3..19).
  */
-const CARD_Y = 4, CARD_Y_BOSS = 22;
+const CARD_Y = 6, CARD_Y_BOSS = 22;
 /**
  * The card waits (the photo is already safe in the album) instead of going up at an unfair moment: during a
  * sector title card, in the first WAVE_GRACE ticks of a wave (cats are still flying in), or while a boss is
@@ -81,6 +82,7 @@ class Memories implements Module {
   /** toasts that arrived while a reveal card was up: shown right after it */
   private heldToasts: string[] = [];
   private toastOut: ((s: string) => void) | null = null;
+  private toastsHidden = false;
   t = 0;
   /** true while the reveal holds the game (we set g.paused and must hand it back) */
   holding = false;
@@ -187,7 +189,16 @@ class Memories implements Module {
    * see docs/core-requests/memories.md; if ui exposes holdToasts it is used instead.)
    */
   private hookToasts(g: Game) {
-    const ui: any = g.mods.ui; if (!ui || this.toastOut || typeof ui.toast !== 'function') return;
+    const ui: any = g.mods.ui; if (!ui) return;
+    // Toasts already on screen when the card goes up share its strip (ui stacks them from y 8 / 24): ui keeps
+    // them from ageing, and they are kept off screen while the card shows, so no pill ever sits across its title.
+    // They come back in their place (with their time left) once it leaves. (A shim until ui skips drawToasts
+    // while memories.showing() itself: see docs/core-requests/memories.md, Polish 1 #17.)
+    if (!this.toastsHidden && typeof ui.drawToasts === 'function' && !Object.prototype.hasOwnProperty.call(ui, 'drawToasts')) {
+      const draw = ui.drawToasts.bind(ui); this.toastsHidden = true;
+      ui.drawToasts = (ctx: Ctx) => { const sc = g.state.scene; if (this.showing() && (sc === 'play' || sc === 'bonus')) return; draw(ctx); };
+    }
+    if (this.toastOut || typeof ui.toast !== 'function') return;
     if (typeof ui.holdToasts === 'function') return;
     const orig = ui.toast.bind(ui); this.toastOut = orig;
     ui.toast = (s: string) => { if (this.holdingToasts(g)) { if (this.heldToasts.length < 4) this.heldToasts.push(s); } else orig(s); };
@@ -446,7 +457,9 @@ class Memories implements Module {
     // bottom of each ramp alone, so the field stays readable instead of crushing to black.
     const k = Math.min(r.t - 1, end + OUT - 1 - r.t);
     const night = g.state.tod === 'night';
-    const lvl = Math.max(0, Math.min(night ? 2 : 3, k));
+    // by day and dusk it goes one dither step further (every pixel one step, half of them two), so the hold reads
+    // as a deliberate cozy moment instead of a hitch
+    const lvl = Math.max(0, Math.min(night ? 2 : 4, k));
     if (sc === 'play' && lvl > 0) { dimPlayfield(ctx, lvl, night); if (lvl >= 2) this.aww(g, ctx, r.t); }
     // slide in from the left with a 3px overshoot, settle, then slide out to the right
     const cx = PF_X + Math.round((PF_W - CARD_W) / 2);
@@ -481,88 +494,85 @@ class Memories implements Module {
     const bundle = r.ids.length > 1;
     // a recovered photo wears teal instead of gold, everywhere on the card: rim, studs, kicker, rule
     const rimK = r.lost ? 'l' : 'f', rimK2 = r.lost ? 'm' : 'h', studK = r.lost ? 'm' : 'g';
-    // frame: ink outline, rim, plum body, a darker inner bevel, corner studs
-    rect(x + 1, y + CARD_H + 1, CARD_W + 1, 1, '0'); rect(x + CARD_W + 1, y + 1, 1, CARD_H + 1, '0');
+    // frame: ink outline, rim, plum body, a darker inner bevel, corner studs; under it a 1px ink line and a 2px
+    // ink dither strip, so the field it crosses reads as layered beneath it (not cut off)
     rect(x - 1, y - 1, CARD_W + 2, CARD_H + 2, '0');
+    ctx.fillStyle = col('0');
+    for (let yy = 0; yy < 2; yy++) for (let xx = (yy & 1); xx < CARD_W + 2; xx += 2) ctx.fillRect(x - 1 + xx, y + CARD_H + 1 + yy, 1, 1);
     rect(x, y, CARD_W, CARD_H, rimK); rect(x + 1, y + 1, CARD_W - 2, CARD_H - 2, rimK2);
     rect(x + 2, y + 2, CARD_W - 4, CARD_H - 4, 'v'); rect(x + 2, y + CARD_H - 4, CARD_W - 4, 2, '1');
     for (const [cx, cy] of [[x + 3, y + 3], [x + CARD_W - 5, y + 3], [x + 3, y + CARD_H - 5], [x + CARD_W - 5, y + CARD_H - 5]]) rect(cx, cy, 2, 2, studK);
-    // the polaroid: develops (milky cream -> colour) over the first ~DEV ticks of the hold, sitting up out of the card a little;
-    // once developed, the people in it blink now and then (the photo is alive for a moment)
+    // the polaroid: develops (milky cream -> colour) over the first ~DEV ticks of the hold, taped over the band and
+    // hanging out of its bottom edge; once developed, the people in it blink now and then (the photo is alive)
     const dev = Math.min(1, Math.max(0, (r.t - IN + 6) / DEV));
     const blink = dev >= 1 && (r.t - IN) % 64 >= 56;
     if (bundle) {
-      // a fanned stack: two more frames peek out behind, offset and staggered (pixel-exact, no rotation)
-      for (const [ox, oy, k] of [[14, -3, '4'], [9, 0, '5']] as [number, number, string][]) {
-        rect(x + ox - 1, y + oy - 1, 66, 64, '0'); rect(x + ox, y + oy, 64, 62, k); rect(x + ox + 63, y + oy, 1, 62, '3');
-        rect(x + ox + 4, y + oy + 4, 56, 44, '1'); rect(x + ox + 5, y + oy + 5, 54, 2, '2');
+      // a fanned stack: two more frames peek out behind, offset and staggered (pixel-exact, no rotation);
+      // the topmost ink row stays at y >= 2 at the screen edge
+      for (const [ox, oy, k] of [[15, -2, '4'], [10, 0, '5']] as [number, number, string][]) {
+        const fy = Math.max(2, y + oy - 1);
+        rect(x + ox - 1, fy, 66, 64, '0'); rect(x + ox, fy + 1, 64, 62, k); rect(x + ox + 63, fy + 1, 1, 62, '3');
+        rect(x + ox + 4, fy + 5, 56, 44, '1'); rect(x + ox + 5, fy + 6, 54, 2, '2');
       }
-      polaroid(ctx, m.id, x + 4, y + 1, dev, 1, blink, r.lost);
+      polaroid(ctx, m.id, x + 5, y + 2, dev, 1, blink, r.lost);
       // a little count tag pinned to the stack
       const tag = `x${r.ids.length}`; const tw = textWidth(tag) + 4;
-      rect(x + 64 - tw, y + 46, tw + 2, 11, '0'); rect(x + 65 - tw, y + 47, tw, 9, rimK); text(ctx, tag, x + 67 - tw, y + 49, col('0'));
+      rect(x + 66 - tw, y + 50, tw + 2, 11, '0'); rect(x + 67 - tw, y + 51, tw, 9, rimK); text(ctx, tag, x + 69 - tw, y + 53, col('0'));
     } else {
-      polaroid(ctx, m.id, x + 8, y - 2, dev, 1, blink, r.lost);
-      if (r.lost && dev >= 0.5) recoveredStamp(ctx, x + 8, y + 33, (c, str, sx, sy) => text(c, str, sx, sy, col('0')));
+      polaroid(ctx, m.id, x + 8, y + 1, dev, 1, blink, r.lost);
+      if (r.lost && dev >= 0.5) recoveredStamp(ctx, x + 8, y + 36, (c, str, sx, sy) => text(c, str, sx, sy, col('0')));
     }
-    // text column: small kicker + count, rule, the title in 2x type, two balanced body lines, a fixed footer
+    // text column: small kicker + count, rule, the title in 2x type, one body line (or the skip hint)
     const tx = x + 82, right = x + CARD_W - 8;
     const n = r.ids.length;
     const head = bundle ? (r.lost ? 'FOUND AT LAST' : 'A HANDFUL OF PHOTOS') : r.lost ? 'LOST MEMORY FOUND' : 'MEMORY FOUND';
     const hb = r.t - IN; const flash = hb >= 0 && hb < 48 && ((hb >> 3) & 1) === 1;   // three calm blinks
-    text(ctx, head, tx, y + 5, col(flash ? '6' : rimK), { shadow: col('0') });
+    text(ctx, head, tx, y + 4, col(flash ? '6' : rimK), { shadow: col('0') });
     const count = `${r.n}/${g.content.memories.length}`;
     const cw = textWidth(count); const gx = right - cw - 10;   // a little photo glyph before the count
-    rect(gx - 1, y + 4, 9, 9, '0'); rect(gx, y + 5, 7, 7, '6'); rect(gx + 1, y + 6, 5, 3, 'm'); rect(gx + 1, y + 9, 5, 1, 'j');
-    text(ctx, count, right, y + 5, col('5'), { align: 'right' });
-    rect(tx, y + 14, right - tx, 1, rimK2); for (let xx = tx; xx < right; xx += 2) rect(xx, y + 15, 1, 1, '1');
+    rect(gx - 1, y + 3, 9, 9, '0'); rect(gx, y + 4, 7, 7, '6'); rect(gx + 1, y + 5, 5, 3, 'm'); rect(gx + 1, y + 8, 5, 1, 'j');
+    text(ctx, count, right, y + 4, col('5'), { align: 'right' });
+    rect(tx, y + 13, right - tx, 1, rimK2); for (let xx = tx; xx < right; xx += 2) rect(xx, y + 14, 1, 1, '1');
     const cols = Math.floor((right - tx + 1) / 6);
     const title = bundle ? `${n} ${r.lost ? 'LOST ' : ''}MEMORIES` : m.title;
     const big = textWidth(title.toUpperCase(), 2) <= right - tx;
-    if (big) text(ctx, title, tx, y + 18, col('6'), { scale: 2, shadow: col('0') });
-    else text(ctx, wrap(title.toUpperCase(), cols)[0] ?? '', tx, y + 22, col('6'), { shadow: col('0') });
-    const body = bundle
-      ? r.ids.map(id => g.content.memories.find(x => x.id === id)?.title ?? '').filter(Boolean).join(', ').toUpperCase()
-      : cardText(m.text, cols);
-    bodyLines(body, cols).forEach((ln, i) => text(ctx, ln, tx, y + 34 + i * 8, col(i === 0 ? '7' : '5')));
-    // footer: always there, so every card has the same layout; with more to come (or a bundle) it teaches the skip
-    rect(tx, y + 51, right - tx, 1, 'v');
+    if (big) text(ctx, title, tx, y + 17, col('6'), { scale: 2, shadow: col('0') });
+    else text(ctx, wrap(title.toUpperCase(), cols)[0] ?? '', tx, y + 21, col('6'), { shadow: col('0') });
+    // one body line; while more cards wait (or on a bundle) its right end teaches the skip
     const canSkip = r.t >= SKIP_AT && r.t < IN + r.hold;
     const skipHint = bundle || (this.reveals.length > 1 && canSkip);
-    const foot = skipHint ? 'TOOT TO CONTINUE' : bundle ? '' : 'KEPT IN YOUR JOURNAL';
-    const footK = skipHint ? (canSkip && ((r.t >> 4) & 1) ? '6' : '4') : r.t > IN + 30 ? '4' : '3';
-    text(ctx, foot, right, y + 53, col(footK), { align: 'right' });
-    for (let i = 0; i < 3; i++) rect(tx + i * 4, y + 55, 2, 2, i === 0 ? (r.lost ? 'l' : 'd') : '3');
+    const hint = 'TOOT: NEXT';
+    const bodyCols = skipHint ? cols - hint.length - 2 : cols - 2;   // clear of the 3 trim dots
+    const body = bundle ? bundleLine(r.ids.map(id => g.content.memories.find(x => x.id === id)?.title ?? '').filter(Boolean), bodyCols) : oneLine(firstSentence(m.text), bodyCols);
+    text(ctx, body, tx, y + 34, col('7'));
+    if (skipHint) text(ctx, hint, right, y + 34, col(canSkip && ((r.t >> 4) & 1) ? '6' : '4'), { align: 'right' });
+    for (let i = 0; i < 3; i++) rect(right - 10 + i * 4, y + CARD_H - 9, 2, 2, i === 0 ? (r.lost ? 'l' : 'd') : '3');
   }
 }
 
-/**
- * The card's body text: the first sentence, and when that fits on one line, the next sentence (or clause) too,
- * so every card carries two lines of the same visual weight. bodyLines ellipsizes anything longer.
- */
-function cardText(s: string, cols: number): string {
-  const first = firstSentence(s);
-  if (wrap(first, cols).length > 1) return first;
-  const rest = s.slice(s.indexOf(first) + first.length).trim();
-  return rest ? `${first} ${rest}` : first;
+/** One body line: the text if it fits, else cut at a word boundary with an ellipsis (the journal has it all). */
+function oneLine(s: string, cols: number): string {
+  s = s.toUpperCase(); if (s.length <= cols) return s;
+  // a whole clause reads better than a sentence chopped mid-phrase
+  const clause = s.split(',')[0].trim();
+  if (clause.length + 3 <= cols && clause.length >= cols * 0.55) return clause + '...';
+  let out = '';
+  for (const w of s.split(/\s+/)) { if ((out + ' ' + w).trim().length + 3 > cols) break; out = (out + ' ' + w).trim(); }
+  return (out || s.slice(0, Math.max(0, cols - 3))).replace(/[,;:.]$/, '') + '...';
 }
 
 /**
- * Two body lines at most, balanced: the narrowest width that still fits in as few lines as the greedy wrap,
- * so the last line is never a lone orphan word. Text that needs more than two lines ends on an ellipsis at a
- * word boundary (the journal has the whole memory).
+ * A bundle's body line: the two newest titles and a count of the rest ("GOOD GIRL, NIGHT LIGHT +16 MORE"),
+ * never a long list of names. Falls back to one title, then to the count alone.
  */
-function bodyLines(s: string, cols: number): string[] {
-  let lines = wrap(s, cols);
-  if (lines.length > 2) {
-    const words = s.split(/\s+/); let l2 = '';
-    const rest = words.slice(lines[0].split(' ').length);
-    for (const w of rest) { if ((l2 + ' ' + w).trim().length + 3 > cols) break; l2 = (l2 + ' ' + w).trim(); }
-    return [lines[0], l2.replace(/[,;:]$/, '') + '...'];
-  }
-  const n = lines.length; if (n < 2) return lines;
-  for (let w = Math.ceil(s.length / n); w < cols; w++) { const t = wrap(s, w); if (t.length <= n) { lines = t; break; } }
-  return lines;
+function bundleLine(titles: string[], cols: number): string {
+  const t = titles.map(x => x.toUpperCase()).reverse(); const n = t.length;
+  const tries = [
+    n <= 2 ? t.join(', ') : `${t[0]}, ${t[1]} +${n - 2} MORE`,
+    `${t[0]} +${n - 1} MORE`,
+    `${n} NEW IN YOUR JOURNAL`,
+  ];
+  return tries.find(x => x.length <= cols) ?? oneLine(tries[tries.length - 1], cols);
 }
 
 /** first sentence of a memory, for the reveal card (the journal has the whole text) */
@@ -598,6 +608,7 @@ const maps: Record<string, Map<number, number>> = {};
 function dimTarget(i: number, night: boolean) { const k = KEYS[i]; return packed(night && NIGHT_KEEP.has(k) ? i : KEYS.indexOf(STEP[k])); }
 /**
  * lvl 1 = 25% of pixels (one per 2x2), 2 = 50% checker, 3 = every pixel: the ordered-dither ease of the dim.
+ * lvl 4 (day / dusk only) = every pixel one step and a 50% checker of them a second step.
  */
 function dimPlayfield(ctx: Ctx, lvl = 3, night = false) {
   const x = PF_X + 1, w = PF_W - 2;
@@ -608,6 +619,10 @@ function dimPlayfield(ctx: Ctx, lvl = 3, night = false) {
   const d = new Uint32Array(img.data.buffer);
   for (let yy = 0; yy < H; yy++) for (let xx = 0; xx < w; xx++) {
     const X = x + xx;
+    if (lvl === 4 && !((X + yy) & 1)) {      // the extra step: these pixels drop two steps (grass keeps one)
+      const v0 = d[yy * w + xx]; const o1 = map.get(v0);
+      if (o1 !== undefined && !halfSrc.has(v0)) { const o2 = map.get(o1); d[yy * w + xx] = o2 ?? o1; continue; }
+    }
     if (lvl === 1 ? ((X & 1) | (yy & 1)) !== 0 : lvl === 2 ? ((X + yy) & 1) !== 0 : false) continue;
     const i = yy * w + xx; const v = d[i];
     if (((X + yy) & 1) && halfSrc.has(v)) continue;

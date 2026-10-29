@@ -192,11 +192,32 @@ const SCENES: Record<string, (ctx: Ctx) => void> = {
     pxDisc(ctx, 43, 39, 3, 'r'); P(ctx, 42, 38, 'c'); pom(ctx, 32, 24);
   },
   mem_12(ctx) { // Car Window: ears flying on the highway
-    sky(ctx, 'day', 24); R(ctx, 0, 24, PHOTO_W, 4, 'j'); R(ctx, 0, 28, PHOTO_W, 16, 'q'); for (let x = 2; x < PHOTO_W; x += 10) R(ctx, x, 32, 5, 1, '6');
-    R(ctx, 0, 22, PHOTO_W, 22, 'r'); R(ctx, 0, 22, PHOTO_W, 1, 'c'); R(ctx, 0, 43, PHOTO_W, 1, 'e');
-    R(ctx, 6, 8, 44, 15, '0'); R(ctx, 7, 9, 42, 13, 's'); D(ctx, 7, 9, 42, 13, '5'); R(ctx, 28, 9, 1, 13, '0');
-    mayaHead(ctx, 33, 9); pomHead(ctx, 11, 14); R(ctx, 4, 14, 7, 2, '6'); R(ctx, 2, 13, 3, 2, '7'); R(ctx, 22, 14, 6, 2, '6');
-    R(ctx, 46, 4, 1, 3, '0'); P(ctx, 47, 3, '0'); R(ctx, 50, 6, 1, 3, '0'); P(ctx, 51, 5, '0');
+    // sky, far hills and a speed blur of fence posts behind the car
+    sky(ctx, 'day', 22); R(ctx, 0, 17, PHOTO_W, 3, 'j'); D(ctx, 0, 16, PHOTO_W, 1, 'j'); R(ctx, 0, 20, PHOTO_W, 2, 'k');
+    for (let x = 1; x < PHOTO_W; x += 6) R(ctx, x, 18, 3, 1, 'i');
+    // the window opening: ink frame, grey upholstery inside, the B pillar, the back window rolled up (glass glint)
+    R(ctx, 3, 5, 50, 20, '0'); R(ctx, 4, 6, 48, 18, 'p'); R(ctx, 4, 6, 48, 2, 'o'); R(ctx, 4, 21, 48, 2, 'q');
+    R(ctx, 29, 5, 2, 20, '0');
+    R(ctx, 31, 6, 21, 4, 's'); D(ctx, 31, 9, 21, 1, '5'); R(ctx, 31, 10, 21, 1, '0');
+    for (const gx of [35, 44]) { P(ctx, gx, 8, '6'); P(ctx, gx + 1, 7, '6'); P(ctx, gx + 2, 6, '6'); }
+    mayaHead(ctx, 36, 11); pomHead(ctx, 13, 13);
+    // the door: chrome sill, a pale highlight band, door seam, two handles, a darker lower crease, the rocker
+    R(ctx, 0, 25, PHOTO_W, 1, '7'); R(ctx, 0, 26, PHOTO_W, 13, 'r'); R(ctx, 0, 26, PHOTO_W, 1, 'o');
+    R(ctx, 0, 28, PHOTO_W, 2, 'c'); D(ctx, 0, 30, PHOTO_W, 1, 'c');
+    R(ctx, 0, 35, PHOTO_W, 2, 'e'); D(ctx, 0, 34, PHOTO_W, 1, 'e', 1);
+    R(ctx, 30, 26, 1, 11, 'e'); P(ctx, 31, 26, 'c');
+    for (const hx of [21, 44]) { R(ctx, hx - 1, 30, 8, 3, '0'); R(ctx, hx, 31, 6, 1, '7'); P(ctx, hx + 5, 31, 'o'); }
+    R(ctx, 52, 21, 4, 5, '0'); R(ctx, 53, 22, 3, 3, 'r'); P(ctx, 53, 22, 'c');            // side mirror
+    R(ctx, 0, 37, PHOTO_W, 1, '0'); R(ctx, 0, 38, PHOTO_W, 1, 'q');
+    // the road rushing by under the car: asphalt, a dashed lane line, a sliver of the front wheel
+    R(ctx, 0, 39, PHOTO_W, 5, 'q'); D(ctx, 0, 39, PHOTO_W, 1, '0');
+    for (let x = 1; x < PHOTO_W; x += 11) R(ctx, x, 42, 6, 1, 'f');
+    R(ctx, 3, 35, 15, 4, '0'); R(ctx, 2, 36, 17, 3, '0');                                  // wheel arch
+    pxDisc(ctx, 10, 40, 4, '0'); pxDisc(ctx, 10, 40, 3, 'q'); R(ctx, 9, 39, 3, 3, 'o'); P(ctx, 10, 40, 'p');
+    // ears flying in the wind, wind streaks, Maya singing badly
+    R(ctx, 6, 13, 7, 2, '6'); R(ctx, 3, 12, 3, 2, '7'); R(ctx, 24, 13, 5, 2, '6');
+    R(ctx, 8, 10, 4, 1, '6'); R(ctx, 5, 17, 6, 1, '6');
+    R(ctx, 47, 13, 1, 3, '0'); P(ctx, 48, 12, '0'); P(ctx, 46, 16, '0'); R(ctx, 50, 15, 1, 3, '0'); P(ctx, 51, 14, '0'); P(ctx, 49, 18, '0');
   },
   mem_13(ctx) { // Rainy Day: a blanket fort and cartoons
     room(ctx, '3', '2', 'v', 32); windowPane(ctx, 4, 4, 14, 14, 'night');

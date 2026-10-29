@@ -174,6 +174,16 @@ describe('memories: bundle collapse', () => {
     expect(M.revealing()).toBe(false);
     expect(g.paused).toBe(false);
   });
+  it('a backlog bundle never lists a photo that is already in the album', () => {
+    const { g, M } = fresh();
+    playing(g);
+    const all = g.content.memories.map((m: any) => m.id);
+    g.state.memories = all.slice(0, 15);
+    M.collectMany(all);
+    expect(M.reveals.length).toBe(1);
+    expect(M.reveals[0].ids).toEqual(all.slice(15));
+    expect(g.state.memories.length).toBe(all.length);
+  });
   it('a third single card joining a queue of two collapses the waiting ones', () => {
     const { g, M } = fresh();
     playing(g);

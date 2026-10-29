@@ -117,3 +117,16 @@ Fairness fix for the reveal card (whole-game critic issue #1). No core change is
     `revealing()` is unchanged (true while a card is up or waiting), so ui keeps holding toasts for the whole span.
 16. **ui (optional)**: if the ui toast hold should only cover the card while it is on screen, switch
     `toastsHeld()` from `memories.revealing()` to `memories.showing()`.
+
+### Polish 1, round 2
+
+17. **ui (replaces the shim)**: toasts already on screen when a reveal card goes up are now kept off screen by
+    memories while `memories.showing()` is true (memories wraps `ui.drawToasts` once with an instance property;
+    ui keeps them from ageing as before, and they reappear in place when the card leaves). Cleaner: in
+    `ui.overlay`, skip `this.drawToasts(ctx)` when `g.mods.memories?.showing?.()` and the scene is play/bonus;
+    memories then drops its wrapper (it only wraps when `drawToasts` is not already an own property).
+18. **ARCHITECTURE.md, memories line**: the card is now a slim band, y 6..54 (y 22..70 under the boss bar) with a
+    1px ink line and a 2px ink-dither shadow below it; only the polaroid overhangs it (to y 69). One body line;
+    the skip hint reads 'TOOT: NEXT' (was 'TOOT TO CONTINUE'). By day and dusk the cozy-beat dim goes one dither
+    step further (every pixel one step, half of them two). A bundle card's body is the two newest titles plus a
+    count ("GOOD GIRL, NIGHT LIGHT +16 MORE"). Toasts on screen are hidden while the card shows (see 17).
