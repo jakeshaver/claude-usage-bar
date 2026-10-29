@@ -222,8 +222,8 @@ export class Boss {
     // telegraphs (drawn under the boss)
     if (this.st === 'tell') {
       const k = this.stT / this.tellLen(); const blink = (this.stT >> 2) & 1; const c = blink ? 'r' : '6';
-      const over = this.atk === 'summon' || this.atk === 'spiral';
-      r.push(over ? 3 : 1, y + 1, (ctx: CanvasRenderingContext2D) => {
+      // every telegraph sits under the cats (escorts are never crossed by a ring or a dash line)
+      r.push(1, y + 1, (ctx: CanvasRenderingContext2D) => {
         switch (this.atk) {
           case 'charge': // the danger lane: a 50% red dither, two dashed rails marching down, plus warning chevrons
             ditherRect(ctx, this.tx - 19, y + 30, 39, Math.round(330 - y - 30), 'r', blink);

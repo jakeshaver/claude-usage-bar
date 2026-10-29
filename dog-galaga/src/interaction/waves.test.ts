@@ -111,7 +111,7 @@ describe('interaction waves', () => {
           const cheb = Math.max(Math.abs(q[0] - bx) - b.r, Math.abs(q[1] - b.y) - b.r) - 14;
           expect(cheb, `${a.id} escort vs boss`).toBeGreaterThanOrEqual(a.id === 'mothership' ? 16 : 28);
         }
-        for (const p of qs) for (const q of qs) if (p !== q) expect(Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1])), `${a.id} escorts`).toBeGreaterThanOrEqual(56);
+        for (const p of qs) for (const q of qs) if (p !== q) expect(Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1])), `${a.id} escorts`).toBeGreaterThanOrEqual(a.id === 'mothership' ? 34 : 56);
       }
       expect(ps.length, a.id).toBeGreaterThanOrEqual(4);
     }

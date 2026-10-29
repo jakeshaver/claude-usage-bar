@@ -66,7 +66,7 @@ export function selfGaps(tr: Track, near = 20, min = 40): number[] {
  * outside it), never across parked cats, then swings under its own column and rises straight up into its cell.
  * The caller orders arrivals so a column fills top cell first: the climb only ever passes empty cells.
  */
-export function entryPath(kind: string, side: number, slot: Pt, below = slot[1] + 40, gutter = 999): Pt[] {
+export function entryPath(kind: string, side: number, slot: Pt, below = slot[1] + 40, gutter = 999, lane: [number, number] = [22, 426]): Pt[] {
   const b = Math.round(below);
   // straight-in signatures (no gutter run, no approach line): they never pass a cell the caller has not kept empty
   switch (kind) {
@@ -79,8 +79,10 @@ export function entryPath(kind: string, side: number, slot: Pt, below = slot[1] 
     }
   }
   // curves that end under the rack (not in a side gutter) skip the gutter clamp
-  if (kind === 'swoop' || kind === 'orbit' || kind === 'cloudloop' || kind === 'conga' || kind === 'frisbee') gutter = 999;
-  let pts = entryCurve(kind, side, slot, b);
+  if (kind === 'swoop' || kind === 'orbit' || kind === 'cloudloop' || kind === 'conga' || kind === 'frisbee' || kind === 'zigzag' || kind === 'split') gutter = 999;
+  // the lane's gutter lines in the unmirrored (enter-from-the-left) frame: snakes start, and the orbit runs, on them
+  const gl: [number, number] = side < 0 ? [448 - lane[1], 448 - lane[0]] : [lane[0], lane[1]];
+  let pts = entryCurve(kind, side, slot, b, gl);
   // `gutter`: the furthest-in x (in the unmirrored, enter-from-the-left frame) the curve may end at, so it always
   // finishes outside the rack's outermost column on its side, even on lanes that sit off centre
   if (pts.length > 2) {
@@ -91,10 +93,13 @@ export function entryPath(kind: string, side: number, slot: Pt, below = slot[1] 
   if (pts.length <= 2) return pts;
   // every curve ends in the side gutter heading in: run along one shared approach line under the rack, turn up under
   // the cat's own column and rise into the cell (the cat ahead has already turned up when the next one passes below)
+  // (a curve that ends deep in the field swings straight up to the foot of the column instead: no hairpin kink)
   const last = pts[pts.length - 2]; const dir = slot[0] >= last[0] ? 1 : -1;
+  if (last[1] > b + 30) return [...pts.slice(0, -1), [slot[0], b - 6], slot];
   return [...pts.slice(0, -1), [slot[0] - 26 * dir, b + 12], [slot[0], b - 6], slot];
 }
-function entryCurve(kind: string, side: number, slot: Pt, b: number): Pt[] {
+function entryCurve(kind: string, side: number, slot: Pt, b: number, gl: [number, number]): Pt[] {
+  const L = Math.max(22, gl[0]), G = Math.min(426, gl[1]);
   const m = mir(side);
   switch (kind) {
     case 'swirl-left': case 'swirl-right': {
@@ -105,7 +110,7 @@ function entryCurve(kind: string, side: number, slot: Pt, b: number): Pt[] {
     }
     case 'split': {
       // pours down the gutter, dips deep under the rack and swings back up into the approach line
-      const pts: Pt[] = [[44, -28], [36, b - 16], [44, b + 46], [76, b + 52]];
+      const pts: Pt[] = [[L, -28], [L, b - 16], [L + 6, b + 40], [L + 30, b + 58]];
       return [...pts.map(m), slot];
     }
     case 'rain': {
@@ -121,7 +126,7 @@ function entryCurve(kind: string, side: number, slot: Pt, b: number): Pt[] {
     case 'convoy': {
       // a single-file snake weaving in along the bottom of the field, right up to its own column
       const tx = (side < 0 ? 448 - slot[0] : slot[0]) - 46; const pts: Pt[] = [[-28, b + 30]];
-      for (let x = 44, k = 0; x < tx; x += 50, k++) pts.push([x, k % 2 ? b + 20 : b + 42]);   // (the first bend well inside the entry edge)
+      for (let x = Math.min(L + 22, tx), k = 0; k === 0 || x < tx; x += 50, k++) pts.push([x, k % 2 ? b + 20 : b + 42]);   // (the first bend well inside the entry edge)
       return [...pts.map(m), slot];
     }
     case 'flank': {
@@ -134,40 +139,46 @@ function entryCurve(kind: string, side: number, slot: Pt, b: number): Pt[] {
       const pts: Pt[] = [[-28, b + 30], [40, b + 20], [74, b + 12]];
       return [...pts.map(m), slot];
     }
-    case 'frisbee': { // a long frisbee arc over the top of the rack to the far gutter, then down and in underneath
-      const pts: Pt[] = [[-28, 26], [96, 8], [224, 6], [352, 14], [414, 48], [420, b - 18], [400, b + 16]];
+    case 'frisbee': { // thrown low from the side edge, a long frisbee arc across the open field (apex well under the
+      // rack's approach line), a hairpin up the far side and back in underneath
+      const a = L + (224 - L) * 0.45, c = G - (G - 224) * 0.45;
+      const pts: Pt[] = [[-28, b + 128], [L, b + 100], [a, b + 62], [224, b + 50], [c, b + 62], [G - 8, b + 90], [G, b + 60], [G - 10, b + 26]];
       return [...pts.map(m), slot];
     }
     case 'swoop': { // a water-tower swoop: drops off the top corner, plunges down the gutter and scoops under the rack
       const pts: Pt[] = [[-20, -30], [40, 30], [36, b - 24], [70, b + 48], [140, b + 66], [200, b + 40]];
       return [...pts.map(m), slot];
     }
-    case 'conga': { // one long conga line shimmying across the bottom of the field, then back in under the columns
-      const pts: Pt[] = [[-28, b + 66], [50, b + 46], [130, b + 74], [210, b + 46], [290, b + 74], [372, b + 60], [418, b + 50], [422, b + 22], [400, b + 10]];
+    case 'conga': { // one long conga line shimmying in just under the rack, every dancer peeling up at its own column
+      // (the far columns fill first, so the line only ever passes under empty cells)
+      const tx = (side < 0 ? 448 - slot[0] : slot[0]) - 40; const pts: Pt[] = [[-28, b + 16]];
+      for (let x = Math.min(L + 8, tx), k = 0; k === 0 || x < tx; x += 34, k++) pts.push([x, k % 2 ? b + 6 : b + 24]);
       return [...pts.map(m), slot];
     }
     case 'tide': { // a rolling swell along the bottom, right up to its own column
       const tx = (side < 0 ? 448 - slot[0] : slot[0]) - 46; const pts: Pt[] = [[-28, b + 40]];
-      for (let x = 48, k = 0; x < tx; x += 64, k++) pts.push([x, k % 2 ? b + 20 : b + 52]);
+      for (let x = Math.min(L + 26, tx), k = 0; k === 0 || x < tx; x += 64, k++) pts.push([x, k % 2 ? b + 20 : b + 52]);
       return [...pts.map(m), slot];
     }
     case 'conveyor': { // a conveyor belt: one straight file along the floor of the field, each cat turning up at its column
       const pts: Pt[] = [[-28, b + 12], [40, b + 12]];
       return [...pts.map(m), slot];
     }
-    case 'cloudloop': { // a loop-the-loop through the clouds in the open field, then in under the rack
+    case 'cloudloop': { // a loop-the-loop through the clouds in the open field beside the rack (the sky has no walls), then in under it
       const pts: Pt[] = [[-28, b + 58], [50, b + 60], ...arc(84, b + 32, 28, Math.PI / 2 - 0.6, Math.PI / 2 - TAU), [118, b + 44]];
       return [...pts.map(m), slot];
     }
-    case 'zigzag': { // zigzags down the side gutter like a drifting kite, then hooks in
-      const pts: Pt[] = [[40, -28], [70, 18], [28, 60], [70, 102], [30, b - 30], [64, b + 12]];
+    case 'zigzag': { // a straight kite drop down the gutter, then sharp zigzags across the open field to its column
+      const tx = (side < 0 ? 448 - slot[0] : slot[0]) - 40; const pts: Pt[] = [[L, -28], [L, b - 30], [L + 10, b + 8]];
+      for (let x = L + 52, k = 0; x < tx; x += 46, k++) pts.push([x, k % 2 ? b + 14 : b + 50]);
       return [...pts.map(m), slot];
     }
     case 'orbit': { // three quarters of a ring orbiting the whole rack: up the gutter, over the top, down the far
-      // gutter and back under the rack, where each cat peels off up into its column (the ring never crosses itself)
-      const R = 34; const pts: Pt[] = [[-28, b + 56], [8, b + 30], [26, b - 22], [26, (48 + b - 22) / 2], [26, 48],
-        ...arc(60, 48, R, Math.PI, Math.PI * 1.5, Math.PI / 8), [224, 14], [388, 14], ...arc(388, 14 + R, R, -Math.PI / 2, 0, Math.PI / 8),
-        [422, (48 + b - 22) / 2], [422, b - 22], ...arc(388, b - 22, R, 0, Math.PI / 2, Math.PI / 8)];
+      // gutter and back under the rack, where each cat peels off up into its column (the ring never crosses itself);
+      // its straight runs ride the lane's own gutter lines, its corners are real arcs inside the lane
+      const R = 30; const pts: Pt[] = [[-28, b + 56], [L, b + 24], [L, b - 22], [L, (48 + b - 22) / 2], [L, 48],
+        ...arc(L + R, 48, R, Math.PI, Math.PI * 1.5, Math.PI / 8), [224, 18], [G - R, 18], ...arc(G - R, 18 + R, R, -Math.PI / 2, 0, Math.PI / 8),
+        [G, (48 + b - 22) / 2], [G, b - 22], [G - 4, b + 6]];   // (turns in at the gutter: even the far column peels up ahead)
       return [...pts.map(m), slot];
     }
     case 'drop': // straight down the cat's own column (the rack fills bottom row first, so it only passes empty cells)

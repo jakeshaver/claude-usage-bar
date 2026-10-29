@@ -25,14 +25,26 @@ export function laneOf(areaId: string): [number, number] { return LANES[areaId] 
 
 /** Air kept between the outermost cat (at the far end of its sway) and the lane wall. */
 export const WALL_GAP = 16;
+/** Side-gutter entry streams run down the lane at wall + GUTTER (a stream cat's sprite stays inside the lane), and the
+ *  rack leaves them room: its outer column never comes within a sprite of the gutter line. */
+export const GUTTER = 18;
+/** Column pitch for a wave whose widest breed is `w` px wide (opaque): at least COL_SP, and always 10px of air between
+ *  two neighbours of that breed (a 1px rim on each side included), so maine coons and folds never touch. */
+export function pitchFor(w: number): number { return Math.max(COL_SP, Math.ceil((w + 12) / 2) * 2); }
 /** The lattice for an area: centre x, column count, and the sway amplitude that keeps every cell inside the lane
- *  with WALL_GAP px of air, so even a partly cleared grid swaying to its far side never touches a wall. */
-export function latticeFor(areaId: string): { cx: number; cols: number; amp: number } {
-  const [l, r] = laneOf(areaId); const w = r - l;
+ *  with WALL_GAP px of air, so even a partly cleared grid swaying to its far side never touches a wall. Lanes wide
+ *  enough keep a side gutter free for the entry streams (`gutter`); narrow lanes (street, alley, mothership) fly
+ *  their entries from above or below the rack instead. The pitch never shrinks: wider cells mean fewer columns. */
+export function latticeFor(areaId: string, pitch = COL_SP): { cx: number; cols: number; amp: number; gutter: boolean } {
+  const [l, r] = laneOf(areaId); const w = r - l; const cx = Math.round((l + r) / 2);
+  for (let cols = MAX_COLS; cols >= 5; cols--) {
+    const slack = Math.floor(w / 2 - GUTTER - CAT_W / 2 - ((cols - 1) * pitch) / 2 - CAT_W / 2);
+    if (slack >= 4) return { cx, cols, amp: Math.min(6, slack - 2), gutter: true };
+  }
   let cols = MAX_COLS;
-  while (cols > 4 && (cols - 1) * COL_SP + CAT_W + 2 * WALL_GAP > w) cols--;
-  const amp = Math.max(0, Math.min(6, Math.floor((w - ((cols - 1) * COL_SP + CAT_W)) / 2) - WALL_GAP));
-  return { cx: Math.round((l + r) / 2), cols, amp };
+  while (cols > 4 && (cols - 1) * pitch + CAT_W + 2 * WALL_GAP > w) cols--;
+  const amp = Math.max(0, Math.min(6, Math.floor((w - ((cols - 1) * pitch + CAT_W)) / 2) - WALL_GAP));
+  return { cx, cols, amp, gutter: false };
 }
 
 export type Shape = 'galaga' | 'chevron' | 'wings' | 'barrel' | 'block' | 'arrow' | 'diamond' | 'vee' | 'flanks' | 'pillars' | 'checker' | 'squads';
@@ -133,7 +145,11 @@ export const SIGNATURES: Record<string, Entry> = {
   street: 'ambush', park: 'frisbee', alley: 'popout', rooftops: 'swoop', cafe: 'conga', docks: 'tide', factory: 'conveyor',
   sky: 'cloudloop', moon: 'float', nebula: 'zigzag', station: 'orbit',
 };
-const REMIX: Entry[] = ['orbit', 'popout', 'cloudloop', 'ambush', 'frisbee', 'conga', 'zigzag', 'swoop', 'tide', 'conveyor', 'float'];
+/** The mothership's narrow hall has no side gutters: its remix flies the signatures that come in from above, the
+ *  sides of a row, or the open field below the rack. */
+const REMIX: Entry[] = ['popout', 'tide', 'ambush', 'frisbee', 'conga', 'float', 'conveyor', 'cloudloop', 'orbit', 'zigzag', 'swoop'];
+/** Entries that run down a side gutter: what a gutterless (narrow) lane flies instead. */
+export const NO_GUTTER: Partial<Record<Entry, Entry>> = { 'swirl-left': 'loop', 'swirl-right': 'escort', split: 'flank', rain: 'drop', zigzag: 'convoy', orbit: 'tide', swoop: 'conveyor', cloudloop: 'convoy' };
 /** The signature entry of wave i in an area, or null. Two signature waves per sector (the 3rd and the 7th), every
  *  other wave on the mothership. */
 export function signatureFor(areaId: string | undefined, waveIdx: number): Entry | null {
@@ -146,15 +162,18 @@ export function signatureFor(areaId: string | undefined, waveIdx: number): Entry
  *  (pillars drop, flanks sweep in), otherwise every third wave is a convoy or an escort run, else the content's own
  *  entry. Consecutive waves never share an entry. */
 export function entryFor(areaIdx: number, waveIdx: number, entries: string[], areaId?: string, cols = MAX_COLS): Entry {
+  // a narrow lane has no side gutter: the gutter runs come in from below the rack (or straight down) instead
+  const gut = areaId ? latticeFor(areaId).gutter : true;
   const pick = (i: number): Entry => {
     const sig = signatureFor(areaId, i); if (sig) return sig;
     const sh = shapeFor(areaIdx, i, cols);
     if (sh === 'pillars') return 'drop';
     if (sh === 'flanks') return 'flank';
     if ((i + areaIdx) % 3 === 1) return (i >> 1) % 2 ? 'escort' : 'convoy';
-    return (entries[i] ?? 'swirl-left') as Entry;
+    const e = (entries[i] ?? 'swirl-left') as Entry;
+    return gut ? e : NO_GUTTER[e] ?? e;
   };
-  const ALT: Entry[] = ['loop', 'split', 'swirl-left', 'rain'];
+  const ALT: Entry[] = gut ? ['loop', 'split', 'swirl-left', 'rain'] : ['loop', 'convoy', 'flank', 'escort'];
   let prev: Entry | null = null;
   for (let j = 0; j <= waveIdx; j++) {
     let e = pick(j);
@@ -197,9 +216,9 @@ export function plan(w: WaveDef, shape: Shape, waveIdx: number, enemy: (id: stri
   }
   const rows = shapeRows(shape, R, M); const out: Home[] = [];
   const cells = rows.flatMap((us, row) => us.map(u => ({ row, u })));
-  // reinforcements: what does not fit waits (at most about two thirds of the rack, so a wave never drags on)
+  // reinforcements: what does not fit waits (at most one more rackful, so a wave never drags on)
   const room = cells.length;
-  const reserve = queue.splice(room).slice(0, Math.max(4, Math.round(room * 0.7)));
+  const reserve = queue.splice(room).slice(0, Math.max(4, room));
   const edgeIn = waveIdx % 2 === 1;
   const gapped = shape === 'wings' || shape === 'flanks' || shape === 'pillars' || shape === 'squads' || shape === 'checker';
   rows.forEach((us, ri) => {

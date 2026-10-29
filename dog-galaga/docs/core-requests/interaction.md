@@ -301,3 +301,27 @@ Round 1 (interaction only, no core code changes needed). Please update the ARCHI
   (sectors 1-3: once only two are left), so mid/late fights hold 4-6 escorts. `bossRange()` no longer widens past the
   lane (the boss holds the middle when there is no room to drift).
 Bot: 42-43 min on all 8 paths.
+
+Round 2 (interaction only). Please update the ARCHITECTURE interaction entry:
+- **Pitch per wave:** the column pitch follows the wave's widest breed (`formation.pitchFor`: opaque sprite width + 12,
+  at least `COL_SP` 40; maine coon waves 44, fold waves 42). The shape still follows the area's base lattice (so a
+  sector's shape ring never changes); the column count shrinks to keep the pitch inside the lane.
+- **Gutters:** `latticeFor` keeps a one-cat side gutter free (`GUTTER` 18: stream line at lane wall + 18) where the lane
+  allows (open stages, cafe, docks, factory: 5-6 columns); gutterless lanes (street, alley, mothership) remap gutter
+  entries (`formation.NO_GUTTER`: swirl -> loop / escort, split -> flank, rain -> drop, zigzag -> convoy, orbit -> tide,
+  swoop -> conveyor). Entry paths are kept inside the lane once on screen (`inLane`: gutter line beside / above the
+  rack, lane wall in the open field under it); only the sky's cloud loops swing out beside the rack.
+- **Rows re-centre:** a lopsided row (an inner hole, or all its cats on one side) slides together onto its middle cells
+  after the regroup lull (mirror-symmetric rows, e.g. flanks / wings, are kept).
+- **Signature tells:** a signature wave sketches its lane paths as marching pixel dots for 54 ticks before the first cat
+  flies (dots never drawn across the rack). Conga is one line under the rack (far columns first); frisbee is a low arc
+  across the open field; float drops whole rows as a sheet; docks rows bob +-5px; zigzag drops the gutter, then zigzags
+  across the field; orbit runs on the lane's own gutter lines.
+- **Rack shade:** docks / factory / alley draw a 50% ink dither band (25% falloff ring) behind the rack on layer 0.
+- **Escorts:** refilled in mirrored pairs (each wing pair together, each cat from its own side; a broken pair whistles
+  up its partner in sectors 4+), entering escorts bend onto their slot's live position, refill gap 60 ticks in sectors
+  4+. Mothership: a low V under the throne (outer pair at the walls just under the saucer rim, inner pair a row lower).
+  Narrow-lane escorts rise from under the field. All boss telegraphs (spiral ring, summon sparkles) draw under the cats.
+- REQUEST (ui): the FOUND AGAIN memory card slides over the right HUD in early play: at station tick ~350 it is caught
+  mid-slide and clipped off the screen edge, and at zoom 1 (cafe) its title text collides with the polaroid. Please
+  keep the card inside the right HUD column during its slide and give the title its own line above the polaroid.
