@@ -276,6 +276,11 @@ class Journal implements Module {
     return false;
   }
   questState(g: Game, q: QuestDef) { return g.state.quests[q.id] ?? 'locked'; }
+  /** quest's presentation (pill / tag / note / tone); 'missed' and 'expired' are closed quests */
+  look(g: Game, q: QuestDef): { state: string; tone: string; pill: string; tag: string; note: string; dimReward: boolean } {
+    const st = this.questState(g, q);
+    return g.mods.quest?.look?.(q.id) ?? { state: st, tone: st, pill: st === 'missed' ? 'MISSED' : '', tag: '', note: '', dimReward: st === 'missed' };
+  }
   progress(g: Game, q: QuestDef) {
     const p = g.mods.quest?.progress?.(q) ?? { have: 0, need: q.complete.count ?? 1 };
     return this.questState(g, q) === 'done' ? { have: p.need, need: p.need } : p;
@@ -437,7 +442,7 @@ class Journal implements Module {
         rect(ctx, x + 6, y + 1, w - 12, 1, t.accent);
         if (foc) this.ring(ctx, x, y, w, 19, 4);
       } else { cFill(ctx, x, y + 2, w, 15, C.ink, 3); cLine(ctx, x, y + 2, w, 15, C.indigo, 3); }
-      const cnt = have >= 0 ? `${have}/${n}` : '';
+      const cnt = have < 0 ? '' : t.id === 'quests' ? `${have}/${Math.max(have, g.mods.quest?.flightMax?.() ?? n)}` : `${have}/${n}`;
       const lw = 11 + textWidth(t.label) + (cnt ? 5 + textWidth(cnt) : 0);
       const lx = Math.round(x + w / 2 - lw / 2);
       icon(ctx, t.icon, lx, y + 6, on ? t.accent : C.peri, on ? C.ink : undefined);
@@ -481,7 +486,7 @@ class Journal implements Module {
   questTab(g: Game, ctx: CanvasRenderingContext2D, L: Layout) {
     const qs = g.content.quests; const wv = this.window(L, qs.length);
     // fixed columns: counter column (right aligned, widest "need/need" or the DONE badge), 8px gutter, bar column
-    const cntW = Math.max(40, ...qs.map(q => Math.max(textWidth(`${q.complete.count ?? 1}/${q.complete.count ?? 1}`), textWidth(this.lockTag(g, q)))));
+    const cntW = Math.max(40, textWidth('NEXT TIME') + 8, ...qs.map(q => Math.max(textWidth(`${q.complete.count ?? 1}/${q.complete.count ?? 1}`), textWidth(this.lockTag(g, q)))));
     const barW = 84; const next = this.nextQuest(g);
     for (let i = wv.first; i < wv.last; i++) {
       const q = qs[i]; const st = this.questState(g, q); const on = i === this.sel; const lock = st === 'locked';
@@ -503,15 +508,17 @@ class Journal implements Module {
         textFit(ctx, this.lockTag(g, q), cx, ty, cntW + 4, isNext ? C.gold : a && this.passed(g, a) ? C.pink : C.peri, { align: 'right' });
         continue;
       }
-      cFill(ctx, x, y, w, h, C.panel, 3);
-      cLine(ctx, x, y, w, h, st === 'done' ? darkOf(C.lime) : C.burnt, 3);
+      const lk = this.look(g, q); const closed = lk.tone === 'missed' || lk.tone === 'expired' || st === 'missed';
+      cFill(ctx, x, y, w, h, closed ? C.ink : C.panel, 3);
+      cLine(ctx, x, y, w, h, st === 'done' ? darkOf(C.lime) : closed ? C.indigo : C.burnt, 3);
       if (on) this.itemRing(ctx, x, y, w, h, 3);
-      const ic = st === 'done' ? C.lime : C.gold;
+      const ic = st === 'done' ? C.lime : closed ? C.peri : C.gold;
       if (st === 'done') mini(ctx, 'check', x + 7, ty, ic); else icon(ctx, 'flag', x + 7, ty, ic);
-      text(ctx, q.name, x + 20, ty, on ? C.gold : C.text, { shadow: C.ink });
-      const p = this.progress(g, q); const c = st === 'done' ? C.lime : C.gold;
+      text(ctx, q.name, x + 20, ty, on ? C.gold : closed ? C.dim : C.text, { shadow: C.ink });
+      const p = this.progress(g, q); const c = st === 'done' ? C.lime : closed ? C.peri : C.gold;
       meter(ctx, barX, ty + 1, barW, 5, p.have, p.need, c);
       if (st === 'done') { cFill(ctx, cx - 40, ty - 2, 40, 11, darkOf(C.lime), 2); text(ctx, 'DONE', cx - 20, ty, C.cream, { align: 'center' }); }
+      else if (closed) { const pill = lk.pill || 'MISSED'; const mw = Math.max(40, textWidth(pill) + 8); cFill(ctx, cx - mw, ty - 2, mw, 11, C.night, 2); text(ctx, pill, cx - mw / 2, ty, C.peri, { align: 'center' }); }
       else text(ctx, `${p.have}/${p.need}`, cx, ty, C.gold, { align: 'right' });
     }
     this.scrollMarks(ctx, L, wv);
@@ -536,6 +543,7 @@ class Journal implements Module {
   questDetail(g: Game, ctx: CanvasRenderingContext2D, D: Box, q: QuestDef) {
     const st = this.questState(g, q); const p = this.progress(g, q); const wide = D.w > D.h * 2;
     const acc = st === 'done' ? C.lime : st === 'active' ? C.gold : C.peri; const lock = st === 'locked';
+    const lk = this.look(g, q); const closed = lk.tone === 'missed' || lk.tone === 'expired' || st === 'missed';
     this.detailFrame(ctx, D, acc);
     // medal sticker on a ribbon
     const mx = wide ? D.x + 36 : Math.round(D.x + D.w / 2), my = wide ? D.y + 46 : D.y + 40;
@@ -543,10 +551,10 @@ class Journal implements Module {
     rect(ctx, mx - 8, my - 26, 6, 14, lock ? C.indigo : acc); rect(ctx, mx + 2, my - 26, 6, 14, lock ? C.indigo : darkOf(acc));
     rect(ctx, mx - 8, my - 26, 6, 1, lock ? C.peri : lighter(acc)); rect(ctx, mx + 2, my - 26, 6, 1, lock ? C.peri : acc);
     disc(ctx, mx, my, 13, lock ? C.ink : darkOf(acc)); disc(ctx, mx, my - 1, 12, lock ? C.panel2 : acc); disc(ctx, mx, my - 1, 8, lock ? C.indigo : darkOf(acc));
-    if (st === 'done') mini(ctx, 'check', mx - 3, my - 4, C.cream); else icon(ctx, st === 'active' ? 'flag' : 'lock', mx - 3, my - 4, lock ? C.peri : C.cream);
+    if (st === 'done') mini(ctx, 'check', mx - 3, my - 4, C.cream); else icon(ctx, lock ? 'lock' : 'flag', mx - 3, my - 4, lock ? C.peri : C.cream);
     const tx = wide ? D.x + 72 : D.x + 12; let y = wide ? D.y + 10 : D.y + 64; const cw = Math.floor((D.x + D.w - 10 - tx) / 6);
     text(ctx, lock ? 'UNKNOWN QUEST' : q.name, wide ? tx : D.x + D.w / 2, y, lock ? C.dim : C.gold, { align: wide ? 'left' : 'center', shadow: C.ink }); y += 12;
-    const tag = st === 'done' ? 'COMPLETE' : st === 'active' ? 'IN PROGRESS' : 'LOCKED';
+    const tag = lk.tag || (st === 'done' ? 'COMPLETE' : st === 'active' ? 'IN PROGRESS' : closed ? 'MISSED: NEXT FLIGHT' : 'LOCKED');
     const tgw = textWidth(tag) + 8; const tgx = wide ? tx : Math.round(D.x + D.w / 2 - tgw / 2);
     cFill(ctx, tgx, y - 2, tgw, 11, lock ? C.night : darkOf(acc), 2); text(ctx, tag, tgx + 4, y, lock ? C.peri : C.cream); y += 15;
     if (!lock) {
@@ -554,8 +562,9 @@ class Journal implements Module {
       meter(ctx, tx, y + 1, cx - textWidth(cnt) - 8 - tx, 5, p.have, p.need, acc); text(ctx, cnt, cx, y, acc, { align: 'right' }); y += 14;
     }
     for (const l of wrap(lock ? this.startHint(g, q) : q.desc, cw).slice(0, wide ? 4 : 8)) { text(ctx, l, tx, y, lock ? C.dim : C.text); y += 10; }
+    if (closed && lk.note) for (const l of wrap(lk.note, cw).slice(0, 2)) { text(ctx, l, tx, y, C.peri); y += 10; }
     const rw = this.rewardText(q); y = D.y + D.h - 16;
-    if (rw) { icon(ctx, 'gift', tx, y, lock ? C.peri : C.pink); textFit(ctx, 'REWARD ' + rw, tx + 11, y, D.x + D.w - 10 - (tx + 11), st === 'done' ? C.dim : lock ? C.peri : C.pink); }
+    if (rw) { icon(ctx, 'gift', tx, y, lock || closed ? C.peri : C.pink); textFit(ctx, 'REWARD ' + rw, tx + 11, y, D.x + D.w - 10 - (tx + 11), lk.dimReward || st === 'done' ? C.dim : lock ? C.peri : C.pink); }
   }
   /** Where a locked quest starts, worded for the player's progress (a passed sector means a replay). */
   startHint(g: Game, q: QuestDef): string {
