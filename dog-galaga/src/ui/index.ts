@@ -7,15 +7,17 @@ import { C, frame, bar, segBar, menu, scanlines, header, icon, rect, line, ring,
 import { logoWord, drawLogo, PINK, CYAN, GOLD } from './logo';
 import { glyph } from './glyphs';
 import { Touch } from './touch';
-import { num, numWidth } from './numerals';
+import { num, numWidth, headline } from './numerals';
 
 type Menu = 'none' | 'pause' | 'settings' | 'journal' | 'confirmQuit';
 const RX = PF_X + PF_W;               // right panel x
 const PW = W - RX;                    // panel width (128)
 const TITLE_CATS = ['cat_tabby', 'cat_siamese', 'cat_calico', 'cat_sphynx'];
+const MAP_LIST_X = W - 180;          // sector log column on the star chart
 const DLG_H = 62;                     // dialogue box height (docked to the bottom of the playfield)
 const SILHOUETTE: Record<string, string> = Object.fromEntries([...KEY].map(k => [k, '2']));
-const POWERS: [string, string, string, string][] = [['double', 'pk_bone', 'X2', C.gold], ['spread', 'pk_chili', 'HOT', C.orange], ['shield', 'pk_bandana', 'SHD', C.line], ['speed', 'pk_sneaker', 'ZIP', C.lime]];
+/** Power slots: [power kind, sprite, slot name, accent, what it does (first-pickup toast)]. */
+const POWERS: [string, string, string, string, string][] = [['double', 'pk_bone', 'TWIN', C.gold, 'TWIN TOOTS'], ['spread', 'pk_chili', 'WIDE', C.orange, 'WIDE SPREAD'], ['shield', 'pk_bandana', 'SAFE', C.line, 'SAFE SHIELD'], ['speed', 'pk_sneaker', 'FAST', C.lime, 'FAST FLYING']];
 
 /** Panel accents per time of day: [left panel, right panel, scanner glow]. */
 function todAccent(tod: string): [string, string, string] {
@@ -82,7 +84,7 @@ class UI implements Module {
   toasts: { text: string; t: number; age: number; y: number }[] = [];
   mapSel = 0; endingT = 0; shownScore = 0; lastHearts = -1; heartFlash = 0;
   chain = 0; bestChain = 0; lastBoop = -999; chainPop = 0;
-  powMax: Record<string, number> = {}; waveCats = 0;
+  powMax: Record<string, number> = {}; waveCats = 0; bossBarOn = false;
   /** Conversation parked while the pause menu is open during dialogue (quest.update idles without it). */
   heldDlg: any = null;
   /** Ticks the game stays paused after a menu closes while fire/confirm is still held (no stray turd on resume). */
@@ -109,7 +111,12 @@ class UI implements Module {
     if (g.contentIssues.length) setTimeout(() => this.toast(`${g.contentIssues.length} CONTENT ISSUE(S): USING SAFE DEFAULTS`), 0);
     if (!g.headless) this.touch.attach(g);
   }
-  toast(s: string) { this.toasts.push({ text: s, t: 170, age: 0, y: -1 }); if (this.toasts.length > 4) this.toasts.shift(); }
+  toast(s: string) {
+    // power pickups: name the HUD slot the item lights up, so the bay labels and pickups tie together
+    const it = this.g?.content?.items?.find(i => i.name.toUpperCase() === s);
+    const pw = it && POWERS.find(p => p[0] === it.effect.kind);
+    if (pw) s = `${s}: ${pw[4]}`;
+    this.toasts.push({ text: s, t: 170, age: 0, y: -1 }); if (this.toasts.length > 4) this.toasts.shift(); }
   openPause() {
     if (this.menuOpen !== 'none') return;
     const Q = this.g.mods.quest;
@@ -125,7 +132,12 @@ class UI implements Module {
   }
   openMap() { this.g.setScene('map'); }
   showDialogue(id: string) { this.g.mods.quest?.dialogue(id); }
-  dev(): Device { return this.g.input.lastDevice; }
+  /** Device for button prompts: the visible touch deck wins (unless a gamepad is in use under 'auto'). */
+  dev(): Device {
+    const g = this.g; const last = g.input.lastDevice;
+    if (this.touch.visible(g) && (last !== 'gamepad' || g.state.settings.touch === 'on')) return 'touch';
+    return last;
+  }
   /** Fast-forward the whole open conversation (dedicated skip key, or SKIP BRIEFING in the pause menu). */
   skipDialogue(g: Game) {
     const Q = g.mods.quest; if (!Q) return;
@@ -248,7 +260,7 @@ class UI implements Module {
 
   // ---------------- drawing ----------------
   overlay(g: Game, ctx: CanvasRenderingContext2D) {
-    const sc = g.state.scene; this.rows = [];
+    const sc = g.state.scene; this.rows = []; this.bossBarOn = false;
     if (sc === 'play' || sc === 'bonus' || sc === 'dialogue') { this.hud(g, ctx); if (sc === 'dialogue') this.dialogueBox(g, ctx); }
     else if (sc === 'title') this.title(g, ctx);
     else if (sc === 'map') this.map(g, ctx);
@@ -266,7 +278,7 @@ class UI implements Module {
   /** Toasts unfold horizontally from their own center at a fixed y (>= 8): never clipped by the screen edge. */
   drawToasts(ctx: CanvasRenderingContext2D) {
     const cx = PF_X + PF_W / 2;
-    const top = 8; // the dialogue box docks at the bottom, so toasts always stack from the top
+    const top = this.bossBarOn ? 24 : 8; // stack from the top (under the boss bar when it is up)
     this.toasts.forEach((x, i) => {
       const target = top + i * 17;
       x.y = x.y < 0 ? target : x.y + Math.sign(target - x.y) * Math.min(2, Math.abs(target - x.y));
@@ -332,21 +344,23 @@ class UI implements Module {
       const low = on && left < 180 && (t >> 3) % 2;
       chamferFill(ctx, sx, sy, 24, 22, on ? C.night : C.ink, 3);
       chamferLine(ctx, sx, sy, 24, 22, on ? (low ? C.hot : c) : C.indigo, 3);
-      if (on) { rect(ctx, sx + 3, sy + 1, 18, 1, darkOf(c)); drawSprite(ctx, spr, sx + 12, sy + 10); }
-      else drawSprite(ctx, spr, sx + 12, sy + 10, { recolor: SILHOUETTE });
-      const p = on ? left / Math.max(1, this.powMax[k] ?? left) : 0;
-      rect(ctx, sx + 3, sy + 18, 18, 2, C.indigo); if (on) rect(ctx, sx + 3, sy + 18, Math.max(1, Math.round(18 * p)), 2, low ? C.hot : c);
-      text(ctx, on ? `${Math.ceil(left / 60)}S` : nm, sx + 12, sy + 25, on ? c : C.dim, { align: 'center' });
+      if (on) { rect(ctx, sx + 3, sy + 1, 18, 1, darkOf(c)); drawSprite(ctx, spr, sx + 12, sy + 9); }
+      else drawSprite(ctx, spr, sx + 12, sy + 9, { recolor: SILHOUETTE });
+      // depleting 5-cell timer under the icon (never raw numbers)
+      const p = on ? left / Math.max(1, this.powMax[k] ?? left) : 0; const lit = on ? Math.max(1, Math.ceil(p * 5)) : 0;
+      for (let j = 0; j < 5; j++) rect(ctx, sx + 3 + j * 4, sy + 17, 3, 2, j < lit ? (low ? C.hot : c) : C.indigo);
+      text(ctx, nm, sx + 12, sy + 25, on ? (low ? C.hot : c) : C.dim, { align: 'center' });
     });
     {
-      // wingpup pill: 7px pup icon inside the pill, status LED parked left of the status word
+      // wingman pill: off = a plain instruction, on = status LED + ONLINE (matches the rescue toast)
       const on = !!P?.buddy; const by = 166, bh = 14;
       chamferFill(ctx, x0, by, w0, bh, on ? C.night : C.ink, 3); chamferLine(ctx, x0, by, w0, bh, on ? C.burnt : C.peri, 3);
       icon(ctx, 'pup', x0 + 6, by + 4, on ? C.gold : C.dim);
-      text(ctx, 'WINGPUP', x0 + 17, by + 4, on ? C.gold : C.dim);
-      const st = on ? 'ONLINE' : 'RESCUE'; const sx = x0 + w0 - 6 - textWidth(st);
-      rect(ctx, sx - 6, by + 6, 3, 3, on ? ((t >> 4) % 2 ? C.lime : C.deep) : C.peri);
-      text(ctx, st, x0 + w0 - 6, by + 4, on ? C.lime : C.dim, { align: 'right' });
+      if (on) {
+        text(ctx, 'WINGMAN', x0 + 17, by + 4, C.gold);
+        rect(ctx, x0 + w0 - 47, by + 6, 3, 3, (t >> 4) % 2 ? C.lime : C.deep);
+        text(ctx, 'ONLINE', x0 + w0 - 6, by + 4, C.lime, { align: 'right' });
+      } else text(ctx, 'RESCUE A PUP', x0 + 17, by + 4, C.dim);
     }
     // boop chain: consecutive boops within ~1.6s, with a decay bar
     header(ctx, 'BOOP CHAIN', x0, 186, w0, C.gold, t, this.chain > 1);
@@ -373,82 +387,64 @@ class UI implements Module {
       const rows: [string, string][] = [[k.move, 'FLY'], [k.fire, 'TOOT'], [k.pause, 'PAUSE']];
       rows.forEach(([key, cap], i) => { const kw = keycap(ctx, key, x0, 302 + i * 14, C.line); text(ctx, cap, x0 + kw + 5, 302 + i * 14, C.pale); });
     }
-    // ===== right panel: a flowing column; every block starts below the measured end of the last =====
+    // ===== right panel: fixed slots (no reflow between areas or states); the scanner fills the rest =====
     this.panel(ctx, RX, accR);
     const x1 = RX + 10;
     const B0 = g.mods.interaction?.boss;
-    let y = 10;
     if (A) {
       const idx = g.content.areas.indexOf(A);
-      header(ctx, `SECTOR ${String(idx + 1).padStart(2, '0')}`, x1, y, w0, accR, t, true);
+      header(ctx, `SECTOR ${String(idx + 1).padStart(2, '0')}`, x1, 10, w0, accR, t, true);
+      // two reserved name lines: a long name wraps into both; a short one shares the slot with a subtitle ticker
       const nl = this.lines(A.name, 18);
-      nl.forEach((l, i) => text(ctx, l, x1, y + 11 + i * 9, C.text, { shadow: C.ink }));
-      y += 11 + nl.length * 9 + 5;
+      nl.forEach((l, i) => text(ctx, l, x1, 21 + i * 9, C.text, { shadow: C.ink }));
+      if (nl.length === 1 && A.subtitle) text(ctx, this.clip(A.subtitle.toUpperCase(), 18), x1, 30, C.dim);
       const tot = A.waves.length + (A.boss ? 1 : 0); const cur = Math.min(tot, s.waveIndex + 1);
-      header(ctx, 'WAVE', x1, y, w0, C.hot, t);
-      y += 11;
+      header(ctx, 'WAVE', x1, 44, w0, C.hot, t);
+      const wy = 55;
       if (B0) {
-        chamferFill(ctx, x1, y, 62, 13, C.mag, 3); chamferFill(ctx, x1 + 1, y, 60, 12, (t >> 4) % 2 ? C.hot : C.mag, 3);
-        icon(ctx, 'cat', x1 + 5, y + 3, C.text); text(ctx, 'BIG CAT', x1 + 15, y + 3, C.text);
+        chamferFill(ctx, x1, wy - 1, w0, 13, C.mag, 3); chamferFill(ctx, x1 + 1, wy - 1, w0 - 2, 12, (t >> 4) % 2 ? C.hot : C.mag, 3);
+        icon(ctx, 'cat', x1 + 6, wy + 2, C.text); text(ctx, 'BIG CAT WAVE', x1 + 16, wy + 2, C.text);
+        arrow(ctx, x1 + w0 - 8, wy + 5, 'l', 3, C.text);
       } else {
-        const a = String(cur);
-        const aw = num(ctx, a, x1, y, C.line, { hi: C.ice, shadow: C.ink });
-        num(ctx, `/${tot}`, x1 + aw + 2, y, C.dim, { hi: C.pale, shadow: C.ink });
+        const aw = num(ctx, String(cur), x1, wy, C.line, { hi: C.ice, shadow: C.ink });
+        const bw = num(ctx, `/${tot}`, x1 + aw + 2, wy, C.dim, { hi: C.pale, shadow: C.ink });
+        // wave strip on the same row: done cells cyan, the current one blinks, the boss cell carries a pip
+        const sx0 = x1 + aw + bw + 8, avail = x1 + w0 - sx0;
+        const cw = Math.max(3, Math.min(9, Math.floor((avail - (tot - 1)) / Math.max(1, tot))));
+        const sx1 = x1 + w0 - (cw * tot + tot - 1);
+        for (let i = 0; i < tot; i++) {
+          const done = i < s.waveIndex, curw = i === s.waveIndex; const bossCell = A.boss && i === tot - 1;
+          const c = done ? C.line : curw ? ((t >> 3) % 2 ? C.hot : C.pink) : C.indigo;
+          chamferFill(ctx, sx1 + i * (cw + 1), wy + 2, cw, 7, c, 1);
+          if (bossCell && !done) rect(ctx, sx1 + i * (cw + 1) + (cw >> 1) - 1, wy + 4, 2, 3, curw ? C.text : C.hot);
+        }
       }
-      // live hostiles count, right-aligned on the same row
-      const live = (g.mods.interaction?.cats ?? []).length;
-      icon(ctx, 'cat', x1 + w0 - 30, y + 2, live ? C.hot : C.peri); text(ctx, String(live).padStart(2, '0'), x1 + w0 - 2, y + 2, live ? C.text : C.dim, { align: 'right' });
-      y += 15;
-      const cw = Math.max(4, Math.min(12, Math.floor((w0 - (tot - 1)) / Math.max(1, tot))));
-      for (let i = 0; i < tot; i++) {
-        const done = i < s.waveIndex, curw = i === s.waveIndex; const bossCell = A.boss && i === tot - 1;
-        const c = done ? C.line : curw ? ((t >> 3) % 2 ? C.hot : C.pink) : C.indigo;
-        chamferFill(ctx, x1 + i * (cw + 1), y, cw, 5, c, 1);
-        if (bossCell && !done) rect(ctx, x1 + i * (cw + 1) + (cw >> 1) - 1, y + 1, 2, 3, curw ? C.text : C.hot);
-      }
-      y += 5 + 8;
     }
-    header(ctx, 'RESCUED', x1, y, w0, C.gold, t);
-    chamferFill(ctx, x1, y + 10, 52, 18, C.night, 2); drawSprite(ctx, 'pup', x1 + 9, y + 19);
-    text(ctx, `X${s.inventory.pups ?? 0}`, x1 + 20, y + 15, C.gold);
-    chamferFill(ctx, x1 + 56, y + 10, w0 - 56, 18, C.night, 2); drawSprite(ctx, 'pk_memory', x1 + 65, y + 19);
-    text(ctx, `${s.memories.length}/${g.content.memories.length}`, x1 + 76, y + 15, C.text);
-    y += 34;
-    header(ctx, 'QUEST', x1, y, w0, C.violet, t);
-    y += 11;
+    header(ctx, 'RESCUED', x1, 72, w0, C.gold, t);
+    chamferFill(ctx, x1, 82, 52, 18, C.night, 2); drawSprite(ctx, 'pup', x1 + 9, 91);
+    text(ctx, `X${s.inventory.pups ?? 0}`, x1 + 20, 87, C.gold);
+    chamferFill(ctx, x1 + 56, 82, w0 - 56, 18, C.night, 2); drawSprite(ctx, 'pk_memory', x1 + 65, 91);
+    text(ctx, `${s.memories.length}/${g.content.memories.length}`, x1 + 76, 87, C.text);
+    header(ctx, 'QUEST', x1, 106, w0, C.violet, t);
     const q = g.content.quests.find(q => s.quests[q.id] === 'active');
     if (q) {
-      icon(ctx, 'flag', x1, y, C.violet);
-      const ql = this.lines(q.name, 16);
-      ql.forEach((l, i) => text(ctx, l, x1 + 10, y + i * 9, C.violet));
-      y += ql.length * 9 + 1;
+      text(ctx, this.lines(q.name, 18, 1)[0], x1, 117, C.violet, { shadow: C.ink });
+      icon(ctx, 'flag', x1, 128, C.violet);
       const pr = g.mods.quest?.progress?.(q);
-      if (pr && pr.need > 1) { segBar(ctx, x1 + 10, y + 2, 10, 5, 3, pr.have / pr.need, C.violet); text(ctx, `${pr.have}/${pr.need}`, x1 + w0, y, C.text, { align: 'right' }); }
-      else { text(ctx, 'IN PROGRESS', x1 + 10, y, C.dim); for (let i = 0; i < 3; i++) rect(ctx, x1 + 78 + i * 4, y + 5, 2, 2, ((t >> 4) % 4) > i ? C.violet : C.peri); }
-      y += 9 + 5;
-    } else { text(ctx, 'NO ACTIVE QUEST', x1 + 10, y, C.dim); rect(ctx, x1 + 1, y + 3, 5, 1, C.peri); y += 9 + 5; }
-    // threat block: boss bar, bonus tally, or live breed roster
-    if (B0) {
-      header(ctx, 'BIG CAT', x1, y, w0, C.hot, t, true);
-      icon(ctx, 'cat', x1, y + 11, C.hot);
-      const nm = this.lines(B0.def.name, 16);
-      nm.forEach((l: string, i: number) => text(ctx, l, x1 + 10, y + 11 + i * 9, C.text));
-      y += 11 + nm.length * 9 + 2;
-      const p = B0.hp / B0.maxHp;
-      chamferFill(ctx, x1 - 1, y, w0 + 2, 9, C.ink, 2);
-      bar(ctx, x1 + 1, y + 2, w0 - 2, 5, p, p < 0.3 && (t >> 3) % 2 ? C.pink : C.hot);
-      for (let i = 1; i < 10; i++) rect(ctx, x1 + 1 + Math.round(i * (w0 - 2) / 10), y + 2, 1, 5, C.ink);
-      text(ctx, `${Math.ceil(p * 100)}%`, x1 + w0, y + 13, C.hot, { align: 'right' }); text(ctx, 'ARMOR', x1, y + 13, C.dim);
-      y += 13 + 9;
-    } else if (g.state.scene === 'bonus') {
-      header(ctx, 'BONANZA', x1, y, w0, C.gold, t, true);
+      if (pr && pr.need > 1) { segBar(ctx, x1 + 10, 129, 10, 5, 4, pr.have / pr.need, C.violet); text(ctx, `${pr.have}/${pr.need}`, x1 + w0, 128, C.text, { align: 'right' }); }
+      else { text(ctx, 'IN PROGRESS', x1 + 10, 128, C.dim); for (let i = 0; i < 3; i++) rect(ctx, x1 + 78 + i * 4, 133, 2, 2, ((t >> 4) % 4) > i ? C.violet : C.peri); }
+    } else { text(ctx, 'NO ACTIVE QUEST', x1, 117, C.dim); icon(ctx, 'flag', x1, 128, C.peri); text(ctx, 'FLY ON, CAPTAIN', x1 + 10, 128, C.peri); }
+    // threat slot: fixed 64px (boss armor, bonus tally, live breed roster, or the next formation preview)
+    const TY = 142;
+    if (B0) this.bossBlock(g, ctx, B0, x1, TY, w0);
+    else if (g.state.scene === 'bonus') {
+      header(ctx, 'BONANZA', x1, TY, w0, C.gold, t, true);
       const b = g.mods.interaction?.bonus;
-      if (b) { icon(ctx, 'gift', x1, y + 12, C.gold); text(ctx, `${b.hits} / ${b.total}`, x1 + 10, y + 12, C.text); segBar(ctx, x1, y + 24, 20, 4, 3, b.hits / Math.max(1, b.total), C.gold); text(ctx, 'TREATS CAUGHT', x1, y + 34, C.dim); }
-      y += 44;
-    } else y = this.roster(g, ctx, x1, y, w0);
+      if (b) { icon(ctx, 'gift', x1, TY + 12, C.gold); text(ctx, `${b.hits} / ${b.total}`, x1 + 10, TY + 12, C.text); segBar(ctx, x1, TY + 24, 20, 4, 3, b.hits / Math.max(1, b.total), C.gold); text(ctx, 'TREATS CAUGHT', x1, TY + 34, C.dim); }
+    } else this.roster(g, ctx, x1, TY, w0);
     if (!touch) {
-      // scanner fills the gap above the fixed clock blocks (bottom anchored, shrinks if the column is long)
-      const ry = Math.max(y + 2, 220); this.radar(g, ctx, x1, ry, w0, Math.min(70, 290 - ry), accS);
+      // scanner anchored right under the threat slot, filling down to the clock blocks
+      this.radar(g, ctx, x1, TY + 66, w0, 290 - (TY + 66), accS);
       const tod = s.tod; const tc = tod === 'night' ? C.violet : tod === 'dusk' ? C.pink : tod === 'dawn' ? C.orange : C.gold;
       header(ctx, 'LOCAL TIME', x1, 296, w0, tc, t);
       icon(ctx, tod === 'night' ? 'moon' : tod === 'dusk' ? 'dusk' : tod === 'dawn' ? 'dawn' : 'sun', x1, 307, tc); text(ctx, tod.toUpperCase(), x1 + 10, 307, tc);
@@ -456,16 +452,60 @@ class UI implements Module {
       (['dawn', 'day', 'dusk', 'night'] as const).forEach((p, i) => rect(ctx, x1 + 60 + i * 12, 309, 10, 3, p === tod ? tc : C.indigo));
       const mm = Math.floor(s.stats.playTicks / 3600), ss = Math.floor(s.stats.playTicks / 60) % 60;
       header(ctx, 'FLIGHT TIME', x1, 321, w0, C.line, t);
-      icon(ctx, 'clock', x1, 332, C.line);
-      text(ctx, `${String(mm).padStart(2, '0')}${(t >> 5) % 2 ? ':' : ' '}${String(ss).padStart(2, '0')}`, x1 + 10, 332, C.text);
+      this.clock(ctx, x1, 332, C.line, g.paused ? 0 : (s.stats.playTicks >> 4) % 8);
+      text(ctx, `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`, x1 + 10, 332, C.text);
     }
+    // boss armor bar docked along the top edge of the playfield, where the player's eyes are
+    this.bossBarOn = !!B0 && typeof B0.hp === 'number';
+    if (this.bossBarOn) this.bossTopBar(ctx, B0);
     // playfield frame edges: bright inner line, dark outer glow, tick marks
     rect(ctx, PF_X - 1, 0, 1, H, C.deep); rect(ctx, PF_X, 0, 1, H, C.line);
     rect(ctx, RX - 1, 0, 1, H, C.line); rect(ctx, RX, 0, 1, H, C.deep);
     const off = (t >> 2) % 16;
     for (let yy = -16 + off; yy < H; yy += 16) { rect(ctx, PF_X + 1, yy, 2, 1, C.deep); rect(ctx, RX - 3, yy, 2, 1, C.deep); }
   }
-  /** Live breed roster: up to three breeds with tinted icons and counts, plus a cats-left row. Returns the next free y. */
+  /** Boss block in the right panel threat slot: name, armor bar, armor %, and a mood row. */
+  bossBlock(g: Game, ctx: CanvasRenderingContext2D, B0: any, x1: number, y: number, w0: number) {
+    const t = this.t;
+    header(ctx, 'BIG CAT', x1, y, w0, C.hot, t, true);
+    text(ctx, this.lines(B0.def.name, 18, 1)[0], x1, y + 11, C.text, { shadow: C.ink });
+    const p = Math.max(0, B0.hp / Math.max(1, B0.maxHp));
+    chamferFill(ctx, x1 - 1, y + 22, w0 + 2, 9, C.ink, 2);
+    bar(ctx, x1 + 1, y + 24, w0 - 2, 5, p, p < 0.3 && (t >> 3) % 2 ? C.pink : C.hot);
+    for (let i = 1; i < 10; i++) rect(ctx, x1 + 1 + Math.round(i * (w0 - 2) / 10), y + 24, 1, 5, C.ink);
+    text(ctx, 'ARMOR', x1, y + 35, C.dim); text(ctx, `${Math.ceil(p * 100)}%`, x1 + w0, y + 35, C.hot, { align: 'right' });
+    const mood = p > 0.6 ? 'CALM' : p > 0.3 ? 'GRUMPY' : 'FURIOUS'; const mc = p > 0.6 ? C.gold : p > 0.3 ? C.orange : C.hot;
+    text(ctx, 'MOOD', x1, y + 46, C.dim);
+    for (let i = 0; i < 3; i++) chamferFill(ctx, x1 + 30 + i * 9, y + 47, 7, 5, i < (p > 0.6 ? 1 : p > 0.3 ? 2 : 3) ? mc : C.indigo, 1);
+    text(ctx, mood, x1 + w0, y + 46, mc, { align: 'right' });
+  }
+  /** Thin chamfered boss bar along the top edge of the playfield (Galaga-style readability). */
+  bossTopBar(ctx: CanvasRenderingContext2D, B0: any) {
+    const t = this.t; const x = PF_X + 40, w = PF_W - 80, y = 3, h = 15;
+    const p = Math.max(0, B0.hp / Math.max(1, B0.maxHp));
+    chamferFill(ctx, x - 1, y - 1, w + 2, h + 2, C.ink, 5);
+    chamferFill(ctx, x, y, w, h, C.night, 4); chamferLine(ctx, x, y, w, h, C.mag, 4);
+    rect(ctx, x + 5, y, 10, 1, C.hot); rect(ctx, x + w - 15, y, 10, 1, C.hot);
+    icon(ctx, 'cat', x + 7, y + 4, C.hot);
+    const nm = (B0.def?.name ?? 'BIG CAT').toUpperCase(); text(ctx, nm, x + 17, y + 4, C.text, { shadow: C.ink });
+    const bx = x + 17 + textWidth(nm) + 8, bw = x + w - 8 - bx;
+    rect(ctx, bx - 1, y + 4, bw + 2, 7, C.ink);
+    bar(ctx, bx, y + 5, bw, 5, p, p < 0.3 && (t >> 3) % 2 ? C.pink : C.hot, C.plum);
+    for (let i = 1; i < 10; i++) rect(ctx, bx + Math.round(i * bw / 10), y + 5, 1, 5, C.ink);
+  }
+  /** Clock icon with a sweeping hand (8 positions); the digits next to it stay static. */
+  clock(ctx: CanvasRenderingContext2D, x: number, y: number, c: string, step: number) {
+    icon(ctx, 'clockface', x, y, c);
+    const H8: [number, number][][] = [[[3, 1], [3, 2]], [[5, 1], [4, 2]], [[5, 3], [4, 3]], [[5, 5], [4, 4]], [[3, 5], [3, 4]], [[1, 5], [2, 4]], [[1, 3], [2, 3]], [[1, 1], [2, 2]]];
+    rect(ctx, x + 3, y + 3, 1, 1, c); for (const [dx, dy] of H8[step & 7]) rect(ctx, x + dx, y + dy, 1, 1, c === C.line ? C.ice : C.text);
+  }
+  /** Fit a phrase into `chars` columns at a word boundary, ending in '...' when cut. */
+  clip(s: string, chars: number) {
+    if (s.length <= chars) return s;
+    let out = ''; for (const w of s.split(' ')) { const n = out ? out + ' ' + w : w; if (n.length > chars - 3) break; out = n; }
+    return out.replace(/[,.;:!-]+$/, '') + '...';
+  }
+  /** Threat slot (64px): live breed roster with a cats-left bar, or the next formation preview when the sky is empty. */
   roster(g: Game, ctx: CanvasRenderingContext2D, x: number, y: number, w: number) {
     const cats = (g.mods.interaction?.cats ?? []) as { def?: { id: string; name: string; sprite: string } }[];
     header(ctx, 'HOSTILES', x, y, w, C.hot, this.t, cats.length > 0);
@@ -476,11 +516,12 @@ class UI implements Module {
     if (!list.length) {
       // before the first cats arrive the wave is INCOMING; once a wave is wiped out the skies are clear
       const incoming = this.waveCats === 0;
-      chamferFill(ctx, x, y, w, 20, C.ink, 3); chamferLine(ctx, x, y, w, 20, incoming ? C.mag : C.peri, 3);
+      chamferFill(ctx, x, y, w, 14, C.ink, 3); chamferLine(ctx, x, y, w, 14, incoming ? C.mag : C.peri, 3);
       const lbl = incoming ? 'INCOMING' : 'SKIES CLEAR';
-      if (incoming) { const o = (this.t >> 3) % 2; arrow(ctx, x + 10 + o, y + 10, 'd', 3, C.hot); arrow(ctx, x + w - 11 - o, y + 10, 'd', 3, C.hot); }
-      text(ctx, lbl, x + w / 2, y + 7, incoming ? ((this.t >> 4) % 2 ? C.hot : C.pink) : C.dim, { align: 'center' });
-      return y + 20 + 6;
+      if (incoming) { const o = (this.t >> 3) % 2; arrow(ctx, x + 10, y + 6 + o, 'd', 3, C.hot); arrow(ctx, x + w - 11, y + 6 + o, 'd', 3, C.hot); }
+      text(ctx, lbl, x + w / 2, y + 4, incoming ? ((this.t >> 4) % 2 ? C.hot : C.pink) : C.dim, { align: 'center' });
+      this.formationPreview(g, ctx, x, y + 17, w, 35, incoming);
+      return;
     }
     const rows = list.length > 3 ? 2 : list.length;
     list.slice(0, rows).forEach((e, i) => {
@@ -489,12 +530,33 @@ class UI implements Module {
       const nm = e.name.toUpperCase(); text(ctx, nm.length <= 13 ? nm : nm.split(' ')[0].slice(0, 13), x + 10, cy, C.pale);
       text(ctx, String(e.n), x + w, cy, C.text, { align: 'right' });
     });
+    for (let i = Math.min(3, list.length); i < 3; i++) dither(ctx, x + 10, y + i * 9 + 3, w - 10, 1, C.indigo, 'check');
     if (list.length > 3) { const rest = list.slice(2).reduce((a, e) => a + e.n, 0); text(ctx, `+${list.length - 2} MORE BREEDS`, x + 10, y + 18, C.dim); text(ctx, String(rest), x + w, y + 18, C.text, { align: 'right' }); }
-    y += Math.min(3, list.length) * 9 + 1;
+    const ly = y + 28;
     const tot = Math.max(1, this.waveCats, cats.length);
-    text(ctx, 'CATS LEFT', x, y, C.dim); text(ctx, String(cats.length), x + w, y, C.hot, { align: 'right' });
-    segBar(ctx, x, y + 10, 18, 5, 3, cats.length / tot, C.hot);
-    return y + 10 + 3 + 6;
+    text(ctx, 'CATS LEFT', x, ly, C.dim); text(ctx, `${cats.length}/${tot}`, x + w, ly, C.hot, { align: 'right' });
+    segBar(ctx, x, ly + 10, 18, 5, 4, cats.length / tot, C.hot);
+  }
+  /** Mini preview of the formation about to fly in: one blip per cat, tinted by breed, in a holo box. */
+  formationPreview(g: Game, ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, live: boolean) {
+    const t = this.t; const A = g.mods.world?.area();
+    chamferFill(ctx, x, y, w, h, C.ink, 3); chamferLine(ctx, x, y, w, h, live ? C.plum : C.indigo, 3);
+    for (let gx = x + 6; gx < x + w - 3; gx += 6) dither(ctx, gx, y + 2, 1, h - 4, C.night, 'sparse');
+    const wid = A?.waves?.[g.state.waveIndex]; const wave = g.content.waves.find(v => v.id === wid);
+    if (!wave) { text(ctx, 'ALL CLEAR', x + w / 2, y + h / 2 - 3, C.peri, { align: 'center' }); return; }
+    const { cols, rows } = wave.formation; const cw = Math.min(9, Math.floor((w - 8) / cols)), ch = Math.min(6, Math.floor((h - 12) / rows));
+    const ox = Math.round(x + w / 2 - (cols * cw) / 2), oy = y + 4;
+    const drop = live ? Math.max(0, 6 - ((t >> 2) % 40)) : 0;
+    for (const c of wave.cats) {
+      const e = g.content.enemies.find(en => en.id === c.breed); const col0 = e ? breedColor(e.sprite) : C.hot;
+      for (let ci = 0; ci < cols; ci++) {
+        if (c.cols && !c.cols.includes(ci)) continue;
+        const bx = ox + ci * cw + ((cw - 5) >> 1), byy = oy + c.row * ch - drop;
+        if (byy < y + 2) continue;
+        rect(ctx, bx, byy, 5, 3, col0); rect(ctx, bx, byy, 1, 1, C.ink); rect(ctx, bx + 4, byy, 1, 1, C.ink);
+      }
+    }
+    text(ctx, 'NEXT', x + 4, y + h - 9, C.peri); text(ctx, `${wave.cats.reduce((a, c) => a + (c.cols ? c.cols.length : cols), 0)} CATS`, x + w - 4, y + h - 9, live ? C.pink : C.dim, { align: 'right' });
   }
 
   /** Mini scanner of the playfield: cats as blips, Pom as a cyan chevron, sweeping beam (tinted per time of day). */
@@ -612,7 +674,7 @@ class UI implements Module {
   }
   title(g: Game, ctx: CanvasRenderingContext2D) {
     const t = this.t; const HZ = 214;
-    this.synthSet(ctx, t, HZ, 92);
+    this.synthSet(ctx, t, HZ, 62);
     // logo
     const L1 = logoWord('POODLE', 3, PINK, 4, 3, 4), L2 = logoWord('PATROL', 2, CYAN, 3, 3, 4);
     const bob = Math.round(Math.sin(t / 30) * 2);
@@ -629,31 +691,33 @@ class UI implements Module {
     drawLogo(ctx, L2, W / 2, ly, shine - 40, 5);
     // tagline in a chamfered ribbon
     const tag = 'OPERATION: GOOD GIRL'; const tw = textWidth(tag) + 20;
-    chamferFill(ctx, W / 2 - tw / 2, 104 + bob, tw, 13, C.mag, 4); chamferFill(ctx, W / 2 - tw / 2 + 1, 104 + bob, tw - 2, 12, C.hot, 4);
-    text(ctx, tag, W / 2, 107 + bob, C.text, { align: 'center', shadow: C.mag });
-    // Galaga marquee: a breathing formation of cats; every few seconds one peels off on a looping dive
-    // toward Pom and slots back in from the top
-    const N = 7, slotY = 146; const breathe = Math.round(Math.sin(t / 24) * 3);
+    chamferFill(ctx, W / 2 - tw / 2, 101 + bob, tw, 13, C.mag, 4); chamferFill(ctx, W / 2 - tw / 2 + 1, 101 + bob, tw - 2, 12, C.hot, 4);
+    text(ctx, tag, W / 2, 104 + bob, C.text, { align: 'center', shadow: C.mag });
+    // Galaga marquee: a breathing chevron of cats flying above the sun (never across it); every few
+    // seconds one peels off on a looping dive and slots back in
+    const N = 7; const breathe = Math.round(Math.sin(t / 24) * 2);
     const cyc = 200, active = Math.floor(t / cyc) % N, u = (t % cyc) / 130; const diving = u < 1;
     const order = [1, 5, 3, 0, 6, 2, 4]; const diver = order[active];
     for (let i = 0; i < N; i++) {
-      const sx0 = W / 2 + (i - 3) * (44 + breathe), sy0 = slotY + ((t >> 4) + i) % 2;
+      const sx0 = W / 2 + (i - 3) * (46 + breathe), sy0 = 135 + Math.abs(i - 3) * 7 + ((t >> 4) + i) % 2;
       let x = sx0, y = sy0;
       if (i === diver && diving) {
         const side = i < 3 ? -1 : i > 3 ? 1 : ((active & 1) ? 1 : -1);
-        const path = (v: number): [number, number] => [sx0 + side * 46 * Math.sin(v * Math.PI * 2), sy0 + 40 * Math.sin(v * Math.PI) - 10 * Math.sin(v * Math.PI * 2)];
+        // outward loop that stays clear of the sun disc
+        const path = (v: number): [number, number] => [sx0 + side * 54 * Math.sin(v * Math.PI), sy0 - 18 * Math.sin(v * Math.PI * 2)];
         [x, y] = path(u);
-        // trail: four fading dither dabs along the path behind the diver
-        for (let j = 1; j <= 4; j++) {
-          const v = u - j * 0.035; if (v <= 0) break; const [tx, ty] = path(v);
-          dither(ctx, Math.round(tx) - 3, Math.round(ty) - 2, 6, 4, j < 3 ? C.purple : C.plum, j < 3 ? 'check' : 'sparse');
+        for (let j = 1; j <= 3; j++) {
+          const v = u - j * 0.04; if (v <= 0) break; const [tx, ty] = path(v);
+          dither(ctx, Math.round(tx) - 2, Math.round(ty) - 2, 4, 4, j < 2 ? C.purple : C.plum, 'check');
         }
       }
       drawSprite(ctx, TITLE_CATS[i % TITLE_CATS.length], Math.round(x), Math.round(y), { frame: ((t >> 4) + i) % 2 });
     }
-    // hero below the formation
-    const pyy = 192 + Math.round(Math.sin(t / 12) * 2);
-    drawSprite(ctx, 'poodle', W / 2, pyy, { frame: (t >> 3) % 2 });
+    // hero: chase-cam view of Pom flying toward the sun, high above the grid, her shadow on the ground
+    const hov = Math.round(Math.sin(t / 12) * 2);
+    const shw = 12 - hov; dither(ctx, W / 2 - shw, 220, shw * 2, 3, C.ink, 'check'); rect(ctx, W / 2 - shw + 3, 221, shw * 2 - 6, 1, C.ink);
+    for (let i = 0; i < 3; i++) { const ly2 = 206 + hov + i * 3 + ((t >> 2) + i) % 3; rect(ctx, W / 2 - 1, ly2, 2, 1, i ? C.plum : C.purple); }
+    drawSprite(ctx, 'poodle', W / 2, 186 + hov, { frame: (t >> 3) % 2 });
     // menu: chamfered neon frame with targeting ticks, like the HUD
     const items = this.titleItems(); const off = this.titleDisabled();
     const mh = items.length * 15 + 14; const my = 230; const mw = 176, mx = W / 2 - mw / 2;
@@ -689,7 +753,7 @@ class UI implements Module {
     ticks(ctx, 10, T0, W - 20, B0 - T0, C.deep, 8, 0);
     // header bar
     frame(ctx, 8, 6, W - 16, 34, C.line, C.night, 6);
-    text(ctx, 'SECTOR MAP', W / 2, 12, C.line, { align: 'center', scale: 2, shadow: C.deep });
+    headline(ctx, 'SECTOR MAP', W / 2, 12, C.line, C.ice, C.deep);
     text(ctx, 'CHOOSE YOUR NEXT FLIGHT PATH', W / 2, 29, C.dim, { align: 'center' });
     // legend: each symbol is a distinct shape (dashed route, cat badge, check badge)
     line(ctx, 18, 20, 30, 20, C.hot, [3, 1], -(t >> 2)); line(ctx, 18, 21, 30, 21, C.mag, [3, 1], -(t >> 2)); text(ctx, 'LIVE ROUTE', 35, 17, C.hot);
@@ -710,7 +774,11 @@ class UI implements Module {
       const isSel = live && e.to === selTo;
       const c = isSel ? C.gold : live ? C.hot : done ? C.line : C.indigo;
       if (live || done) line(ctx, p1[0], p1[1] + 1, p2[0], p2[1] + 1, isSel ? C.burnt : live ? C.mag : C.deep);
-      line(ctx, p1[0], p1[1], p2[0], p2[1], c, e.when ? [2, 3] : live ? [4, 2] : undefined, live ? -(t >> 1) : 0);
+      if (!live && !done) {
+        // locked routes: dithered dim cyan (deep + cyan pixels alternating) so they read at 1x; secret routes dotted
+        if (e.when) line(ctx, p1[0], p1[1], p2[0], p2[1], C.line2, [1, 2]);
+        else { line(ctx, p1[0], p1[1], p2[0], p2[1], C.deep); line(ctx, p1[0], p1[1], p2[0], p2[1], C.line2, [1, 1]); }
+      } else line(ctx, p1[0], p1[1], p2[0], p2[1], c, e.when ? [2, 3] : live ? [4, 2] : undefined, live ? -(t >> 1) : 0);
       if (live) { // data packet travelling along the live route
         const f = ((t + (isSel ? 0 : 20)) % 60) / 60;
         rect(ctx, Math.round(p1[0] + (p2[0] - p1[0]) * f) - 1, Math.round(p1[1] + (p2[1] - p1[1]) * f) - 1, 3, 3, isSel ? C.text : C.pink);
@@ -731,7 +799,7 @@ class UI implements Module {
       const gs = sel ? C.burnt : isHere ? C.mag : cleared ? C.deep : reachable ? C.mag : C.indigo;
       glyph(ctx, a.id, p[0], p[1], gm, gs);
       if (cleared && !isHere) { chamferFill(ctx, bx + 14, by + 14, 11, 11, C.ink, 2); chamferLine(ctx, bx + 14, by + 14, 11, 11, C.deep, 2); checkMark(ctx, bx + 16, by + 16); }
-      if (a.boss && !cleared) { chamferFill(ctx, bx - 3, by - 3, 11, 11, C.ink, 2); chamferLine(ctx, bx - 3, by - 3, 11, 11, sel ? C.burnt : C.mag, 2); icon(ctx, 'cat', bx - 1, by - 1, sel ? C.gold : C.hot); }
+      if (a.boss && (cleared || sel)) { chamferFill(ctx, bx - 3, by - 3, 11, 11, C.ink, 2); chamferLine(ctx, bx - 3, by - 3, 11, 11, sel ? C.burnt : C.mag, 2); icon(ctx, 'cat', bx - 1, by - 1, sel ? C.gold : C.hot); }
       // node number on an ink backplate so it reads over nebulae and grid
       const lbl = String(idx + 1).padStart(2, '0');
       chamferFill(ctx, p[0] - 8, p[1] + 13, 17, 11, C.ink, 2);
@@ -752,6 +820,7 @@ class UI implements Module {
       if (isHere) drawSprite(ctx, 'hud_paw', p[0], p[1] - 22 + ((t >> 4) % 2));
     });
     (selLabel as (() => void) | null)?.();
+    this.sectorLog(g, ctx, selTo, exits);
     // info panel
     if (selTo) {
       const a = g.mods.world.area(selTo);
@@ -774,6 +843,31 @@ class UI implements Module {
       hintRow(ctx, [[k.adj, 'ROUTE'], [k.ok, 'LAUNCH'], [k.pause, 'MENU']], W / 2, by + 53, C.line);
     }
   }
+  /** Sector log: every sector by number and name with its status, so the chart itself can stay numbers-only. */
+  sectorLog(g: Game, ctx: CanvasRenderingContext2D, selTo: string | undefined, exits: { to: string }[]) {
+    const t = this.t; const tv = this.touch.visible(g);
+    const x = MAP_LIST_X, y = 52, w = W - 12 - x, bottom = tv ? 228 : 274, h = bottom - y;
+    frame(ctx, x, y, w, h, C.line, C.night, 5);
+    scanlines(ctx, x + 2, y + 2, w - 4, h - 4);
+    header(ctx, 'SECTOR LOG', x + 8, y + 7, w - 16, C.line, t);
+    const areas = g.content.areas; const step = Math.min(15, Math.floor((h - 26) / areas.length));
+    areas.forEach((a, i) => {
+      const yy = y + 21 + i * step;
+      const cleared = g.state.areasCleared.includes(a.id), here = a.id === g.state.areaId, sel = a.id === selTo;
+      const reach = exits.some(e => e.to === a.id);
+      const secret = !cleared && !here && !reach && areas.some(b => b.exits.some(e => e.to === a.id && e.when));
+      if (sel) { chamferFill(ctx, x + 4, yy - 2, w - 8, 11, C.plum, 2); chamferLine(ctx, x + 4, yy - 2, w - 8, 11, C.burnt, 2); }
+      const c = sel ? C.gold : here ? C.hot : cleared ? C.line : reach ? C.pink : C.peri;
+      text(ctx, String(i + 1).padStart(2, '0'), x + 9, yy, c);
+      const nm = secret ? '? ? ?' : this.clip(a.name.toUpperCase(), 19);
+      text(ctx, nm, x + 25, yy, sel ? C.gold : here ? C.text : cleared ? C.pale : reach ? C.text : C.dim);
+      const ix = x + w - 15;
+      if (here) icon(ctx, 'paw', ix, yy, (t >> 4) % 2 ? C.hot : C.pink);
+      else if (cleared) checkMark(ctx, ix, yy - 1);
+      else if (reach) arrow(ctx, ix + 5, yy + 3, 'l', 4, sel ? C.gold : C.pink);
+      else icon(ctx, 'lock', ix, yy, C.indigo);
+    });
+  }
   /** Constellation layout: columns by graph depth, rows spread vertically and offset per column so the route zig-zags across the chart. */
   layout(g: Game): Record<string, [number, number]> {
     const depth: Record<string, number> = {}; const start = g.content.start;
@@ -783,10 +877,12 @@ class UI implements Module {
     for (const a of g.content.areas) if (depth[a.id] !== undefined) (cols[depth[a.id]] ??= []).push(a.id);
     const maxD = Math.max(...Object.keys(cols).map(Number));
     const out: Record<string, [number, number]> = {};
-    const mid = 160, amp = 52;
+    const mid = 160, amp = 52; const x0 = 40, x1 = MAP_LIST_X - 30;
+    // nodes snap to 40px rows so their number plates share baselines across the chart
+    const snap = (y: number) => 76 + 40 * Math.max(0, Math.min(4, Math.round((y - 76) / 40)));
     for (const [d, ids] of Object.entries(cols)) {
       const k = +d; const yc = mid + Math.round(Math.sin(k * 1.25 + 0.6) * (ids.length > 1 ? amp * 0.4 : amp));
-      ids.forEach((id, i) => { out[id] = [Math.round(40 + (k / Math.max(1, maxD)) * (W - 80)), Math.max(70, Math.min(256, Math.round(yc + (i - (ids.length - 1) / 2) * 84)))]; });
+      ids.forEach((id, i) => { out[id] = [Math.round(x0 + (k / Math.max(1, maxD)) * (x1 - x0)), snap(yc + (i - (ids.length - 1) / 2) * 84)]; });
     }
     return out;
   }
@@ -804,7 +900,7 @@ class UI implements Module {
     scanlines(ctx, x + 2, y + 2, w - 4, h - 4);
     ticks(ctx, x, y, w, h, C.deep, 8, 3);
     chamferFill(ctx, x + 10, y - 8, w - 20, 26, C.ink, 5); chamferLine(ctx, x + 10, y - 8, w - 20, 26, C.deep, 5);
-    text(ctx, 'PAUSED', W / 2, y - 2, C.line, { align: 'center', scale: 2, shadow: C.deep });
+    headline(ctx, 'PAUSED', W / 2, y - 1, C.line, C.ice, C.deep);
     const A = g.mods.world?.area();
     if (A) text(ctx, A.name.toUpperCase(), W / 2, y + 26, C.dim, { align: 'center' });
     rect(ctx, x + 16, y + 38, w - 32, 1, C.indigo);
@@ -824,7 +920,7 @@ class UI implements Module {
     scanlines(ctx, x + 2, y + 2, w - 4, h - 4);
     ticks(ctx, x, y, w, h, C.purple, 8, 3);
     chamferFill(ctx, x + 40, y - 8, w - 80, 26, C.ink, 5); chamferLine(ctx, x + 40, y - 8, w - 80, 26, C.purple, 5);
-    text(ctx, 'SETTINGS', W / 2, y - 2, C.violet, { align: 'center', scale: 2, shadow: C.purple });
+    headline(ctx, 'SETTINGS', W / 2, y - 1, C.violet, C.pale, C.purple);
     const rows: [string, string][] = [['MUSIC', 'note'], ['SFX', 'speaker'], ['SCREEN SHAKE', 'shake'], ['TOUCH CONTROLS', 'hand'], ['BACK', 'back']];
     this.rows = [];
     rows.forEach(([k, ic], i) => {
@@ -881,6 +977,18 @@ class UI implements Module {
     for (let dy = -18; dy <= 18; dy++) { const dx = Math.floor(Math.sqrt(324 - dy * dy) * 1.2); rect(ctx, tx - dx, HZ - 40 + dy, dx * 2 + 1, 1, C.night); }
     for (let dy = -17; dy <= -10; dy++) { const dx = Math.floor(Math.sqrt(289 - dy * dy) * 1.1); rect(ctx, tx - dx + 2, HZ - 40 + dy, Math.max(0, dx - 2), 1, C.indigo); }
   }
+  /** Pom's front-facing bust peeking over the picket fence at the horizon (rise 0..1 pops her up). */
+  peekPom(ctx: CanvasRenderingContext2D, HZ: number, rise: number, t: number) {
+    const spr = SHEETS.portrait_pom ? 'portrait_pom' : 'poodle';
+    const sc = spriteCanvas(spr, 0); if (!sc) return;
+    const cx = W / 2, top = Math.round(HZ - 4 - sc.height + (1 - rise) * 40 + (rise >= 1 ? (t >> 4) % 2 : 0));
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, HZ - 3); ctx.clip();
+    ctx.drawImage(sc, Math.round(cx - sc.width / 2), top);
+    ctx.restore();
+    // fence pickets back in front of her
+    for (let x = 4; x < W; x += 8) if (x > cx - sc.width / 2 - 8 && x < cx + sc.width / 2 + 4) { rect(ctx, x, HZ - 9, 3, 9, C.plum); rect(ctx, x + 1, HZ - 10, 1, 1, C.plum); }
+    rect(ctx, cx - sc.width / 2 - 8, HZ - 7, sc.width + 16, 1, C.plum); rect(ctx, cx - sc.width / 2 - 8, HZ - 3, sc.width + 16, 1, C.plum);
+  }
   ending(g: Game, ctx: CanvasRenderingContext2D) {
     const e = g.content.endings.find(x => x.id === g.state.ending) ?? g.content.endings[0];
     const T = this.endingT; const HZ = 262;
@@ -891,9 +999,9 @@ class UI implements Module {
     const allLogo = [...title].every(ch => ch === ' ' || 'PODLEATR'.includes(ch));
     if (allLogo && title.length <= 14) drawLogo(ctx, logoWord(title.replace(/ /g, ''), 2, GOLD, 3, 2, 3), W / 2, 12);
     else {
-      const tw = textWidth(title, 2) + 32;
+      const tw = numWidth(title) + 36;
       chamferFill(ctx, W / 2 - tw / 2, 10, tw, 26, C.ink, 6); chamferLine(ctx, W / 2 - tw / 2, 10, tw, 26, C.burnt, 6);
-      text(ctx, title, W / 2, 16, C.gold, { align: 'center', scale: 2, shadow: C.burnt });
+      headline(ctx, title, W / 2, 17, C.gold, C.cream, C.burnt);
     }
     // story panel in the sky
     const lines = e.text.flatMap(t => [...wrap(t, 58), '']).slice(0, -1);
@@ -902,10 +1010,9 @@ class UI implements Module {
     frame(ctx, PF_X + 2, py, PF_W - 4, ph, C.gold, C.night, 6);
     ticks(ctx, PF_X + 2, py, PF_W - 4, ph, C.burnt, 7, 3);
     lines.slice(0, shown + 1).forEach((l, i) => { if (py + 8 + i * 11 < py + ph - 8) text(ctx, l, W / 2, py + 8 + i * 11, C.text, { align: 'center', shadow: C.ink }); });
-    // landing: Pom settles in front of the sun, pups glide down from the sky to either side of her
+    // home: Pom pops up over the garden fence (front-facing bust, like the pups), pups glide down beside her
     const land = Math.min(1, T / 150); const ease = 1 - (1 - land) * (1 - land);
-    const pomY = Math.round(HZ - 22 - (1 - ease) * 60 + (land >= 1 ? (T >> 4) % 2 : 0));
-    drawSprite(ctx, 'poodle', W / 2, pomY, { frame: (T >> 3) % 2 });
+    this.peekPom(ctx, HZ, ease, T);
     const pups = g.state.inventory.pups ?? 0; const n = Math.min(8, pups);
     for (let i = 0; i < n; i++) {
       const side = i % 2 ? 1 : -1, k = (i >> 1) + 1;
@@ -947,13 +1054,13 @@ class UI implements Module {
     const bx = mx + 12, by = my + 9;
     chamferFill(ctx, bx, by, 15, 15, C.ink, 3); chamferLine(ctx, bx, by, 15, 15, C.gold, 3);
     icon(ctx, 'disk', bx + 4, by + 4, C.pale);
-    text(ctx, 'UH OH! A CAT CHEWED YOUR SAVE.', W / 2, y + 70, C.gold, { align: 'center', shadow: C.burnt });
+    headline(ctx, 'UH OH! A CAT CHEWED YOUR SAVE.', W / 2, y + 66, C.gold, C.cream, C.burnt);
     text(ctx, 'NOTHING IS BROKEN. PICK AN OPTION:', W / 2, y + 83, C.text, { align: 'center' });
     this.rows = menu(ctx, ['TRY BACKUP SAVE', 'START FRESH'], this.sel, W / 2, y + 102, t, 19, ['retry', 'new'], 200, { center: true });
     const k = keys(this.dev());
     hintRow(ctx, [[k.move, 'CHOOSE'], [k.ok, 'CONFIRM']], W / 2, y + h - 14, C.hot);
-    // Pom waits by the fence, ready to fly again
-    drawSprite(ctx, 'poodle', W / 2, HZ - 20 + ((t >> 4) % 2), { frame: (t >> 3) % 2 });
+    // Pom peeks over the garden fence, waiting to fly again
+    this.peekPom(ctx, HZ, 1, t);
   }
 }
 export const makeUI = (): Module => new UI();

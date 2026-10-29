@@ -1,7 +1,7 @@
 import type { Game } from '../core/game';
 import type { Action } from '../core/input';
 import { W, H, PF_X, PF_W } from '../core/game';
-import { C, chamferFill, chamferLine, disc, ring, arrow, rect, frame, darkOf, header } from './draw';
+import { C, chamferFill, chamferLine, disc, ring, ringArcs, arrow, rect, frame, darkOf, header } from './draw';
 import { text } from '../art/font';
 
 /**
@@ -68,7 +68,7 @@ export class Touch {
     // ---- d-pad: a beveled cross with pixel arrows; pressed arms glow hot
     const { x: cx, y: cy, arm: a } = PAD; const hlf = a >> 1;
     disc(ctx, cx, cy, a + hlf + 6, C.ink); ring(ctx, cx, cy, a + hlf + 6, C.indigo);
-    ring(ctx, cx, cy, a + hlf + 4, C.plum, [2, 3], -(t >> 2));
+    ring(ctx, cx, cy, a + hlf + 4, C.night); ringArcs(ctx, cx, cy, a + hlf + 4, C.plum, 10, 4, -(t >> 2));
     const arms: [Action, number, number, 'l' | 'r' | 'u' | 'd'][] = [['up', 0, -1, 'u'], ['down', 0, 1, 'd'], ['left', -1, 0, 'l'], ['right', 1, 0, 'r']];
     chamferFill(ctx, cx - hlf - 1, cy - a - hlf - 1, a + 2, a * 2 + a + 2, C.deep, 3);
     chamferFill(ctx, cx - a - hlf - 1, cy - hlf - 1, a * 2 + a + 2, a + 2, C.deep, 3);
@@ -90,11 +90,11 @@ export class Touch {
     // ---- TOOT button: layered discs with a pulsing ring
     const fp = on('fire'); const { x: fx, y: fy, r } = FIRE;
     disc(ctx, fx, fy, r + 5, C.ink);
-    ring(ctx, fx, fy, r + 5, fp ? C.hot : C.mag, [3, 2], t >> 2);
+    ring(ctx, fx, fy, r + 5, C.mag); ringArcs(ctx, fx, fy, r + 5, fp ? C.text : C.pink, 8, 3, t >> 1);
     disc(ctx, fx, fy + 2, r, C.mag);
     disc(ctx, fx, fy, r, fp ? C.pink : C.hot);
     if (!fp) { disc(ctx, fx, fy + 1, r - 4, C.mag); disc(ctx, fx, fy, r - 4, C.hot); }
     disc(ctx, fx - 8, fy - 10, 3, fp ? C.text : C.pink);
-    text(ctx, menuOpen ? 'OK' : 'TOOT', fx, fy - 3, C.text, { align: 'center', shadow: C.mag });
+    text(ctx, menuOpen ? 'OK' : 'TOOT', fx, fy - 1, C.text, { align: 'center', shadow: C.mag });
   }
 }

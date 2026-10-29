@@ -56,6 +56,15 @@ export function ring(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: n
   ctx.fillStyle = c; cx = Math.round(cx); cy = Math.round(cy);
   ringPts(r).forEach(([a, b], i) => { if (onDash(i, dash, phase)) ctx.fillRect(cx + a, cy + b, 1, 1); });
 }
+/** Contiguous arcs on a 1px ring: `count` evenly spaced arcs of `len` px, rotated by `phase` px (no uneven dash gaps). */
+export function ringArcs(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, c: string, len: number, count: number, phase = 0) {
+  ctx.fillStyle = c; cx = Math.round(cx); cy = Math.round(cy);
+  const pts = ringPts(r); const n = pts.length;
+  for (let j = 0; j < count; j++) {
+    const st = Math.round(phase + j * n / count);
+    for (let k = 0; k < len; k++) { const [a, b] = pts[(((st + k) % n) + n) % n]; ctx.fillRect(cx + a, cy + b, 1, 1); }
+  }
+}
 const patCache = new Map<string, CanvasPattern | null>();
 type Pat = 'check' | 'sparse' | 'scan';
 /** Dither fill: 'check' = 50% checkerboard, 'sparse' = 25%, 'scan' = broken scanline every 3rd row. */
@@ -142,17 +151,39 @@ export function arrow(ctx: CanvasRenderingContext2D, x: number, y: number, dir: 
     if (dir === 'u') ctx.fillRect(x - i, y + i, len, 1);
   }
 }
-/** Keycap / button glyph: chamfered box with label. Returns its width. */
+/**
+ * Button glyph, drawn to look like the real control: 'SPACE' = keyboard keycap (chamfered box with a
+ * bottom lip); '(A)' = round face button (gamepad A/B, touch OK/TOOT), colored like the button;
+ * '[II]' = the on-screen pause key with its two bars. Returns its width.
+ */
+const BTN: Record<string, string> = { A: C.lime, B: C.hot, OK: C.hot, TOOT: C.hot, START: C.pale };
+export function capWidth(s: string) {
+  if (s === '[II]') return 13;
+  if (s.startsWith('(')) { const l = s.slice(1, -1); return l.length === 1 ? 11 : textWidth(l) + 9; }
+  return textWidth(s) + 7;
+}
 export function keycap(ctx: CanvasRenderingContext2D, s: string, x: number, y: number, color = C.line, align: 'left' | 'center' | 'right' = 'left') {
-  const w = textWidth(s) + 7; let bx = Math.round(x);
+  const w = capWidth(s); let bx = Math.round(x);
   if (align === 'center') bx = Math.round(x - w / 2); else if (align === 'right') bx = Math.round(x - w);
+  if (s === '[II]') {
+    chamferFill(ctx, bx, y - 2, w, 11, C.night, 2); chamferLine(ctx, bx, y - 2, w, 11, darkOf(C.line), 2);
+    rect(ctx, bx + 4, y, 2, 7, C.line); rect(ctx, bx + 7, y, 2, 7, C.line);
+    return w;
+  }
+  if (s.startsWith('(')) {
+    const l = s.slice(1, -1); const c = BTN[l] ?? color; const cut = l.length === 1 ? 4 : 4;
+    chamferFill(ctx, bx, y - 2, w, 11, darkOf(c), cut); chamferFill(ctx, bx + 1, y - 2, w - 2, 10, C.night, cut - 1);
+    chamferLine(ctx, bx, y - 2, w, 11, c, cut);
+    text(ctx, l, l.length === 1 ? bx + 3 : bx + 5, y, l.length === 1 ? c : lighter(c));
+    return w;
+  }
   chamferFill(ctx, bx, y - 2, w, 11, C.night, 2); chamferLine(ctx, bx, y - 2, w, 11, darkOf(color), 2);
   rect(ctx, bx + 2, y + 8, w - 4, 1, darkOf(color));
   text(ctx, s, bx + 4, y, color);
   return w;
 }
 export function hintWidth(pairs: [string, string][], gap = 12) {
-  return pairs.reduce((a, [k, c]) => a + textWidth(k) + 11 + textWidth(c), 0) + (pairs.length - 1) * gap;
+  return pairs.reduce((a, [k, c]) => a + capWidth(k) + 4 + textWidth(c), 0) + (pairs.length - 1) * gap;
 }
 /** Row of [keycap, caption] pairs, centered on cx. */
 export function hintRow(ctx: CanvasRenderingContext2D, pairs: [string, string][], cx: number, y: number, color = C.line, gap = 12) {
@@ -164,6 +195,8 @@ const ICONS: Record<string, string[]> = {
   heart: ['.##.##.', '#######', '#######', '.#####.', '..###..', '...#...', '.......'],
   star: ['...#...', '...#...', '#######', '.#####.', '..###..', '.##.##.', '.#...#.'],
   paw: ['.#.#.#.', '.#.#.#.', '.......', '..###..', '.#####.', '.#####.', '..#.#..'],
+  lock: ['..###..', '.#...#.', '.#...#.', '#######', '###.###', '###.###', '#######'],
+  clockface: ['.#####.', '#.....#', '#.....#', '#.....#', '#.....#', '#.....#', '.#####.'],
   clock: ['.#####.', '#..#..#', '#..#..#', '#..##.#', '#.....#', '#.....#', '.#####.'],
   flag: ['#####..', '######.', '######.', '#####..', '#......', '#......', '#......'],
   wave: ['#..#...', '.#..#..', '..#..#.', '.#..#..', '#..#...', '.......', '.......'],
@@ -259,9 +292,12 @@ export function dimRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: 
   ctx.putImageData(img, x, y);
 }
 export type Device = 'keyboard' | 'gamepad' | 'touch';
-/** Device-aware button names for hints. */
+/**
+ * Device-aware button names for hints. Gamepad and touch use round face-button glyphs '(A)' and the
+ * pause-key glyph '[II]' so every prompt matches the control the player actually holds or sees.
+ */
 export function keys(dev: Device) {
-  if (dev === 'gamepad') return { ok: 'A', back: 'B', pause: 'START', move: 'D-PAD', fire: 'A', next: 'A', skip: 'B', adj: 'D-PAD' };
-  if (dev === 'touch') return { ok: 'TOOT', back: 'II', pause: 'II', move: 'PAD', fire: 'TOOT', next: 'TAP', skip: 'II', adj: 'PAD' };
+  if (dev === 'gamepad') return { ok: '(A)', back: '(B)', pause: '(START)', move: 'D-PAD', fire: '(A)', next: '(A)', skip: '(B)', adj: 'D-PAD' };
+  if (dev === 'touch') return { ok: '(OK)', back: '[II]', pause: '[II]', move: 'PAD', fire: '(TOOT)', next: '(OK)', skip: '[II]', adj: 'PAD' };
   return { ok: 'SPACE', back: 'ESC', pause: 'ESC', move: 'ARROWS', fire: 'SPACE', next: 'SPACE', skip: 'X', adj: '< >' };
 }

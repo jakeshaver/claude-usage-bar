@@ -69,3 +69,20 @@
     ever adds an `Input.consume(action)` helper, ui would switch to it.
 
 14. **Showcase (repeat of 5):** `showcase=ending` still shows zero score/boops/minutes in the stat chips.
+
+# Core requests from ui (round 4)
+
+13. **One display face everywhere (critic issue 6).** ui now draws every display header (SECTOR MAP, PAUSED,
+    SETTINGS, ending titles, recovery headline) with `headline()` from `src/ui/numerals.ts`: the 7x11, 2px-stroke
+    face the HUD numerals use, now with A-Z and punctuation, ink outline and a dark drop shadow. The nap banner
+    `POM IS TAKING A NAP` (drawn outside ui with `text(..., { scale: 2 })`) is the last 2x-scaled 5x7 header.
+    Suggested: `import { headline } from '../ui/numerals'` and call
+    `headline(ctx, 'POM IS TAKING A NAP', PF_X + PF_W / 2, y, C.gold, C.cream, C.burnt)` (colors from `ui/draw` `C`).
+
+14. **Boss bar overlap (FYI).** During a boss fight ui draws a 15px chamfered armor bar at the top of the
+    playfield (y 2..18, x PF_X+40..PF_X+PF_W-40). If interaction/effects ever draw text in that strip during the
+    boss phase, please start it at y >= 22. Toasts already stack below the bar.
+
+15. **Art (optional): title pose.** The title shows the gameplay sprite in a chase-cam framing (flying toward the
+    sun, shadow on the grid); the ending and recovery use `portrait_pom` peeking over the fence. A dedicated
+    `poodle_front` 32x32 flying pose would let the title show Pom's face as well.
